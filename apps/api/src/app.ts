@@ -49,7 +49,7 @@ export function buildApp(): FastifyInstance {
   });
 
   // Authentication Decorator for protected routes
-  app.decorate("authenticate", async (request, reply) => {
+  app.decorate("authenticate", async (request, _reply) => {
     try {
       await request.jwtVerify();
     } catch {

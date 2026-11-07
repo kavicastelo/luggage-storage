@@ -1,10 +1,16 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { FastifyInstance } from "fastify";
 import pg from "pg";
 import argon2 from "argon2";
 import crypto from "node:crypto";
 import { buildApp } from "../src/app.js";
 import { env } from "../src/config/env.js";
+import {
+  emailService,
+  DeterministicTestEmailAdapter,
+  NoopEmailDeliveryAdapter
+} from "../src/modules/email/email.service.js";
+import { passwordService } from "../src/modules/auth/password.service.js";
 
 const { Pool } = pg;
 
@@ -1318,7 +1324,7 @@ describe("WP-03: Registration and Authentication Engine", () => {
       });
       const tokenA = JSON.parse(loginA.body).data.accessToken;
 
-      const loginB = await app.inject({
+      await app.inject({
         method: "POST",
         url: "/api/v1/auth/login",
         payload: { email: userB.email, password: userB.password }
@@ -1386,6 +1392,684 @@ describe("WP-03: Registration and Authentication Engine", () => {
       });
       // Either 401 (session revoked) or 403 (suspended)
       expect([401, 403]).toContain(meRes.statusCode);
+    });
+  });
+
+  // ==========================================================================
+  // WP-05: Password Change & Recovery
+  // ==========================================================================
+  describe("WP-05: Password Change & Recovery", () => {
+    let testAdapter: DeterministicTestEmailAdapter;
+
+    beforeEach(() => {
+      testAdapter = new DeterministicTestEmailAdapter();
+      emailService.setAdapter(testAdapter);
+      passwordService.clearRateLimits();
+    });
+
+    async function createTestUser(suffix: string, initialPassword = "OriginalPassword123!") {
+      const email = `wp05_${Date.now()}_${suffix}@example.com`;
+      const displayName = `WP05 User ${suffix}`;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/register",
+        payload: { email, password: initialPassword, displayName }
+      });
+      expect(res.statusCode).toBe(201);
+      const user = JSON.parse(res.body).data;
+
+      await runtimePool.query(
+        `UPDATE users SET status = 'ACTIVE' WHERE id = $1;`,
+        [user.id]
+      );
+
+      return { email, password: initialPassword, displayName, id: user.id };
+    }
+
+    // ------------------------------------------------------------------------
+    // 1. Authenticated Password Change (/api/v1/auth/change-password)
+    // ------------------------------------------------------------------------
+    describe("1. Authenticated Password Change", () => {
+      it("should successfully change password, preserve current session, and revoke all other active sessions", async () => {
+        const user = await createTestUser("change_ok");
+
+        // Device 1 (Current session - caller)
+        const login1 = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password, clientType: "WEB" }
+        });
+        const token1 = JSON.parse(login1.body).data.accessToken;
+
+        // Device 2 (Sibling active session)
+        const login2 = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password, clientType: "MOBILE" }
+        });
+        const token2 = JSON.parse(login2.body).data.accessToken;
+        const refresh2 = JSON.parse(login2.body).data.refreshToken;
+
+        // Device 3 (Sibling active session)
+        const login3 = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password, clientType: "WEB" }
+        });
+        const token3 = JSON.parse(login3.body).data.accessToken;
+
+        // Verify all 3 sessions are active
+        const preCheck = await runtimePool.query(
+          `SELECT COUNT(*) FROM auth_sessions WHERE user_id = $1 AND revoked_at IS NULL;`,
+          [user.id]
+        );
+        expect(parseInt(preCheck.rows[0].count, 10)).toBe(3);
+
+        // Perform password change from Device 1
+        const newPassword = "NewSecurePassword456!";
+        const changeRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/change-password",
+          headers: { authorization: `Bearer ${token1}` },
+          payload: {
+            currentPassword: user.password,
+            newPassword,
+            confirmPassword: newPassword
+          }
+        });
+
+        expect(changeRes.statusCode).toBe(200);
+        const changeBody = JSON.parse(changeRes.body);
+        expect(changeBody.success).toBe(true);
+        expect(changeBody.data.message).toContain("Password changed successfully");
+
+        // 1. Verify password hash updated in users table
+        const userDb = await runtimePool.query(
+          `SELECT password_hash, password_changed_at FROM users WHERE id = $1;`,
+          [user.id]
+        );
+        expect(userDb.rows[0].password_changed_at).not.toBeNull();
+        const matchesNew = await argon2.verify(userDb.rows[0].password_hash, newPassword);
+        expect(matchesNew).toBe(true);
+
+        // 2. Verify current session (Device 1) remains ACTIVE
+        const meRes1 = await app.inject({
+          method: "GET",
+          url: "/api/v1/auth/me",
+          headers: { authorization: `Bearer ${token1}` }
+        });
+        expect(meRes1.statusCode).toBe(200);
+
+        // 3. Verify sibling sessions (Device 2 and 3) are REVOKED
+        const meRes2 = await app.inject({
+          method: "GET",
+          url: "/api/v1/auth/me",
+          headers: { authorization: `Bearer ${token2}` }
+        });
+        expect(meRes2.statusCode).toBe(401);
+
+        const meRes3 = await app.inject({
+          method: "GET",
+          url: "/api/v1/auth/me",
+          headers: { authorization: `Bearer ${token3}` }
+        });
+        expect(meRes3.statusCode).toBe(401);
+
+        // Device 2 refresh attempt must fail
+        const refreshRes2 = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/refresh",
+          payload: { refreshToken: refresh2 }
+        });
+        expect(refreshRes2.statusCode).toBe(401);
+
+        // 4. Verify in DB that only 1 session remains active, others revoked with 'PASSWORD_CHANGED'
+        const activeRes = await runtimePool.query(
+          `SELECT id, revoked_at, revocation_reason FROM auth_sessions WHERE user_id = $1 ORDER BY created_at ASC;`,
+          [user.id]
+        );
+        expect(activeRes.rows.length).toBe(3);
+        const unrevoked = activeRes.rows.filter((r) => r.revoked_at === null);
+        const revoked = activeRes.rows.filter((r) => r.revoked_at !== null);
+        expect(unrevoked.length).toBe(1);
+        expect(revoked.length).toBe(2);
+        for (const r of revoked) {
+          expect(r.revocation_reason).toBe("PASSWORD_CHANGED");
+        }
+
+        // 5. Verify old password cannot be used to login
+        const oldLoginRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password }
+        });
+        expect(oldLoginRes.statusCode).toBe(401);
+
+        // 6. Verify new password can be used to login
+        const newLoginRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: newPassword }
+        });
+        expect(newLoginRes.statusCode).toBe(200);
+
+        // 7. Verify AUTH_PASSWORD_CHANGE_SUCCESS audit event
+        const auditRes = await runtimePool.query(
+          `SELECT event_type FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_PASSWORD_CHANGE_SUCCESS';`,
+          [user.id]
+        );
+        expect(auditRes.rows.length).toBe(1);
+      });
+
+      it("should reject password change when current password is incorrect and leave password unmodified", async () => {
+        const user = await createTestUser("wrong_current");
+
+        const loginRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password }
+        });
+        const token = JSON.parse(loginRes.body).data.accessToken;
+
+        const changeRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/change-password",
+          headers: { authorization: `Bearer ${token}` },
+          payload: {
+            currentPassword: "IncorrectPassword999!",
+            newPassword: "BrandNewPassword123!",
+            confirmPassword: "BrandNewPassword123!"
+          }
+        });
+
+        expect(changeRes.statusCode).toBe(400);
+        const body = JSON.parse(changeRes.body);
+        expect(body.success).toBe(false);
+        expect(body.error.message).toMatch(/Current password is incorrect/i);
+
+        // Verify password in DB was NOT changed
+        const userDb = await runtimePool.query(
+          `SELECT password_hash FROM users WHERE id = $1;`,
+          [user.id]
+        );
+        const matchesOriginal = await argon2.verify(userDb.rows[0].password_hash, user.password);
+        expect(matchesOriginal).toBe(true);
+
+        // Verify audit event
+        const auditRes = await runtimePool.query(
+          `SELECT event_type, metadata FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_PASSWORD_CHANGE_FAILURE';`,
+          [user.id]
+        );
+        expect(auditRes.rows.length).toBe(1);
+      });
+
+      it("should reject password change when new password equals current password", async () => {
+        const user = await createTestUser("same_password");
+
+        const loginRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password }
+        });
+        const token = JSON.parse(loginRes.body).data.accessToken;
+
+        const changeRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/change-password",
+          headers: { authorization: `Bearer ${token}` },
+          payload: {
+            currentPassword: user.password,
+            newPassword: user.password,
+            confirmPassword: user.password
+          }
+        });
+
+        expect(changeRes.statusCode).toBe(400);
+        const body = JSON.parse(changeRes.body);
+        expect(body.success).toBe(false);
+        expect(body.error.code).toBe("VALIDATION_ERROR");
+      });
+
+      it("should reject password change when unauthenticated", async () => {
+        const changeRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/change-password",
+          payload: {
+            currentPassword: "SomePassword123!",
+            newPassword: "NewPassword123!",
+            confirmPassword: "NewPassword123!"
+          }
+        });
+
+        expect(changeRes.statusCode).toBe(401);
+      });
+
+      it("should reject password change if account is SUSPENDED or DEACTIVATED", async () => {
+        const user = await createTestUser("suspended_change");
+
+        const loginRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password }
+        });
+        const token = JSON.parse(loginRes.body).data.accessToken;
+
+        // Suspend user
+        await runtimePool.query(`UPDATE users SET status = 'SUSPENDED' WHERE id = $1;`, [user.id]);
+
+        const changeRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/change-password",
+          headers: { authorization: `Bearer ${token}` },
+          payload: {
+            currentPassword: user.password,
+            newPassword: "NewPassword123!",
+            confirmPassword: "NewPassword123!"
+          }
+        });
+
+        expect(changeRes.statusCode).toBe(403);
+      });
+    });
+
+    // ------------------------------------------------------------------------
+    // 2. Password Recovery Request (/api/v1/auth/forgot-password)
+    // ------------------------------------------------------------------------
+    describe("2. Password Recovery Request", () => {
+      it("should return identical generic response for existing and non-existing accounts (enumeration resistance)", async () => {
+        const user = await createTestUser("enum_check");
+
+        // Existing account request
+        const resExisting = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        expect(resExisting.statusCode).toBe(200);
+        const bodyExisting = JSON.parse(resExisting.body);
+
+        // Non-existing account request
+        const resNonExisting = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: "non_existent_account_12345@example.com" }
+        });
+        expect(resNonExisting.statusCode).toBe(200);
+        const bodyNonExisting = JSON.parse(resNonExisting.body);
+
+        // Both responses must be identical
+        expect(bodyExisting.success).toBe(true);
+        expect(bodyNonExisting.success).toBe(true);
+        expect(bodyExisting.data.message).toBe(bodyNonExisting.data.message);
+        expect(bodyExisting.data.message).toContain("If an account with that email address exists");
+
+        // MUST NOT contain tokens, hashes, or user identifiers
+        expect(bodyExisting.data.token).toBeUndefined();
+        expect(bodyExisting.data.resetToken).toBeUndefined();
+        expect(bodyNonExisting.data.token).toBeUndefined();
+      });
+
+      it("should store only SHA-256 verifier hash in password_reset_tokens with 1-hour expiration and dispatch token via email adapter", async () => {
+        const user = await createTestUser("token_persistence");
+
+        const res = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        expect(res.statusCode).toBe(200);
+
+        // Verify email dispatched via test adapter
+        const lastEmail = testAdapter.getLastEmail();
+        expect(lastEmail).toBeDefined();
+        expect(lastEmail?.to).toBe(user.email);
+        expect(lastEmail?.resetToken).toBeDefined();
+        expect(lastEmail?.resetToken.length).toBe(64); // 256 bits = 64 hex chars
+
+        const rawToken = lastEmail!.resetToken;
+        const expectedHash = crypto.createHash("sha256").update(rawToken).digest("hex");
+
+        // Verify in DB
+        const dbRes = await runtimePool.query(
+          `SELECT id, token_hash, expires_at, used_at FROM password_reset_tokens WHERE user_id = $1;`,
+          [user.id]
+        );
+        expect(dbRes.rows.length).toBe(1);
+        expect(dbRes.rows[0].token_hash).toBe(expectedHash);
+        expect(dbRes.rows[0].token_hash).not.toBe(rawToken); // Zero plaintext token in DB
+        expect(dbRes.rows[0].used_at).toBeNull();
+
+        // 1-hour expiry check
+        const expiresAt = new Date(dbRes.rows[0].expires_at).getTime();
+        const now = Date.now();
+        const diffMinutes = (expiresAt - now) / (60 * 1000);
+        expect(diffMinutes).toBeGreaterThan(55);
+        expect(diffMinutes).toBeLessThanOrEqual(61);
+
+        // Verify audit event
+        const auditRes = await runtimePool.query(
+          `SELECT event_type FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_PASSWORD_RESET_REQUESTED';`,
+          [user.id]
+        );
+        expect(auditRes.rows.length).toBe(1);
+      });
+
+      it("should invalidate previous outstanding tokens when a new recovery request is submitted", async () => {
+        const user = await createTestUser("token_supersession");
+
+        // Request 1
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        const token1 = testAdapter.getLastEmail()!.resetToken;
+
+        // Request 2
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        const token2 = testAdapter.getLastEmail()!.resetToken;
+
+        expect(token1).not.toBe(token2);
+
+        // Verify in DB: token 1 has used_at populated (superseded), token 2 has used_at NULL
+        const tokensDb = await runtimePool.query(
+          `SELECT token_hash, used_at FROM password_reset_tokens WHERE user_id = $1 ORDER BY created_at ASC;`,
+          [user.id]
+        );
+        expect(tokensDb.rows.length).toBe(2);
+        expect(tokensDb.rows[0].used_at).not.toBeNull(); // Token 1 superseded
+        expect(tokensDb.rows[1].used_at).toBeNull(); // Token 2 active
+
+        // Attempting to reset with superseded token 1 must fail
+        const resetRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/reset-password",
+          payload: {
+            token: token1,
+            newPassword: "BrandNewPassword123!",
+            confirmPassword: "BrandNewPassword123!"
+          }
+        });
+        expect(resetRes.statusCode).toBe(400);
+      });
+
+      it("should enforce rate limiting on password reset requests", async () => {
+        const user = await createTestUser("rate_limiting");
+
+        // Fire 5 requests (allowed)
+        for (let i = 0; i < 5; i++) {
+          const res = await app.inject({
+            method: "POST",
+            url: "/api/v1/auth/forgot-password",
+            payload: { email: user.email }
+          });
+          expect(res.statusCode).toBe(200);
+        }
+
+        // 6th request must trigger rate limit (429)
+        const rateLimitedRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        expect(rateLimitedRes.statusCode).toBe(429);
+        const body = JSON.parse(rateLimitedRes.body);
+        expect(body.error.code).toBe("RATE_LIMITED");
+      });
+
+      it("should fail safely and observably when using NoopEmailDeliveryAdapter (OQ-019)", async () => {
+        const user = await createTestUser("noop_adapter");
+        emailService.setAdapter(new NoopEmailDeliveryAdapter());
+
+        const res = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+
+        // Must still return 200 generic message to client without exposing delivery failure
+        expect(res.statusCode).toBe(200);
+      });
+    });
+
+    // ------------------------------------------------------------------------
+    // 3. Password Reset Execution (/api/v1/auth/reset-password)
+    // ------------------------------------------------------------------------
+    describe("3. Password Reset Execution", () => {
+      it("should successfully reset password with valid token and revoke all active sessions across all devices", async () => {
+        const user = await createTestUser("reset_ok");
+
+        // Create 2 active sessions for this user
+        const login1 = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password, clientType: "WEB" }
+        });
+        const token1 = JSON.parse(login1.body).data.accessToken;
+
+        const login2 = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password, clientType: "MOBILE" }
+        });
+        const token2 = JSON.parse(login2.body).data.accessToken;
+
+        // Request recovery
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        const recoveryToken = testAdapter.getLastEmail()!.resetToken;
+
+        // Perform password reset
+        const newPassword = "ResetSecurePassword999!";
+        const resetRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/reset-password",
+          payload: {
+            token: recoveryToken,
+            newPassword,
+            confirmPassword: newPassword
+          }
+        });
+
+        expect(resetRes.statusCode).toBe(200);
+        const resetBody = JSON.parse(resetRes.body);
+        expect(resetBody.success).toBe(true);
+        expect(resetBody.data.message).toContain("Password has been reset successfully");
+
+        // 1. Token must now be marked as used in DB
+        const tokenDb = await runtimePool.query(
+          `SELECT used_at FROM password_reset_tokens WHERE user_id = $1;`,
+          [user.id]
+        );
+        expect(tokenDb.rows[0].used_at).not.toBeNull();
+
+        // 2. All previous active sessions must be REVOKED with 'PASSWORD_RESET'
+        const sessionsDb = await runtimePool.query(
+          `SELECT id, revoked_at, revocation_reason FROM auth_sessions WHERE user_id = $1;`,
+          [user.id]
+        );
+        expect(sessionsDb.rows.length).toBe(2);
+        for (const s of sessionsDb.rows) {
+          expect(s.revoked_at).not.toBeNull();
+          expect(s.revocation_reason).toBe("PASSWORD_RESET");
+        }
+
+        // 3. Old access tokens must now fail at /me
+        const me1 = await app.inject({
+          method: "GET",
+          url: "/api/v1/auth/me",
+          headers: { authorization: `Bearer ${token1}` }
+        });
+        expect(me1.statusCode).toBe(401);
+
+        const me2 = await app.inject({
+          method: "GET",
+          url: "/api/v1/auth/me",
+          headers: { authorization: `Bearer ${token2}` }
+        });
+        expect(me2.statusCode).toBe(401);
+
+        // 4. Old password fails at login
+        const oldLogin = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: user.password }
+        });
+        expect(oldLogin.statusCode).toBe(401);
+
+        // 5. New password succeeds at login
+        const newLogin = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          payload: { email: user.email, password: newPassword }
+        });
+        expect(newLogin.statusCode).toBe(200);
+
+        // 6. Verify audit event
+        const auditRes = await runtimePool.query(
+          `SELECT event_type FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_PASSWORD_RESET_COMPLETED';`,
+          [user.id]
+        );
+        expect(auditRes.rows.length).toBe(1);
+      });
+
+      it("should reject reset with invalid token", async () => {
+        const resetRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/reset-password",
+          payload: {
+            token: "invalid_non_existent_token_hex_string_12345",
+            newPassword: "NewPassword123!",
+            confirmPassword: "NewPassword123!"
+          }
+        });
+
+        expect(resetRes.statusCode).toBe(400);
+        const body = JSON.parse(resetRes.body);
+        expect(body.error.message).toMatch(/Invalid or expired password reset token/i);
+      });
+
+      it("should reject reset with expired token", async () => {
+        const user = await createTestUser("expired_token");
+
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        const token = testAdapter.getLastEmail()!.resetToken;
+
+        // Manually expire token in DB
+        await runtimePool.query(
+          `UPDATE password_reset_tokens SET expires_at = NOW() - interval '2 hours' WHERE user_id = $1;`,
+          [user.id]
+        );
+
+        const resetRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/reset-password",
+          payload: {
+            token,
+            newPassword: "BrandNewPassword123!",
+            confirmPassword: "BrandNewPassword123!"
+          }
+        });
+
+        expect(resetRes.statusCode).toBe(400);
+        const body = JSON.parse(resetRes.body);
+        expect(body.error.message).toMatch(/Invalid or expired password reset token/i);
+      });
+
+      it("should reject reset replay using already-consumed token", async () => {
+        const user = await createTestUser("replay_token");
+
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        const token = testAdapter.getLastEmail()!.resetToken;
+
+        // First reset (successful)
+        const firstReset = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/reset-password",
+          payload: {
+            token,
+            newPassword: "PasswordOnce123!",
+            confirmPassword: "PasswordOnce123!"
+          }
+        });
+        expect(firstReset.statusCode).toBe(200);
+
+        // Replay attempt (must fail)
+        const replayReset = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/reset-password",
+          payload: {
+            token,
+            newPassword: "PasswordTwice456!",
+            confirmPassword: "PasswordTwice456!"
+          }
+        });
+        expect(replayReset.statusCode).toBe(400);
+        const body = JSON.parse(replayReset.body);
+        expect(body.error.message).toMatch(/Invalid or expired password reset token/i);
+      });
+
+      it("should serialize concurrent reset attempts with the same token via database row locking", async () => {
+        const user = await createTestUser("concurrent_reset");
+
+        await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/forgot-password",
+          payload: { email: user.email }
+        });
+        const token = testAdapter.getLastEmail()!.resetToken;
+
+        // Simultaneous execution
+        const [resA, resB] = await Promise.all([
+          app.inject({
+            method: "POST",
+            url: "/api/v1/auth/reset-password",
+            payload: {
+              token,
+              newPassword: "ConcurrentPass1!",
+              confirmPassword: "ConcurrentPass1!"
+            }
+          }),
+          app.inject({
+            method: "POST",
+            url: "/api/v1/auth/reset-password",
+            payload: {
+              token,
+              newPassword: "ConcurrentPass2!",
+              confirmPassword: "ConcurrentPass2!"
+            }
+          })
+        ]);
+
+        const statusCodes = [resA.statusCode, resB.statusCode];
+        // Exactly one must succeed (200), and the losing concurrent request must fail (400)
+        expect(statusCodes).toContain(200);
+        expect(statusCodes).toContain(400);
+
+        // Verify token was used exactly once
+        const tokenDb = await runtimePool.query(
+          `SELECT used_at FROM password_reset_tokens WHERE user_id = $1;`,
+          [user.id]
+        );
+        expect(tokenDb.rows.length).toBe(1);
+        expect(tokenDb.rows[0].used_at).not.toBeNull();
+      });
     });
   });
 });

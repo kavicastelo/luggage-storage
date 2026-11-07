@@ -136,6 +136,54 @@ export const JwtPayloadSchema = z.object({
 });
 export type JwtPayload = z.infer<typeof JwtPayloadSchema>;
 
+export const ChangePasswordRequestSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: PasswordSchema,
+    confirmPassword: z.string().min(1, "Confirm password is required")
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "New password and confirmation do not match",
+    path: ["confirmPassword"]
+  })
+  .refine((data) => data.currentPassword !== data.newPassword, {
+    message: "New password cannot be the same as current password",
+    path: ["newPassword"]
+  });
+export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
+
+export const ChangePasswordResponseDataSchema = z.object({
+  message: z.string()
+});
+export type ChangePasswordResponseData = z.infer<typeof ChangePasswordResponseDataSchema>;
+
+export const ForgotPasswordRequestSchema = z.object({
+  email: EmailSchema
+});
+export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequestSchema>;
+
+export const ForgotPasswordResponseDataSchema = z.object({
+  message: z.string()
+});
+export type ForgotPasswordResponseData = z.infer<typeof ForgotPasswordResponseDataSchema>;
+
+export const ResetPasswordRequestSchema = z
+  .object({
+    token: z.string().min(1, "Reset token is required").max(256),
+    newPassword: PasswordSchema,
+    confirmPassword: z.string().min(1, "Confirm password is required")
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "New password and confirmation do not match",
+    path: ["confirmPassword"]
+  });
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequestSchema>;
+
+export const ResetPasswordResponseDataSchema = z.object({
+  message: z.string()
+});
+export type ResetPasswordResponseData = z.infer<typeof ResetPasswordResponseDataSchema>;
+
 /**
  * Normalizes an email address according to the database constraint:
  * lower(trim(email))

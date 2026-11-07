@@ -5,6 +5,9 @@ import {
   RegisterRequestSchema,
   LoginRequestSchema,
   RefreshRequestSchema,
+  ChangePasswordRequestSchema,
+  ForgotPasswordRequestSchema,
+  ResetPasswordRequestSchema,
   LoginResponseData,
   RefreshResponseData,
   createSuccessResponse
@@ -13,6 +16,7 @@ import { env } from "../../config/env.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { authService } from "./auth.service.js";
 import { sessionService } from "./session.service.js";
+import { passwordService } from "./password.service.js";
 
 const UuidParamSchema = z.object({
   sessionId: z.string().uuid("Invalid session ID format")
@@ -659,6 +663,223 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       return reply
         .status(200)
         .send(createSuccessResponse({ message: "Session revoked successfully" }, request.id));
+    }
+  );
+
+  /**
+   * POST /change-password
+   * Authenticated password change. Updates password and revokes all other active sessions.
+   */
+  app.post(
+    "/change-password",
+    {
+      onRequest: [app.authenticate],
+      schema: {
+        summary: "Change Password",
+        description:
+          "Changes the password for the currently authenticated user, verifies current password with Argon2id, and revokes all other active sessions.",
+        tags: ["Authentication"],
+        body: {
+          type: "object",
+          required: ["currentPassword", "newPassword", "confirmPassword"],
+          properties: {
+            currentPassword: { type: "string" },
+            newPassword: { type: "string", minLength: 8, maxLength: 128 },
+            confirmPassword: { type: "string", minLength: 8, maxLength: 128 }
+          }
+        },
+        response: {
+          200: {
+            description: "Password changed successfully",
+            type: "object",
+            properties: {
+              success: { type: "boolean", enum: [true] },
+              data: {
+                type: "object",
+                properties: {
+                  message: { type: "string" }
+                }
+              },
+              meta: {
+                type: "object",
+                properties: {
+                  timestamp: { type: "string" },
+                  correlationId: { type: "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const parseResult = ChangePasswordRequestSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        const details = parseResult.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+          code: "VALIDATION_ERROR"
+        }));
+        throw AppError.validation("Validation failed", details);
+      }
+
+      const clientInfo = {
+        ip: request.ip,
+        userAgent: request.headers["user-agent"]
+      };
+
+      const result = await passwordService.changePassword({
+        userId: request.user.sub,
+        currentSessionId: request.user.sessionId,
+        input: parseResult.data,
+        clientInfo
+      });
+
+      return reply
+        .status(200)
+        .send(createSuccessResponse(result, request.id));
+    }
+  );
+
+  /**
+   * POST /forgot-password
+   * Requests a password recovery token. Strictly enumeration-resistant.
+   */
+  app.post(
+    "/forgot-password",
+    {
+      schema: {
+        summary: "Forgot Password",
+        description:
+          "Initiates password recovery for an account. Strictly enumeration-resistant, returning identical messages whether an account exists or not.",
+        tags: ["Authentication"],
+        body: {
+          type: "object",
+          required: ["email"],
+          properties: {
+            email: { type: "string", format: "email" }
+          }
+        },
+        response: {
+          200: {
+            description: "Password reset request accepted",
+            type: "object",
+            properties: {
+              success: { type: "boolean", enum: [true] },
+              data: {
+                type: "object",
+                properties: {
+                  message: { type: "string" }
+                }
+              },
+              meta: {
+                type: "object",
+                properties: {
+                  timestamp: { type: "string" },
+                  correlationId: { type: "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const parseResult = ForgotPasswordRequestSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        const details = parseResult.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+          code: "VALIDATION_ERROR"
+        }));
+        throw AppError.validation("Validation failed", details);
+      }
+
+      const clientInfo = {
+        ip: request.ip,
+        userAgent: request.headers["user-agent"]
+      };
+
+      const result = await passwordService.requestPasswordReset({
+        input: parseResult.data,
+        clientInfo
+      });
+
+      return reply
+        .status(200)
+        .send(createSuccessResponse(result, request.id));
+    }
+  );
+
+  /**
+   * POST /reset-password
+   * Completes password reset using single-use recovery token. Revokes all active sessions.
+   */
+  app.post(
+    "/reset-password",
+    {
+      schema: {
+        summary: "Reset Password",
+        description:
+          "Consumes a single-use recovery token atomically, updates password hash with Argon2id, and revokes all active sessions for the user.",
+        tags: ["Authentication"],
+        body: {
+          type: "object",
+          required: ["token", "newPassword", "confirmPassword"],
+          properties: {
+            token: { type: "string" },
+            newPassword: { type: "string", minLength: 8, maxLength: 128 },
+            confirmPassword: { type: "string", minLength: 8, maxLength: 128 }
+          }
+        },
+        response: {
+          200: {
+            description: "Password reset completed successfully",
+            type: "object",
+            properties: {
+              success: { type: "boolean", enum: [true] },
+              data: {
+                type: "object",
+                properties: {
+                  message: { type: "string" }
+                }
+              },
+              meta: {
+                type: "object",
+                properties: {
+                  timestamp: { type: "string" },
+                  correlationId: { type: "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const parseResult = ResetPasswordRequestSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        const details = parseResult.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+          code: "VALIDATION_ERROR"
+        }));
+        throw AppError.validation("Validation failed", details);
+      }
+
+      const clientInfo = {
+        ip: request.ip,
+        userAgent: request.headers["user-agent"]
+      };
+
+      const result = await passwordService.resetPassword({
+        input: parseResult.data,
+        clientInfo
+      });
+
+      return reply
+        .status(200)
+        .send(createSuccessResponse(result, request.id));
     }
   );
 };

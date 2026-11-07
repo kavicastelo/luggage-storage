@@ -3,7 +3,6 @@ import {
   RegisterRequest,
   RegisterResponseData,
   LoginRequest,
-  LoginResponseData,
   AuthenticatedUser,
   UserStatus,
   normalizeEmail

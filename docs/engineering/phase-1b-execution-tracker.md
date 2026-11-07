@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01, WP-02, WP-03 & WP-04 COMPLETE — WP-05 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01, WP-02, WP-03, WP-04 & WP-05 COMPLETE — WP-06 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -17,7 +17,8 @@
 | **WP-02** | **Identity Database Implementation** | **COMPLETE** | [apps/api/src/infrastructure/database/schema/identity.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/schema/identity.ts)<br>[apps/api/src/infrastructure/database/migrations/](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/migrations/) | Verified: **WP-02 SECURITY CORRECTIONS PASSED — WP-03 AUTHORIZED** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp02-security-corrections.md)) |
 | **WP-03** | **Registration and Authentication** | **COMPLETE** | [apps/api/src/modules/auth/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/)<br>[packages/contracts/src/auth/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/auth/) | Verified: **WP-03 COMPLETE — READY FOR WP-04** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp03-implementation-report.md)) |
 | **WP-04** | **Session Management and Logout** | **COMPLETE** | [apps/api/src/modules/auth/session.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/session.service.ts)<br>[apps/api/src/modules/auth/token.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/token.service.ts)<br>[apps/api/src/modules/auth/auth.routes.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts) | Verified: **WP-04 COMPLETE — READY FOR WP-05** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp04-implementation-report.md)) |
-| **WP-05** | Password Change and Recovery | **READY FOR IMPLEMENTATION** | Password change & secure recovery token foundation | **UNBLOCKED** — Gated by WP-04 |
+| **WP-05** | **Password Change and Recovery** | **COMPLETE** | [apps/api/src/modules/auth/password.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/password.service.ts)<br>[apps/api/src/modules/email/email.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/email/email.service.ts)<br>[apps/api/src/modules/auth/auth.routes.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts) | Verified: **WP-05 COMPLETE — READY FOR WP-06** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp05-implementation-report.md)) |
+| **WP-06** | Account Lifecycle & Security States | **READY FOR IMPLEMENTATION** | Status transitions (`ACTIVE`, `SUSPENDED`, etc.) | **UNBLOCKED** — Gated by WP-05 |
 | **WP-06** | Account Lifecycle & Security States | PENDING | Status transitions (`ACTIVE`, `SUSPENDED`, etc.) | Gated by WP-05 |
 | **WP-07** | RBAC and Permission Architecture | PENDING | Fastify authorization hooks & role enforcement | Gated by WP-06 |
 | **WP-08** | Web Authentication Integration | PENDING | React auth context, session cookies, store sync | Gated by WP-07 |
@@ -126,4 +127,29 @@
   - Monorepo: 89/89 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 76).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 29.9s.
 - **Verification Verdict:** **`WP-04 COMPLETE — READY FOR WP-05`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp04-implementation-report.md)).
+
+### WP-05: Password Change and Recovery
+- **Deliverables:**
+  - Password domain service: `apps/api/src/modules/auth/password.service.ts`
+  - Email delivery boundary & adapters: `apps/api/src/modules/email/email.types.ts`, `apps/api/src/modules/email/email.service.ts`
+  - Shared contracts: `packages/contracts/src/auth/index.ts`
+  - API endpoints: `apps/api/src/modules/auth/auth.routes.ts`
+  - Comprehensive integration test suite: `apps/api/tests/auth.test.ts` (53/53 tests pass)
+- **Endpoints Implemented:**
+  - `POST /api/v1/auth/change-password` (alias: `POST /auth/change-password`)
+  - `POST /api/v1/auth/forgot-password` (alias: `POST /auth/forgot-password`)
+  - `POST /api/v1/auth/reset-password` (alias: `POST /auth/reset-password`)
+- **Key Architectural & Security Controls:**
+  - **Authenticated Password Change:** Verifies current password with Argon2id, enforces password complexity, hashes new password, and atomically revokes all other active sessions for the user while preserving the caller's current session.
+  - **Account Enumeration Resistance:** Generic response returned for both existing and non-existing accounts; dummy Argon2id verification equalizes latency for non-existent users.
+  - **High-Entropy Token Architecture:** Single-use 256-bit recovery tokens generated via `crypto.randomBytes(32)` and persisted exclusively as SHA-256 verifier hashes in `password_reset_tokens`. Strict 1-hour expiration.
+  - **Atomic Concurrency & Replay Defense:** Serialized token consumption under PostgreSQL `SELECT ... FOR UPDATE` locks; supersedes previous tokens and permanently rejects replay attempts.
+  - **Session Invalidation on Reset:** Password reset immediately revokes all active sessions across all devices for the affected user.
+  - **Decoupled Email Provider Boundary (OQ-019):** No unapproved email vendor is integrated. Provider-independent architecture includes `NoopEmailDeliveryAdapter` for production safe failure and `DeterministicTestEmailAdapter` for deterministic testing.
+- **Quality Gate Results:**
+  - API package: 91/91 Vitest tests pass (53 auth tests + 31 identity DB tests + 7 live DB/health tests).
+  - Monorepo: 104/104 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 91).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 30.8s with 0 lint warnings and 0 errors.
+- **Verification Verdict:** **`WP-05 COMPLETE — READY FOR WP-06`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp05-implementation-report.md)).
+
 
