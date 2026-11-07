@@ -14,8 +14,8 @@
 | WP ID | Work Package Title | Status | Primary Deliverable / Evidence Reference | Verification Status |
 | :---: | :--- | :---: | :--- | :---: |
 | **WP-01** | **Identity Domain Architecture** | **COMPLETE** | [docs/architecture/phase-1b-identity-design.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/phase-1b-identity-design.md) | Verified & Validated: **PASS** |
-| **WP-02** | **Identity Database Implementation** | **COMPLETE** | [apps/api/src/infrastructure/database/schema/identity.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/schema/identity.ts)<br>[apps/api/src/infrastructure/database/migrations/](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/migrations/) | Independent Audit: **PASS** (21/21 Vitest tests pass; immutable audit trigger verified; normalized email check constraint verified; advisory lock verified; 41/41 monorepo tests pass) |
-| **WP-03** | Registration and Authentication | **NEXT** | Fastify auth routes (`/register`, `/login`) & Argon2id | Gated by WP-02 completion (Unblocked) |
+| **WP-02** | **Identity Database Implementation** | **CORRECTIONS REQUIRED** | [apps/api/src/infrastructure/database/schema/identity.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/schema/identity.ts)<br>[apps/api/src/infrastructure/database/migrations/](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/migrations/) | Security Closure Checks: **BOTH CHECKS REQUIRE CORRECTION — WP-03 BLOCKED** (Direct audit `UPDATE user_id = NULL` allowed; RBAC grants on `role_permissions` & `user_roles` broader than intended) |
+| **WP-03** | Registration and Authentication | **BLOCKED** | Fastify auth routes (`/register`, `/login`) & Argon2id | Blocked by WP-02 audit immutability & RBAC privilege corrections |
 | **WP-04** | Session Management and Logout | PENDING | Token rotation, session store, cookie/bearer handling | Gated by WP-03 |
 | **WP-05** | Password Change and Recovery | PENDING | Password change & secure recovery token foundation | Gated by WP-04 |
 | **WP-06** | Account Lifecycle & Security States | PENDING | Status transitions (`ACTIVE`, `SUSPENDED`, etc.) | Gated by WP-05 |
@@ -74,4 +74,6 @@
   - API package: 28/28 Vitest tests pass (21 identity DB tests + 7 live DB/health tests).
   - Monorepo: 41/41 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 28).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 35s.
-- **Review Verdict:** **`WP-02 INDEPENDENT REVIEW PASSED — READY FOR WP-03`**.
+- **Review Verdict:** **`BOTH CHECKS REQUIRE CORRECTION — WP-03 BLOCKED`**.
+  - *Check 1 (Audit Immutability):* Direct `UPDATE user_id = NULL` allowed under `luggage_migrator`; trigger cannot distinguish direct update from referential action. Sound correction proposed: decouple audit actor from cascading FK to achieve absolute immutability.
+  - *Check 2 (RBAC Privileges):* `luggage_user` has `INSERT` on `roles`/`permissions`, full DML on `role_permissions`, and can directly assign `SUPERADMIN` via `user_roles`. Specific privilege boundaries and WP-03/WP-07 enforcement recommended.
