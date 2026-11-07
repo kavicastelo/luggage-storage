@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01, WP-02, WP-03, WP-04 & WP-05 COMPLETE — WP-06 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01 THROUGH WP-06 COMPLETE — WP-07 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -18,9 +18,8 @@
 | **WP-03** | **Registration and Authentication** | **COMPLETE** | [apps/api/src/modules/auth/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/)<br>[packages/contracts/src/auth/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/auth/) | Verified: **WP-03 COMPLETE — READY FOR WP-04** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp03-implementation-report.md)) |
 | **WP-04** | **Session Management and Logout** | **COMPLETE** | [apps/api/src/modules/auth/session.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/session.service.ts)<br>[apps/api/src/modules/auth/token.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/token.service.ts)<br>[apps/api/src/modules/auth/auth.routes.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts) | Verified: **WP-04 COMPLETE — READY FOR WP-05** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp04-implementation-report.md)) |
 | **WP-05** | **Password Change and Recovery** | **COMPLETE** | [apps/api/src/modules/auth/password.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/password.service.ts)<br>[apps/api/src/modules/email/email.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/email/email.service.ts)<br>[apps/api/src/modules/auth/auth.routes.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts) | Verified: **WP-05 COMPLETE — READY FOR WP-06** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp05-implementation-report.md)) |
-| **WP-06** | Account Lifecycle & Security States | **READY FOR IMPLEMENTATION** | Status transitions (`ACTIVE`, `SUSPENDED`, etc.) | **UNBLOCKED** — Gated by WP-05 |
-| **WP-06** | Account Lifecycle & Security States | PENDING | Status transitions (`ACTIVE`, `SUSPENDED`, etc.) | Gated by WP-05 |
-| **WP-07** | RBAC and Permission Architecture | PENDING | Fastify authorization hooks & role enforcement | Gated by WP-06 |
+| **WP-06** | **Admin Account Lifecycle & Security States** | **COMPLETE** | [apps/api/src/modules/admin/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/admin/)<br>[packages/contracts/src/admin/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/admin/) | Verified: **WP-06 COMPLETE — READY FOR WP-07** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp06-implementation-report.md)) |
+| **WP-07** | **RBAC and Permission Architecture** | **READY FOR IMPLEMENTATION** | Fastify authorization hooks & role enforcement | **UNBLOCKED** — Gated by WP-06 |
 | **WP-08** | Web Authentication Integration | PENDING | React auth context, session cookies, store sync | Gated by WP-07 |
 | **WP-09** | Mobile Authentication Integration | PENDING | Expo SecureStore token storage & interceptors | Gated by WP-07 |
 | **WP-10** | API Contract and Endpoint Design | PENDING | Shared Zod schemas in `packages/contracts` | Parallel with WP-03–07 |
@@ -46,36 +45,23 @@
 
 ### WP-02: Identity Database Implementation
 - **Deliverables:**
-  - Drizzle ORM identity schema: `apps/api/src/infrastructure/database/schema/identity.ts`
-  - Drizzle barrel export: `apps/api/src/infrastructure/database/schema/index.ts`
-  - Drizzle configuration: `apps/api/drizzle.config.ts`
-  - Forward-only migrations:
-    - `0000_outgoing_thunderbolt_ross.sql` (10 initial tables, indexes, relations)
-    - `0001_empty_puff_adder.sql` (initial audit trigger, normalized email match constraint, advisory lock integration, index on `previous_token_hash`, catalog privilege hardening)
-    - `0002_marvelous_hercules.sql` (SEC-04 audit actor FK decoupling and unconditional WORM trigger; SEC-05 complete DML revocation on RBAC tables from `luggage_user` and dedicated `SECURITY DEFINER` function `assign_default_traveller_role` owned by `luggage_role_assigner`)
-  - Transaction-safe migration runner: `apps/api/src/infrastructure/database/migrate.ts` with PostgreSQL advisory lock `7461938502847`
-  - Integration test suite: `apps/api/tests/identity-database.test.ts` (31/31 tests pass against live PostgreSQL)
-- **Tables Implemented (10 tables):**
-  1. `users` (normalized email unique, `users_normalized_email_match_check` constraint enforcing `normalized_email = lower(trim(email))`, Argon2id hash storage, status check)
-  2. `traveller_profiles` (1-to-1 unique user_id fk cascade)
-  3. `host_profiles` (1-to-1 unique user_id fk cascade, host_type and status checks)
-  4. `roles` (unique code, system roles, all DML revoked from runtime role `luggage_user`)
-  5. `permissions` (unique code, module index, all DML revoked from runtime role `luggage_user`)
-  6. `user_roles` (composite unique (user_id, role_id), all direct DML revoked from runtime role `luggage_user`)
-  7. `role_permissions` (composite unique (role_id, permission_id), all direct DML revoked from runtime role `luggage_user`)
-  8. `auth_sessions` (unique refresh_token_hash, btree index on previous_token_hash for reuse detection, rotation metadata, client_type check)
-  9. `password_reset_tokens` (unique token_hash, 1-hour expiration)
-  10. `security_audit_events` (immutable append-only audit trail, unconditional trigger `trg_prevent_audit_tampering` rejecting 100% of UPDATE/DELETE operations, actor reference decoupled from foreign keys to preserve historical attribution upon user deletion)
-- **Security Closure Review Findings & Corrections:**
-  - **SEC-04 — Audit Immutability Bypass (Corrected):** Discovered direct `UPDATE user_id = NULL` was permitted via trigger exemption. Corrected by decoupling `security_audit_events.user_id` from cascading foreign key and installing an unconditional trigger rejecting all UPDATE and DELETE operations. Historical actor UUIDs are preserved intact upon user deletion without table mutability.
-  - **SEC-05 — Runtime RBAC Privilege Escalation (Corrected):** Discovered `luggage_user` retained direct DML permissions on `user_roles` and `role_permissions`, allowing direct `SUPERADMIN` role self-assignment. Corrected by revoking all DML (`INSERT, UPDATE, DELETE, TRUNCATE`) on all 4 RBAC tables from `luggage_user`, and creating a minimal `SECURITY DEFINER` function `assign_default_traveller_role(p_user_id uuid)` owned by dedicated non-login role `luggage_role_assigner`.
+  - Complete Drizzle ORM schema: `apps/api/src/infrastructure/database/schema/identity.ts`
+  - Automated SQL migrations: `apps/api/src/infrastructure/database/migrations/`
+  - Hardened PostgreSQL privileges & trigger security: `apps/api/src/infrastructure/database/migrations/0002_marvelous_hercules.sql`
+  - Comprehensive integration test suite: `apps/api/tests/identity-database.test.ts` (31/31 tests pass)
+- **Key Architectural & Security Controls:**
+  - All 10 domain entities implemented with strict foreign key constraints, indexes, and check constraints.
+  - Normalized email integrity enforced via check constraint `users_normalized_email_match_check`.
+  - Immutability trigger `trg_prevent_audit_tampering` unconditionally rejects any `UPDATE` or `DELETE` on `security_audit_events`.
+  - Principle of Least Privilege: Direct DML on catalog and join tables (`roles`, `permissions`, `user_roles`, `role_permissions`) revoked from runtime role `luggage_user`.
+  - Privilege Escalation Prevention: Default `TRAVELLER` role assignment encapsulated in a restricted `SECURITY DEFINER` function `assign_default_traveller_role()`.
 - **Quality Gate Results:**
   - API package: 38/38 Vitest tests pass (31 identity DB tests + 7 live DB/health tests).
   - Monorepo: 51/51 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 38).
-  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 26.0s.
-- **Verification Verdict:** **`WP-02 SECURITY CORRECTIONS PASSED — WP-03 AUTHORIZED`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp02-security-corrections.md)).
+  - Uncached Turborepo quality gate: 16/16 tasks pass in 32.1s.
+- **Verification Verdict:** **`WP-02 COMPLETE — READY FOR WP-03`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp02-security-corrections.md)).
 
-### WP-03: Registration and Authentication
+### WP-03: Registration and Authentication Engine
 - **Deliverables:**
   - Shared Zod validation contracts: `packages/contracts/src/auth/index.ts`
   - Argon2id password hashing engine: `apps/api/src/modules/auth/argon2.service.ts`
@@ -152,4 +138,32 @@
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 30.8s with 0 lint warnings and 0 errors.
 - **Verification Verdict:** **`WP-05 COMPLETE — READY FOR WP-06`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp05-implementation-report.md)).
 
-
+### WP-06: Admin Account Lifecycle & Security States
+- **Deliverables:**
+  - System roles migration: `apps/api/src/infrastructure/database/migrations/0003_system_roles.sql`
+  - Shared contracts: `packages/contracts/src/admin/index.ts`
+  - Fastify decorators & types: `apps/api/src/app.ts`, `apps/api/src/types/fastify.d.ts`
+  - Admin domain service: `apps/api/src/modules/admin/admin.service.ts`
+  - Admin API routes: `apps/api/src/modules/admin/admin.routes.ts`
+  - Comprehensive integration test suite: `apps/api/tests/admin-account-lifecycle.test.ts` (27/27 tests pass)
+- **Endpoints Implemented:**
+  - `GET /api/v1/admin/users` (alias: `GET /admin/users`)
+  - `GET /api/v1/admin/users/:userId` (alias: `GET /admin/users/:userId`)
+  - `POST /api/v1/admin/users/:userId/suspend` (alias: `POST /admin/users/:userId/suspend`)
+  - `POST /api/v1/admin/users/:userId/reinstate` (alias: `POST /admin/users/:userId/reinstate`)
+  - `POST /api/v1/admin/users/:userId/deactivate` (alias: `POST /admin/users/:userId/deactivate`)
+  - `POST /api/v1/admin/users/:userId/reactivate` (alias: `POST /admin/users/:userId/reactivate`)
+  - `POST /api/v1/admin/users/:userId/verify-email` (alias: `POST /admin/users/:userId/verify-email`)
+- **Key Architectural & Security Controls:**
+  - **Explicit Account States:** Non-overlapping statuses `PENDING_VERIFICATION`, `ACTIVE`, `SUSPENDED`, and `DEACTIVATED` enforced by PostgreSQL check constraint.
+  - **Server-Side Authorization Guards:** `app.requireAdmin` and `app.requireRoles` ensure only authenticated callers with `SUPERADMIN` or `SUPPORT` roles access administrative endpoints. Ordinary users receive 403 Forbidden.
+  - **Immediate Session Invalidation:** Suspending or deactivating an account revokes all active sessions in `auth_sessions`, eliminating the residual access window.
+  - **Self-Action Defenses:** Administrators cannot suspend, deactivate, or modify lifecycle states on their own accounts.
+  - **Privilege Boundary Enforcement:** Customer support staff (`SUPPORT`) cannot suspend or deactivate Superadmin accounts (`SUPERADMIN`).
+  - **Immutable Security Audit Logging:** Emits `AUTH_ACCOUNT_SUSPENDED`, `AUTH_ACCOUNT_REINSTATED`, `AUTH_ACCOUNT_DEACTIVATED`, `AUTH_ACCOUNT_REACTIVATED`, and `AUTH_EMAIL_VERIFIED_BY_ADMIN` into append-only `security_audit_events`.
+  - **Zero Credential Disclosure:** User listings and inspection endpoints strictly project non-sensitive fields; password hashes and raw tokens are completely excluded.
+- **Quality Gate Results:**
+  - API package: 118/118 Vitest tests pass across 5 test files (27 admin tests + 53 auth tests + 31 identity DB tests + 7 live DB/health tests).
+  - Monorepo: 131/131 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 118).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 35.3s with 0 lint warnings and 0 errors.
+- **Verification Verdict:** **`WP-06 COMPLETE — READY FOR WP-07`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp06-implementation-report.md)).

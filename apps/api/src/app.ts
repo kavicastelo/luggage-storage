@@ -1,4 +1,4 @@
-import fastify, { FastifyInstance } from "fastify";
+import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import sensible from "@fastify/sensible";
@@ -12,6 +12,7 @@ import { AppError } from "./common/errors/app-error.js";
 import { errorHandler, notFoundHandler } from "./common/middleware/error-handler.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
+import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { sessionService } from "./modules/auth/session.service.js";
 
 export function buildApp(): FastifyInstance {
@@ -49,7 +50,7 @@ export function buildApp(): FastifyInstance {
   });
 
   // Authentication Decorator for protected routes
-  app.decorate("authenticate", async (request, _reply) => {
+  app.decorate("authenticate", async (request: FastifyRequest, _reply: FastifyReply) => {
     try {
       await request.jwtVerify();
     } catch {
@@ -64,6 +65,34 @@ export function buildApp(): FastifyInstance {
     const isActive = await sessionService.isSessionActive(request.user.sessionId);
     if (!isActive) {
       throw AppError.unauthorized("Session has been revoked or expired");
+    }
+  });
+
+  // Role-based authorization decorator factory
+  app.decorate("requireRoles", (allowedRoles: string[]) => {
+    return async (request: FastifyRequest, _reply: FastifyReply) => {
+      if (!request.user || !Array.isArray(request.user.roles)) {
+        throw AppError.unauthorized("Authentication required");
+      }
+
+      const hasRole = request.user.roles.some((role) => allowedRoles.includes(role));
+      if (!hasRole) {
+        throw AppError.forbidden("Access denied: insufficient permissions");
+      }
+    };
+  });
+
+  // Admin authorization decorator (SUPERADMIN or SUPPORT)
+  app.decorate("requireAdmin", async (request: FastifyRequest, _reply: FastifyReply) => {
+    if (!request.user || !Array.isArray(request.user.roles)) {
+      throw AppError.unauthorized("Authentication required");
+    }
+
+    const isAdmin = request.user.roles.some((role) =>
+      ["SUPERADMIN", "SUPPORT"].includes(role)
+    );
+    if (!isAdmin) {
+      throw AppError.forbidden("Administrative privileges required");
     }
   });
 
@@ -104,6 +133,10 @@ export function buildApp(): FastifyInstance {
   // Authentication routes (versioned and unversioned aliases)
   app.register(authRoutes, { prefix: `${env.API_PREFIX}/auth` });
   app.register(authRoutes, { prefix: "/auth" });
+
+  // Administration routes (versioned and unversioned aliases)
+  app.register(adminRoutes, { prefix: `${env.API_PREFIX}/admin` });
+  app.register(adminRoutes, { prefix: "/admin" });
 
   return app;
 }
