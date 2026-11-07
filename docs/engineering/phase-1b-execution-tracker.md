@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01 & WP-02 COMPLETE — WP-03 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01, WP-02 & WP-03 COMPLETE — WP-04 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -15,8 +15,8 @@
 | :---: | :--- | :---: | :--- | :---: |
 | **WP-01** | **Identity Domain Architecture** | **COMPLETE** | [docs/architecture/phase-1b-identity-design.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/phase-1b-identity-design.md) | Verified & Validated: **PASS** |
 | **WP-02** | **Identity Database Implementation** | **COMPLETE** | [apps/api/src/infrastructure/database/schema/identity.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/schema/identity.ts)<br>[apps/api/src/infrastructure/database/migrations/](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/migrations/) | Verified: **WP-02 SECURITY CORRECTIONS PASSED — WP-03 AUTHORIZED** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp02-security-corrections.md)) |
-| **WP-03** | Registration and Authentication | **READY FOR IMPLEMENTATION** | Fastify auth routes (`/register`, `/login`) & Argon2id | **UNBLOCKED** — Ready for implementation |
-| **WP-04** | Session Management and Logout | PENDING | Token rotation, session store, cookie/bearer handling | Gated by WP-03 |
+| **WP-03** | **Registration and Authentication** | **COMPLETE** | [apps/api/src/modules/auth/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/)<br>[packages/contracts/src/auth/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/auth/) | Verified: **WP-03 COMPLETE — READY FOR WP-04** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp03-implementation-report.md)) |
+| **WP-04** | Session Management and Logout | **READY FOR IMPLEMENTATION** | Token rotation, session store, cookie/bearer handling | **UNBLOCKED** — Gated by WP-03 |
 | **WP-05** | Password Change and Recovery | PENDING | Password change & secure recovery token foundation | Gated by WP-04 |
 | **WP-06** | Account Lifecycle & Security States | PENDING | Status transitions (`ACTIVE`, `SUSPENDED`, etc.) | Gated by WP-05 |
 | **WP-07** | RBAC and Permission Architecture | PENDING | Fastify authorization hooks & role enforcement | Gated by WP-06 |
@@ -73,3 +73,28 @@
   - Monorepo: 51/51 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 38).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 26.0s.
 - **Verification Verdict:** **`WP-02 SECURITY CORRECTIONS PASSED — WP-03 AUTHORIZED`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp02-security-corrections.md)).
+
+### WP-03: Registration and Authentication
+- **Deliverables:**
+  - Shared Zod validation contracts: `packages/contracts/src/auth/index.ts`
+  - Argon2id password hashing engine: `apps/api/src/modules/auth/argon2.service.ts`
+  - Authentication domain service: `apps/api/src/modules/auth/auth.service.ts`
+  - Fastify auth routes: `apps/api/src/modules/auth/auth.routes.ts`
+  - Comprehensive integration test suite: `apps/api/tests/auth.test.ts` (23/23 tests pass)
+- **Endpoints Implemented:**
+  - `POST /api/v1/auth/register` (alias: `POST /auth/register`)
+  - `POST /api/v1/auth/login` (alias: `POST /auth/login`)
+- **Key Architectural & Security Controls:**
+  - **Argon2id Hashing:** Hybrid data-dependent and data-independent memory access (v=19, m=64MB, t=3 iterations, p=4 parallelism) conforming to OWASP ASVS standards.
+  - **Email Normalization Consistency:** Enforces `lower(trim(email))` identically across Zod contracts, domain services, and database check constraint `users_normalized_email_match_check`, preserving original display casing in `email`.
+  - **Atomic Registration:** Transaction-wrapped creation in `users` and default `TRAVELLER` role assignment via restricted `SECURITY DEFINER` function `assign_default_traveller_role()`. Failure at any point triggers complete rollback.
+  - **Privilege Escalation Defense:** Client-supplied role assignments (e.g. `role: "SUPERADMIN"`) are stripped and ignored; direct DML to `user_roles` remains prohibited for runtime role `luggage_user`.
+  - **Timing Attack Mitigation:** Unknown accounts trigger a dummy Argon2id verification with equivalent CPU/memory parameters, ensuring equalized response latency and eliminating user enumeration.
+  - **Account Lifecycle Enforcement:** Suspended and deactivated accounts are rejected with 403 Forbidden (`Account is suspended` / `Account is deactivated`).
+  - **Immutable Audit Logging:** Emits `AUTH_REGISTER_SUCCESS`, `AUTH_LOGIN_SUCCESS`, and `AUTH_LOGIN_FAILURE` into append-only `security_audit_events`.
+  - **Zero Credential Disclosure:** Plaintext passwords and Argon2id hashes are strictly excluded from HTTP response envelopes, error details, and structured logs.
+- **Quality Gate Results:**
+  - API package: 61/61 Vitest tests pass (23 auth tests + 31 identity DB tests + 7 live DB/health tests).
+  - Monorepo: 74/74 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 61).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 30.7s.
+- **Verification Verdict:** **`WP-03 COMPLETE — READY FOR WP-04`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp03-implementation-report.md)).

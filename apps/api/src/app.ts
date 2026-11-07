@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./common/middleware/error-handler.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
+import { authRoutes } from "./modules/auth/auth.routes.js";
 
 export function buildApp(): FastifyInstance {
   const app = fastify({
@@ -57,6 +58,10 @@ export function buildApp(): FastifyInstance {
   app.register(healthRoutes, { prefix: env.API_PREFIX });
   // Also register /health at root for container orchestration liveness
   app.register(healthRoutes);
+
+  // Authentication routes (versioned and unversioned aliases)
+  app.register(authRoutes, { prefix: `${env.API_PREFIX}/auth` });
+  app.register(authRoutes, { prefix: "/auth" });
 
   return app;
 }

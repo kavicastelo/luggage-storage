@@ -14,13 +14,17 @@ export function errorHandler(error: FastifyError | AppError, request: FastifyReq
 
   // Fastify validation errors
   if ("validation" in error && error.validation) {
-    const details = error.validation.map((v) => ({
-      field: v.instancePath || v.params?.missingProperty?.toString(),
-      message: v.message || "Invalid input",
-      code: "VALIDATION_ERROR"
-    }));
+    const details = error.validation.map((v) => {
+      const rawField = v.instancePath || v.params?.missingProperty?.toString() || "";
+      const field = rawField.replace(/^\//, "");
+      return {
+        field: field || undefined,
+        message: v.message || "Invalid input",
+        code: "VALIDATION_ERROR"
+      };
+    });
     return reply.status(400).send(
-      createErrorResponse("BAD_REQUEST", "Request validation failed", details, correlationId)
+      createErrorResponse("VALIDATION_ERROR", "Request validation failed", details, correlationId)
     );
   }
 

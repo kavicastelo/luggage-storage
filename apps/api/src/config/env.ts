@@ -27,7 +27,10 @@ export const EnvSchema = z.object({
     })
     .default(false),
   CORS_ORIGIN: z.string().default("*"),
-  API_PREFIX: z.string().default("/api/v1")
+  API_PREFIX: z.string().default("/api/v1"),
+  ARGON2_MEMORY_COST: z.coerce.number().int().positive().default(65536),
+  ARGON2_TIME_COST: z.coerce.number().int().positive().default(3),
+  ARGON2_PARALLELISM: z.coerce.number().int().positive().default(4)
 });
 
 export type EnvConfig = z.infer<typeof EnvSchema>;

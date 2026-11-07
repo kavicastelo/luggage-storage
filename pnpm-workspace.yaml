@@ -3,6 +3,7 @@ packages:
   - "packages/*"
 allowBuilds:
   esbuild: true
+  argon2: true
 minimumReleaseAgeExclude:
   - image-size@2.1.0
 overrides:

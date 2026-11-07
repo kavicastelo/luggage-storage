@@ -18,6 +18,10 @@ export class AppError extends Error {
     return new AppError("BAD_REQUEST", message, 400, details);
   }
 
+  static validation(message = "Validation failed", details?: ApiErrorDetail[]): AppError {
+    return new AppError("VALIDATION_ERROR", message, 400, details);
+  }
+
   static notFound(message: string): AppError {
     return new AppError("NOT_FOUND", message, 404);
   }
