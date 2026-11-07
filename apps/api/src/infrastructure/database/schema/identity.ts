@@ -38,6 +38,10 @@ export const users = pgTable(
     check(
       "users_status_check",
       sql`${table.status} IN ('PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED')`
+    ),
+    check(
+      "users_normalized_email_match_check",
+      sql`${table.normalizedEmail} = lower(trim(${table.email}))`
     )
   ]
 );
@@ -204,6 +208,7 @@ export const authSessions = pgTable(
   },
   (table) => [
     uniqueIndex("auth_sessions_refresh_token_hash_unique").on(table.refreshTokenHash),
+    index("auth_sessions_previous_token_hash_idx").on(table.previousTokenHash),
     index("auth_sessions_user_id_idx").on(table.userId),
     index("auth_sessions_user_revoked_idx").on(table.userId, table.revokedAt),
     index("auth_sessions_expires_at_idx").on(table.expiresAt),

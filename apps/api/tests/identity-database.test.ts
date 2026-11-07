@@ -105,6 +105,38 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
         )
       ).rejects.toThrowError(/violates check constraint "users_status_check"/i);
     });
+
+    it("should enforce check constraint when normalized_email disagrees with lower(trim(email))", async () => {
+      const uniqueSuffix = Date.now() + 10;
+      await expect(
+        runtimePool.query(
+          `INSERT INTO users (email, normalized_email, password_hash, display_name)
+           VALUES ($1, $2, $3, $4);`,
+          [
+            `User_${uniqueSuffix}@Example.COM`,
+            `attacker_${uniqueSuffix}@evil.com`,
+            "$argon2id$mockhash",
+            "Mismatched Email"
+          ]
+        )
+      ).rejects.toThrowError(/violates check constraint "users_normalized_email_match_check"/i);
+    });
+
+    it("should accept email with casing and whitespace when normalized_email matches lower(trim(email))", async () => {
+      const uniqueSuffix = Date.now() + 11;
+      const rawEmail = `   Whitespace_${uniqueSuffix}@Example.COM   `;
+      const expectedNormalized = `whitespace_${uniqueSuffix}@example.com`;
+
+      const res = await runtimePool.query(
+        `INSERT INTO users (email, normalized_email, password_hash, display_name)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, email, normalized_email;`,
+        [rawEmail, expectedNormalized, "$argon2id$mockhash", "Whitespace User"]
+      );
+
+      expect(res.rows[0].email).toBe(rawEmail);
+      expect(res.rows[0].normalized_email).toBe(expectedNormalized);
+    });
   });
 
   describe("3. Profile Context Separation & Referential Cascade", () => {
@@ -209,15 +241,15 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       );
       const userId = userRes.rows[0].id;
 
-      // Seed roles
-      const role1 = await runtimePool.query(
+      // Seed roles using migrator
+      const role1 = await migratorPool.query(
         `INSERT INTO roles (code, name, description)
          VALUES ($1, $2, $3)
          ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
          RETURNING id;`,
         [`TRAVELLER_${uniqueSuffix}`, "Traveller Role", "Standard traveller"]
       );
-      const role2 = await runtimePool.query(
+      const role2 = await migratorPool.query(
         `INSERT INTO roles (code, name, description)
          VALUES ($1, $2, $3)
          ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name
@@ -329,6 +361,14 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
         )
       ).rejects.toThrowError(/violates check constraint "auth_sessions_client_type_check"/i);
     });
+
+    it("should verify index exists on previous_token_hash for reuse detection", async () => {
+      const res = await runtimePool.query(`
+        SELECT indexname FROM pg_indexes 
+        WHERE tablename = 'auth_sessions' AND indexname = 'auth_sessions_previous_token_hash_idx';
+      `);
+      expect(res.rows.length).toBe(1);
+    });
   });
 
   describe("6. Security Audit Trail & SET NULL Referential Behavior", () => {
@@ -367,6 +407,58 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       expect(auditCheck.rows.length).toBe(1);
       expect(auditCheck.rows[0].user_id).toBeNull();
       expect(auditCheck.rows[0].event_type).toBe("REGISTER_SUCCESS");
+    });
+
+    it("should deny luggage_user UPDATE privileges on security_audit_events", async () => {
+      const privRes = await runtimePool.query(`
+        SELECT has_table_privilege('luggage_user', 'security_audit_events', 'UPDATE') as can_update;
+      `);
+      expect(privRes.rows[0].can_update).toBe(false);
+
+      await expect(
+        runtimePool.query(
+          `UPDATE security_audit_events SET event_type = 'TAMPERED' WHERE id = '00000000-0000-0000-0000-000000000000';`
+        )
+      ).rejects.toThrowError(/permission denied for table security_audit_events/i);
+    });
+
+    it("should deny luggage_user DELETE privileges on security_audit_events", async () => {
+      const privRes = await runtimePool.query(`
+        SELECT has_table_privilege('luggage_user', 'security_audit_events', 'DELETE') as can_delete;
+      `);
+      expect(privRes.rows[0].can_delete).toBe(false);
+
+      await expect(
+        runtimePool.query(
+          `DELETE FROM security_audit_events WHERE id = '00000000-0000-0000-0000-000000000000';`
+        )
+      ).rejects.toThrowError(/permission denied for table security_audit_events/i);
+    });
+
+    it("should block UPDATE and DELETE via database trigger even under migrator", async () => {
+      const eventRes = await migratorPool.query(
+        `INSERT INTO security_audit_events (event_type, metadata)
+         VALUES ($1, $2)
+         RETURNING id;`,
+        ["TRIGGER_TEST", JSON.stringify({ test: true })]
+      );
+      const eventId = eventRes.rows[0].id;
+
+      // UPDATE attempt must be blocked by trigger
+      await expect(
+        migratorPool.query(
+          `UPDATE security_audit_events SET event_type = 'TAMPERED' WHERE id = $1;`,
+          [eventId]
+        )
+      ).rejects.toThrowError(/security_audit_events records are immutable: UPDATE is prohibited/i);
+
+      // DELETE attempt must be blocked by trigger
+      await expect(
+        migratorPool.query(
+          `DELETE FROM security_audit_events WHERE id = $1;`,
+          [eventId]
+        )
+      ).rejects.toThrowError(/security_audit_events records are immutable: DELETE is prohibited/i);
     });
   });
 
@@ -417,6 +509,26 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
         expect(row.rolcreatedb).toBe(false);
         expect(row.rolcreaterole).toBe(false);
       }
+    });
+
+    it("should deny luggage_user UPDATE and DELETE on roles and permissions catalogs", async () => {
+      const res = await runtimePool.query(`
+        SELECT 
+          has_table_privilege('luggage_user', 'roles', 'UPDATE') as can_update_roles,
+          has_table_privilege('luggage_user', 'roles', 'DELETE') as can_delete_roles,
+          has_table_privilege('luggage_user', 'permissions', 'UPDATE') as can_update_perms,
+          has_table_privilege('luggage_user', 'permissions', 'DELETE') as can_delete_perms;
+      `);
+      expect(res.rows[0].can_update_roles).toBe(false);
+      expect(res.rows[0].can_delete_roles).toBe(false);
+      expect(res.rows[0].can_update_perms).toBe(false);
+      expect(res.rows[0].can_delete_perms).toBe(false);
+    });
+
+    it("should serialize migrations via PostgreSQL advisory lock", async () => {
+      // Running migration runner should cleanly acquire and release lock without deadlock
+      const count = await runMigrations(migratorUrl);
+      expect(count).toBe(0);
     });
   });
 });

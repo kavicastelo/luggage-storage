@@ -9,11 +9,12 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const MIGRATION_ADVISORY_LOCK_ID = 7461938502847;
+
 export async function runMigrations(customConnectionString?: string): Promise<number> {
   const connectionString =
     customConnectionString ||
     process.env.MIGRATION_DATABASE_URL ||
-    process.env.DATABASE_URL ||
     "postgresql://luggage_migrator:migrator_password@localhost:5432/luggage_storage_dev";
 
   const pool = new Pool({
@@ -28,6 +29,10 @@ export async function runMigrations(customConnectionString?: string): Promise<nu
       { role: userRes.rows[0].current_user, database: userRes.rows[0].current_database },
       "[Migration Engine] Connected to database"
     );
+
+    // Acquire PostgreSQL advisory lock to serialize concurrent migrations
+    await client.query("SELECT pg_advisory_lock($1);", [MIGRATION_ADVISORY_LOCK_ID]);
+    logger.info("[Migration Engine] Acquired migration advisory lock");
 
     // Ensure migration tracking table exists in public schema
     await client.query(`
@@ -78,6 +83,12 @@ export async function runMigrations(customConnectionString?: string): Promise<nu
 
     return appliedCount;
   } finally {
+    try {
+      await client.query("SELECT pg_advisory_unlock($1);", [MIGRATION_ADVISORY_LOCK_ID]);
+      logger.info("[Migration Engine] Released migration advisory lock");
+    } catch (unlockErr) {
+      logger.error({ err: unlockErr }, "[Migration Engine] Failed to release advisory lock");
+    }
     client.release();
     await pool.end();
   }
