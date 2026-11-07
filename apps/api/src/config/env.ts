@@ -12,6 +12,10 @@ export const EnvSchema = z.object({
     .string()
     .url()
     .default("postgresql://luggage_user:luggage_password@localhost:5432/luggage_storage_dev"),
+  MIGRATION_DATABASE_URL: z
+    .string()
+    .url()
+    .default("postgresql://luggage_migrator:migrator_password@localhost:5432/luggage_storage_dev"),
   DATABASE_MAX_CONNECTIONS: z.coerce.number().int().positive().default(10),
   DATABASE_SSL: z
     .union([z.boolean(), z.string()])

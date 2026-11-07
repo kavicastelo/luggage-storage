@@ -42,6 +42,7 @@ jobs:
         run: pnpm verify
         env:
           DATABASE_URL: postgresql://luggage_user:luggage_password@127.0.0.1:5432/luggage_storage_dev
+          MIGRATION_DATABASE_URL: postgresql://luggage_migrator:migrator_password@127.0.0.1:5432/luggage_storage_dev
           NODE_ENV: test
 
       - name: Stop PostgreSQL/PostGIS database
