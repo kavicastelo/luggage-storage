@@ -1,0 +1,10 @@
+{
+  "extends": "@luggage-storage/typescript-config/node.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": [
+    "src/**/*"
+  ]
+}

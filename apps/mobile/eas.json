@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.expo.dev/eas-json.schema.json",
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {}
+  }
+}
