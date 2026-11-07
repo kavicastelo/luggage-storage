@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "LuggageStorage",
+    "slug": "luggage-storage",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "luggagestorage",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.luggagestorage.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2563eb"
+      },
+      "package": "com.luggagestorage.app"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#2563eb"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "local-phase-1a-placeholder"
+      }
+    }
+  }
+}

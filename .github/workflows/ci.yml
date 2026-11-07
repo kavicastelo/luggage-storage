@@ -1,0 +1,49 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, dev, develop ]
+  pull_request:
+    branches: [ main, dev, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Lint, Typecheck, Test & Build (Full Quality Gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start PostgreSQL/PostGIS database
+        run: docker compose -f infrastructure/docker/docker-compose.yml up -d --wait
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: 'pnpm'
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Execute Full Quality Gate (pnpm verify)
+        run: pnpm verify
+        env:
+          DATABASE_URL: postgresql://luggage_user:luggage_password@127.0.0.1:5432/luggage_storage_dev
+          NODE_ENV: test
+
+      - name: Stop PostgreSQL/PostGIS database
+        if: always()
+        run: docker compose -f infrastructure/docker/docker-compose.yml down -v

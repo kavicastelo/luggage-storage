@@ -1,0 +1,27 @@
+{
+  "name": "luggage-storage",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@12.9.1",
+  "engines": {
+    "node": ">=26.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "description": "Global Luggage Storage Marketplace Monorepo",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "verify": "turbo run lint typecheck test build",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.72.1"
+  }
+}
