@@ -20,6 +20,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Start PostgreSQL/PostGIS database
+        run: docker compose -f infrastructure/docker/docker-compose.yml up -d --wait
+
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -37,3 +40,10 @@ jobs:
 
       - name: Execute Full Quality Gate (pnpm verify)
         run: pnpm verify
+        env:
+          DATABASE_URL: postgresql://luggage_user:luggage_password@127.0.0.1:5432/luggage_storage_dev
+          NODE_ENV: test
+
+      - name: Stop PostgreSQL/PostGIS database
+        if: always()
+        run: docker compose -f infrastructure/docker/docker-compose.yml down -v
