@@ -4,16 +4,24 @@ import {
   RegisterResponseData,
   LoginRequest,
   LoginResponseData,
+  AuthenticatedUser,
   UserStatus,
   normalizeEmail
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { argon2Service } from "./argon2.service.js";
+import { sessionService } from "./session.service.js";
 
 export interface ClientConnectionInfo {
   ip?: string;
   userAgent?: string;
+}
+
+export interface LoginServiceResult {
+  user: AuthenticatedUser;
+  session: typeof schema.authSessions.$inferSelect;
+  rawRefreshToken: string;
 }
 
 export class AuthService {
@@ -130,7 +138,7 @@ export class AuthService {
   async login(
     input: LoginRequest,
     clientInfo?: ClientConnectionInfo
-  ): Promise<LoginResponseData> {
+  ): Promise<LoginServiceResult> {
     const normalized = normalizeEmail(input.email);
 
     // Look up user by normalized email
@@ -264,6 +272,14 @@ export class AuthService {
       // Continue
     }
 
+    // Create persistent authentication session
+    const { session, rawRefreshToken } = await sessionService.createSession({
+      userId: user.id,
+      clientType: input.clientType || "WEB",
+      ipAddress: clientInfo?.ip,
+      userAgent: clientInfo?.userAgent
+    });
+
     return {
       user: {
         id: user.id,
@@ -274,7 +290,58 @@ export class AuthService {
         isPhoneVerified: user.isPhoneVerified,
         roles: roleCodes,
         lastLoginAt: now.toISOString()
-      }
+      },
+      session,
+      rawRefreshToken
+    };
+  }
+
+  /**
+   * Retrieves current authenticated user details with active roles.
+   * Ensures account is still active and valid.
+   */
+  async getCurrentUser(userId: string): Promise<AuthenticatedUser> {
+    const [user] = await db
+      .select({
+        id: schema.users.id,
+        email: schema.users.email,
+        displayName: schema.users.displayName,
+        status: schema.users.status,
+        isEmailVerified: schema.users.isEmailVerified,
+        isPhoneVerified: schema.users.isPhoneVerified,
+        lastLoginAt: schema.users.lastLoginAt
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+
+    if (!user) {
+      throw AppError.unauthorized("User account not found");
+    }
+
+    if (user.status === "SUSPENDED") {
+      throw AppError.forbidden("Account is suspended");
+    }
+
+    if (user.status === "DEACTIVATED") {
+      throw AppError.forbidden("Account is deactivated");
+    }
+
+    const userRolesList = await db
+      .select({ code: schema.roles.code })
+      .from(schema.userRoles)
+      .innerJoin(schema.roles, eq(schema.userRoles.roleId, schema.roles.id))
+      .where(eq(schema.userRoles.userId, user.id));
+
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      status: user.status as UserStatus,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified,
+      roles: userRolesList.map((r) => r.code),
+      lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null
     };
   }
 }

@@ -2,10 +2,25 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { FastifyInstance } from "fastify";
 import pg from "pg";
 import argon2 from "argon2";
+import crypto from "node:crypto";
 import { buildApp } from "../src/app.js";
 import { env } from "../src/config/env.js";
 
 const { Pool } = pg;
+
+function extractCookie(
+  res: { headers: Record<string, string | string[] | undefined> },
+  name: string
+): string | undefined {
+  const raw = res.headers["set-cookie"];
+  if (!raw) return undefined;
+  const cookieStrings = Array.isArray(raw) ? raw : [raw];
+  for (const str of cookieStrings) {
+    const match = str.match(new RegExp(`${name}=([^;]+)`));
+    if (match) return match[1];
+  }
+  return undefined;
+}
 
 describe("WP-03: Registration and Authentication Engine", () => {
   let app: FastifyInstance;
@@ -701,6 +716,676 @@ describe("WP-03: Registration and Authentication Engine", () => {
           [auditId]
         )
       ).rejects.toThrow(/security_audit_events records are immutable: DELETE is prohibited/);
+    });
+  });
+
+  // ==========================================================================
+  // WP-04: Session Management, Token Rotation & Logout
+  // ==========================================================================
+  describe("WP-04: Session Management, Token Rotation & Logout", () => {
+    // Helper to register and create a fresh user for tests
+    async function createTestUser(suffix: string) {
+      const email = `wp04_${Date.now()}_${suffix}@example.com`;
+      const password = "StrongPassword123!";
+      const displayName = `WP04 User ${suffix}`;
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/register",
+        payload: { email, password, displayName }
+      });
+      expect(res.statusCode).toBe(201);
+      const user = JSON.parse(res.body).data;
+
+      // Update status to ACTIVE for full test interactions
+      await runtimePool.query(
+        `UPDATE users SET status = 'ACTIVE' WHERE id = $1;`,
+        [user.id]
+      );
+
+      return { email, password, displayName, id: user.id };
+    }
+
+    it("should issue access token and set HTTP-only refresh cookie on Web login, without exposing refresh token in JSON", async () => {
+      const user = await createTestUser("web_login");
+
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: {
+          email: user.email,
+          password: user.password
+          // clientType omitted -> defaults to WEB
+        }
+      });
+
+      expect(loginRes.statusCode).toBe(200);
+      const body = JSON.parse(loginRes.body);
+
+      // Verify JSON payload
+      expect(body.success).toBe(true);
+      expect(body.data.user.id).toBe(user.id);
+      expect(body.data.accessToken).toBeDefined();
+      expect(body.data.expiresIn).toBe(900);
+      expect(body.data.tokenType).toBe("Bearer");
+      // MUST NOT expose refresh token in JSON for web
+      expect(body.data.refreshToken).toBeUndefined();
+
+      // Verify Set-Cookie header
+      const cookieVal = extractCookie(loginRes, "refresh_token");
+      expect(cookieVal).toBeDefined();
+      expect(cookieVal!.length).toBeGreaterThan(32);
+
+      const rawSetCookie = loginRes.headers["set-cookie"];
+      const cookieStr = Array.isArray(rawSetCookie) ? rawSetCookie.join("; ") : (rawSetCookie as string);
+      expect(cookieStr).toContain("HttpOnly");
+      expect(cookieStr).toContain("SameSite=Strict");
+      expect(cookieStr).toContain("Path=/api/v1/auth");
+
+      // Verify DB auth_sessions row
+      const expectedHash = crypto.createHash("sha256").update(cookieVal!).digest("hex");
+      const dbRes = await runtimePool.query(
+        `SELECT id, user_id, refresh_token_hash, client_type, revoked_at FROM auth_sessions WHERE user_id = $1;`,
+        [user.id]
+      );
+      expect(dbRes.rows.length).toBe(1);
+      expect(dbRes.rows[0].refresh_token_hash).toBe(expectedHash);
+      expect(dbRes.rows[0].client_type).toBe("WEB");
+      expect(dbRes.rows[0].revoked_at).toBeNull();
+
+      // Verify security audit log record
+      const auditRes = await runtimePool.query(
+        `SELECT event_type FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_SESSION_CREATED';`,
+        [user.id]
+      );
+      expect(auditRes.rows.length).toBe(1);
+    });
+
+    it("should issue access token and return refresh token in body on Mobile login", async () => {
+      const user = await createTestUser("mobile_login");
+
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: {
+          email: user.email,
+          password: user.password,
+          clientType: "MOBILE"
+        }
+      });
+
+      expect(loginRes.statusCode).toBe(200);
+      const body = JSON.parse(loginRes.body);
+
+      expect(body.success).toBe(true);
+      expect(body.data.accessToken).toBeDefined();
+      // MUST return refresh token in JSON for mobile
+      expect(body.data.refreshToken).toBeDefined();
+      expect(body.data.refreshToken.length).toBeGreaterThan(32);
+
+      // Verify DB record
+      const expectedHash = crypto.createHash("sha256").update(body.data.refreshToken).digest("hex");
+      const dbRes = await runtimePool.query(
+        `SELECT client_type, refresh_token_hash FROM auth_sessions WHERE user_id = $1;`,
+        [user.id]
+      );
+      expect(dbRes.rows.length).toBe(1);
+      expect(dbRes.rows[0].client_type).toBe("MOBILE");
+      expect(dbRes.rows[0].refresh_token_hash).toBe(expectedHash);
+    });
+
+    it("should allow access to protected /me endpoint with valid access token", async () => {
+      const user = await createTestUser("me_valid");
+
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password }
+      });
+      const { accessToken } = JSON.parse(loginRes.body).data;
+
+      const meRes = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/me",
+        headers: {
+          authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      expect(meRes.statusCode).toBe(200);
+      const meBody = JSON.parse(meRes.body);
+      expect(meBody.success).toBe(true);
+      expect(meBody.data.user.id).toBe(user.id);
+      expect(meBody.data.user.email).toBe(user.email);
+      expect(meBody.data.sessionId).toBeDefined();
+    });
+
+    it("should reject protected /me endpoint with missing or invalid token", async () => {
+      // Missing token
+      const noAuthRes = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/me"
+      });
+      expect(noAuthRes.statusCode).toBe(401);
+
+      // Invalid signature / garbage token
+      const badTokenRes = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/me",
+        headers: {
+          authorization: "Bearer invalid.jwt.token"
+        }
+      });
+      expect(badTokenRes.statusCode).toBe(401);
+    });
+
+    it("should successfully rotate refresh token via Web cookie and update auth_sessions record", async () => {
+      const user = await createTestUser("rotate_cookie");
+
+      // Login
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password }
+      });
+      const oldRawCookie = extractCookie(loginRes, "refresh_token")!;
+      const oldHash = crypto.createHash("sha256").update(oldRawCookie).digest("hex");
+
+      // Rotate via cookie
+      const refreshRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        headers: {
+          cookie: `refresh_token=${oldRawCookie}`
+        }
+      });
+
+      expect(refreshRes.statusCode).toBe(200);
+      const refreshBody = JSON.parse(refreshRes.body);
+      expect(refreshBody.success).toBe(true);
+      expect(refreshBody.data.accessToken).toBeDefined();
+      expect(refreshBody.data.refreshToken).toBeUndefined(); // Web client -> not in body
+
+      const newRawCookie = extractCookie(refreshRes, "refresh_token")!;
+      expect(newRawCookie).toBeDefined();
+      expect(newRawCookie).not.toBe(oldRawCookie);
+
+      const newHash = crypto.createHash("sha256").update(newRawCookie).digest("hex");
+
+      // Check DB: new hash is active, old hash is retained in previous_token_hash
+      const sessionRes = await runtimePool.query(
+        `SELECT refresh_token_hash, previous_token_hash FROM auth_sessions WHERE user_id = $1;`,
+        [user.id]
+      );
+      expect(sessionRes.rows.length).toBe(1);
+      expect(sessionRes.rows[0].refresh_token_hash).toBe(newHash);
+      expect(sessionRes.rows[0].previous_token_hash).toBe(oldHash);
+
+      // Verify AUTH_TOKEN_ROTATED audit event
+      const auditRes = await runtimePool.query(
+        `SELECT event_type FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_TOKEN_ROTATED';`,
+        [user.id]
+      );
+      expect(auditRes.rows.length).toBe(1);
+    });
+
+    it("should successfully rotate refresh token via Mobile request body", async () => {
+      const user = await createTestUser("rotate_mobile");
+
+      // Login mobile
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password, clientType: "MOBILE" }
+      });
+      const oldToken = JSON.parse(loginRes.body).data.refreshToken;
+
+      // Rotate mobile
+      const refreshRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        payload: {
+          refreshToken: oldToken,
+          clientType: "MOBILE"
+        }
+      });
+
+      expect(refreshRes.statusCode).toBe(200);
+      const refreshBody = JSON.parse(refreshRes.body);
+      expect(refreshBody.success).toBe(true);
+      expect(refreshBody.data.accessToken).toBeDefined();
+      expect(refreshBody.data.refreshToken).toBeDefined();
+      expect(refreshBody.data.refreshToken).not.toBe(oldToken);
+    });
+
+    it("should detect refresh token reuse, revoke all user sessions, and log AUTH_TOKEN_REUSE_DETECTED", async () => {
+      const user = await createTestUser("reuse_detection");
+
+      // 1. Initial login -> token 1
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password }
+      });
+      const token1 = extractCookie(loginRes, "refresh_token")!;
+
+      // Create a second concurrent session for the same user (e.g. tablet login)
+      const secondLoginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password, clientType: "MOBILE" }
+      });
+      const secondSessionToken = JSON.parse(secondLoginRes.body).data.refreshToken;
+
+      // 2. Legitimate rotation of token 1 -> token 2
+      const rotateRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        headers: { cookie: `refresh_token=${token1}` }
+      });
+      expect(rotateRes.statusCode).toBe(200);
+      const token2 = extractCookie(rotateRes, "refresh_token")!;
+
+      // 3. ATTACK: Attacker replays already-consumed token 1
+      const attackRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        headers: { cookie: `refresh_token=${token1}` }
+      });
+
+      expect(attackRes.statusCode).toBe(401);
+      const attackBody = JSON.parse(attackRes.body);
+      expect(attackBody.success).toBe(false);
+      expect(attackBody.error.code).toBe("UNAUTHORIZED");
+
+      // 4. Verify FAMILY REVOCATION: All sessions for this user must now be revoked
+      const allSessionsRes = await runtimePool.query(
+        `SELECT id, revoked_at, revocation_reason FROM auth_sessions WHERE user_id = $1;`,
+        [user.id]
+      );
+      expect(allSessionsRes.rows.length).toBe(2);
+      for (const row of allSessionsRes.rows) {
+        expect(row.revoked_at).not.toBeNull();
+        expect(row.revocation_reason).toBe("REUSE_DETECTED");
+      }
+
+      // 5. Verify AUTH_TOKEN_REUSE_DETECTED audit event
+      const auditRes = await runtimePool.query(
+        `SELECT event_type, metadata FROM security_audit_events 
+         WHERE user_id = $1 AND event_type = 'AUTH_TOKEN_REUSE_DETECTED';`,
+        [user.id]
+      );
+      expect(auditRes.rows.length).toBe(1);
+
+      // 6. Verify that even the legitimate new token 2 is now rejected
+      const token2Res = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        headers: { cookie: `refresh_token=${token2}` }
+      });
+      expect(token2Res.statusCode).toBe(401);
+
+      // 7. Verify sibling session token is also rejected
+      const siblingRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        payload: { refreshToken: secondSessionToken }
+      });
+      expect(siblingRes.statusCode).toBe(401);
+    });
+
+    it("should serialize concurrent refresh attempts with the same token via database row locking", async () => {
+      const user = await createTestUser("concurrency");
+
+      // Initial login
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password }
+      });
+      const token = extractCookie(loginRes, "refresh_token")!;
+
+      // Execute 2 simultaneous refresh requests with the same token
+      const [resA, resB] = await Promise.all([
+        app.inject({
+          method: "POST",
+          url: "/api/v1/auth/refresh",
+          headers: { cookie: `refresh_token=${token}` }
+        }),
+        app.inject({
+          method: "POST",
+          url: "/api/v1/auth/refresh",
+          headers: { cookie: `refresh_token=${token}` }
+        })
+      ]);
+
+      const statusCodes = [resA.statusCode, resB.statusCode];
+      // Exactly one must succeed (200), and the second must be rejected (401)
+      expect(statusCodes).toContain(200);
+      expect(statusCodes).toContain(401);
+    });
+
+    it("should successfully log out current session and invalidate subsequent refresh attempts", async () => {
+      const user = await createTestUser("logout_current");
+
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password }
+      });
+      const cookie = extractCookie(loginRes, "refresh_token")!;
+      const { accessToken } = JSON.parse(loginRes.body).data;
+
+      // Logout
+      const logoutRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/logout",
+        headers: {
+          cookie: `refresh_token=${cookie}`,
+          authorization: `Bearer ${accessToken}`
+        }
+      });
+
+      expect(logoutRes.statusCode).toBe(200);
+      const logoutBody = JSON.parse(logoutRes.body);
+      expect(logoutBody.success).toBe(true);
+
+      // Verify cookie cleared
+      const rawSetCookie = logoutRes.headers["set-cookie"];
+      const cookieStr = Array.isArray(rawSetCookie) ? rawSetCookie.join("; ") : (rawSetCookie as string);
+      expect(cookieStr).toContain("refresh_token=;");
+
+      // Verify DB revocation
+      const sessionRes = await runtimePool.query(
+        `SELECT revoked_at, revocation_reason FROM auth_sessions WHERE user_id = $1;`,
+        [user.id]
+      );
+      expect(sessionRes.rows[0].revoked_at).not.toBeNull();
+      expect(sessionRes.rows[0].revocation_reason).toBe("USER_LOGOUT");
+
+      // Verify AUTH_LOGOUT audit event
+      const auditRes = await runtimePool.query(
+        `SELECT event_type FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_LOGOUT';`,
+        [user.id]
+      );
+      expect(auditRes.rows.length).toBe(1);
+
+      // Subsequent refresh attempt with logged-out token fails
+      const refreshRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        headers: { cookie: `refresh_token=${cookie}` }
+      });
+      expect(refreshRes.statusCode).toBe(401);
+    });
+
+    it("should immediately reject access tokens when session is revoked in database", async () => {
+      const user = await createTestUser("session_revoke_check");
+
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password }
+      });
+      const { accessToken } = JSON.parse(loginRes.body).data;
+      const cookie = extractCookie(loginRes, "refresh_token")!;
+
+      // Verify token works initially
+      const preCheck = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/me",
+        headers: { authorization: `Bearer ${accessToken}` }
+      });
+      expect(preCheck.statusCode).toBe(200);
+
+      // Revoke session via logout
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/logout",
+        headers: { cookie: `refresh_token=${cookie}` }
+      });
+
+      // Verify access token is NOW rejected at /me despite not having expired in JWT terms
+      const postCheck = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/me",
+        headers: { authorization: `Bearer ${accessToken}` }
+      });
+      expect(postCheck.statusCode).toBe(401);
+      const postBody = JSON.parse(postCheck.body);
+      expect(postBody.error.message).toMatch(/Session has been revoked or expired/i);
+    });
+
+    it("should log out all sessions for a user via /logout-all and revoke all family sessions", async () => {
+      const user = await createTestUser("logout_all");
+
+      // Login 3 times across different devices
+      const login1 = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password, clientType: "WEB" }
+      });
+      const token1 = JSON.parse(login1.body).data.accessToken;
+
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password, clientType: "MOBILE" }
+      });
+
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password, clientType: "WEB" }
+      });
+
+      // Check 3 active sessions in DB
+      const preRes = await runtimePool.query(
+        `SELECT COUNT(*) FROM auth_sessions WHERE user_id = $1 AND revoked_at IS NULL;`,
+        [user.id]
+      );
+      expect(parseInt(preRes.rows[0].count, 10)).toBe(3);
+
+      // Call /logout-all with token1
+      const logoutAllRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/logout-all",
+        headers: { authorization: `Bearer ${token1}` }
+      });
+
+      expect(logoutAllRes.statusCode).toBe(200);
+      const body = JSON.parse(logoutAllRes.body);
+      expect(body.success).toBe(true);
+      expect(body.data.message).toContain("3 session(s) revoked");
+
+      // Verify all sessions revoked in DB
+      const postRes = await runtimePool.query(
+        `SELECT COUNT(*) FROM auth_sessions WHERE user_id = $1 AND revoked_at IS NULL;`,
+        [user.id]
+      );
+      expect(parseInt(postRes.rows[0].count, 10)).toBe(0);
+
+      // Verify AUTH_LOGOUT_ALL audit event
+      const auditRes = await runtimePool.query(
+        `SELECT event_type FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_LOGOUT_ALL';`,
+        [user.id]
+      );
+      expect(auditRes.rows.length).toBe(1);
+    });
+
+    it("should list active sessions and accurately reflect current session", async () => {
+      const user = await createTestUser("session_list");
+
+      // Login 1
+      const login1 = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password, clientType: "WEB" }
+      });
+      const { accessToken: token1 } = JSON.parse(login1.body).data;
+
+      // Login 2
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password, clientType: "MOBILE" }
+      });
+
+      const listRes = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/sessions",
+        headers: { authorization: `Bearer ${token1}` }
+      });
+
+      expect(listRes.statusCode).toBe(200);
+      const body = JSON.parse(listRes.body);
+      expect(body.success).toBe(true);
+      expect(body.data.sessions.length).toBe(2);
+
+      const currentSessions = body.data.sessions.filter((s: { isCurrentSession: boolean }) => s.isCurrentSession);
+      expect(currentSessions.length).toBe(1);
+    });
+
+    it("should allow user to revoke an individual session by ID", async () => {
+      const user = await createTestUser("revoke_single");
+
+      // Session 1 (Caller)
+      const login1 = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password }
+      });
+      const { accessToken: token1 } = JSON.parse(login1.body).data;
+
+      // Session 2 (Target for revocation)
+      const login2 = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password, clientType: "MOBILE" }
+      });
+      const session2Token = JSON.parse(login2.body).data.refreshToken;
+
+      // Get session 2 ID
+      const sessionsRes = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/sessions",
+        headers: { authorization: `Bearer ${token1}` }
+      });
+      const sessions = JSON.parse(sessionsRes.body).data.sessions;
+      const session2 = sessions.find((s: { isCurrentSession: boolean }) => !s.isCurrentSession);
+
+      // Revoke session 2
+      const deleteRes = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/auth/sessions/${session2.id}`,
+        headers: { authorization: `Bearer ${token1}` }
+      });
+
+      expect(deleteRes.statusCode).toBe(200);
+
+      // Verify session 2 cannot refresh
+      const refreshRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        payload: { refreshToken: session2Token }
+      });
+      expect(refreshRes.statusCode).toBe(401);
+
+      // Verify caller session 1 is still active
+      const meRes = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/me",
+        headers: { authorization: `Bearer ${token1}` }
+      });
+      expect(meRes.statusCode).toBe(200);
+
+      // Verify AUTH_SESSION_REVOKED audit event
+      const auditRes = await runtimePool.query(
+        `SELECT event_type FROM security_audit_events WHERE user_id = $1 AND event_type = 'AUTH_SESSION_REVOKED';`,
+        [user.id]
+      );
+      expect(auditRes.rows.length).toBe(1);
+    });
+
+    it("should prevent user from revoking another user's session", async () => {
+      const userA = await createTestUser("user_a");
+      const userB = await createTestUser("user_b");
+
+      const loginA = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: userA.email, password: userA.password }
+      });
+      const tokenA = JSON.parse(loginA.body).data.accessToken;
+
+      const loginB = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: userB.email, password: userB.password }
+      });
+      const sessionBId = (await runtimePool.query(
+        `SELECT id FROM auth_sessions WHERE user_id = $1;`,
+        [userB.id]
+      )).rows[0].id;
+
+      // User A attempts to revoke User B's session
+      const attackRes = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/auth/sessions/${sessionBId}`,
+        headers: { authorization: `Bearer ${tokenA}` }
+      });
+
+      expect(attackRes.statusCode).toBe(404);
+
+      // Verify User B's session is still active
+      const checkB = await runtimePool.query(
+        `SELECT revoked_at FROM auth_sessions WHERE id = $1;`,
+        [sessionBId]
+      );
+      expect(checkB.rows[0].revoked_at).toBeNull();
+    });
+
+    it("should reject refresh and revoke session if account becomes SUSPENDED or DEACTIVATED", async () => {
+      const user = await createTestUser("suspended_check");
+
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email: user.email, password: user.password }
+      });
+      const cookie = extractCookie(loginRes, "refresh_token")!;
+      const { accessToken } = JSON.parse(loginRes.body).data;
+
+      // Suspend user in DB
+      await runtimePool.query(
+        `UPDATE users SET status = 'SUSPENDED' WHERE id = $1;`,
+        [user.id]
+      );
+
+      // Refresh attempt must fail with 403 Forbidden
+      const refreshRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/refresh",
+        headers: { cookie: `refresh_token=${cookie}` }
+      });
+      expect(refreshRes.statusCode).toBe(403);
+
+      // Verify session was revoked due to account suspension
+      const sessionRes = await runtimePool.query(
+        `SELECT revoked_at, revocation_reason FROM auth_sessions WHERE user_id = $1;`,
+        [user.id]
+      );
+      expect(sessionRes.rows[0].revoked_at).not.toBeNull();
+      expect(sessionRes.rows[0].revocation_reason).toBe("ACCOUNT_SUSPENDED");
+
+      // Verify protected /me access also fails
+      const meRes = await app.inject({
+        method: "GET",
+        url: "/api/v1/auth/me",
+        headers: { authorization: `Bearer ${accessToken}` }
+      });
+      // Either 401 (session revoked) or 403 (suspended)
+      expect([401, 403]).toContain(meRes.statusCode);
     });
   });
 });

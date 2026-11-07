@@ -8,6 +8,9 @@ export const UserStatusSchema = z.enum([
 ]);
 export type UserStatus = z.infer<typeof UserStatusSchema>;
 
+export const ClientTypeSchema = z.enum(["WEB", "MOBILE", "UNKNOWN"]);
+export type ClientType = z.infer<typeof ClientTypeSchema>;
+
 export const EmailSchema = z
   .string()
   .trim()
@@ -24,7 +27,7 @@ export const DisplayNameSchema = z
   .string()
   .trim()
   .min(1, "Display name is required")
-  .max(128, "Display name must not exceed 128 characters");
+  .max(128, "Display name cannot exceed 128 characters");
 
 export const PhoneNumberSchema = z
   .string()
@@ -55,7 +58,8 @@ export type RegisterResponseData = z.infer<typeof RegisterResponseDataSchema>;
 
 export const LoginRequestSchema = z.object({
   email: EmailSchema,
-  password: z.string().min(1, "Password is required").max(128)
+  password: z.string().min(1, "Password is required").max(128),
+  clientType: ClientTypeSchema.optional()
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
@@ -72,9 +76,65 @@ export const AuthenticatedUserSchema = z.object({
 export type AuthenticatedUser = z.infer<typeof AuthenticatedUserSchema>;
 
 export const LoginResponseDataSchema = z.object({
-  user: AuthenticatedUserSchema
+  user: AuthenticatedUserSchema,
+  accessToken: z.string(),
+  refreshToken: z.string().optional(),
+  expiresIn: z.number().default(900),
+  tokenType: z.literal("Bearer").default("Bearer")
 });
 export type LoginResponseData = z.infer<typeof LoginResponseDataSchema>;
+
+export const RefreshRequestSchema = z.object({
+  refreshToken: z.string().min(1).max(256).optional(),
+  clientType: ClientTypeSchema.optional()
+});
+export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
+
+export const RefreshResponseDataSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string().optional(),
+  expiresIn: z.number().default(900),
+  tokenType: z.literal("Bearer").default("Bearer")
+});
+export type RefreshResponseData = z.infer<typeof RefreshResponseDataSchema>;
+
+export const LogoutResponseDataSchema = z.object({
+  message: z.string()
+});
+export type LogoutResponseData = z.infer<typeof LogoutResponseDataSchema>;
+
+export const UserMeResponseDataSchema = z.object({
+  user: AuthenticatedUserSchema,
+  sessionId: z.string().uuid()
+});
+export type UserMeResponseData = z.infer<typeof UserMeResponseDataSchema>;
+
+export const SessionInfoSchema = z.object({
+  id: z.string().uuid(),
+  clientType: ClientTypeSchema,
+  ipAddress: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  lastActiveAt: z.string(),
+  createdAt: z.string(),
+  isCurrentSession: z.boolean().default(false)
+});
+export type SessionInfo = z.infer<typeof SessionInfoSchema>;
+
+export const SessionListResponseDataSchema = z.object({
+  sessions: z.array(SessionInfoSchema)
+});
+export type SessionListResponseData = z.infer<typeof SessionListResponseDataSchema>;
+
+export const JwtPayloadSchema = z.object({
+  sub: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  email: z.string(),
+  roles: z.array(z.string()),
+  jti: z.string(),
+  iat: z.number().optional(),
+  exp: z.number().optional()
+});
+export type JwtPayload = z.infer<typeof JwtPayloadSchema>;
 
 /**
  * Normalizes an email address according to the database constraint:

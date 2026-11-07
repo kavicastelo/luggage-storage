@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01, WP-02 & WP-03 COMPLETE — WP-04 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01, WP-02, WP-03 & WP-04 COMPLETE — WP-05 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -16,8 +16,8 @@
 | **WP-01** | **Identity Domain Architecture** | **COMPLETE** | [docs/architecture/phase-1b-identity-design.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/phase-1b-identity-design.md) | Verified & Validated: **PASS** |
 | **WP-02** | **Identity Database Implementation** | **COMPLETE** | [apps/api/src/infrastructure/database/schema/identity.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/schema/identity.ts)<br>[apps/api/src/infrastructure/database/migrations/](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/migrations/) | Verified: **WP-02 SECURITY CORRECTIONS PASSED — WP-03 AUTHORIZED** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp02-security-corrections.md)) |
 | **WP-03** | **Registration and Authentication** | **COMPLETE** | [apps/api/src/modules/auth/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/)<br>[packages/contracts/src/auth/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/auth/) | Verified: **WP-03 COMPLETE — READY FOR WP-04** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp03-implementation-report.md)) |
-| **WP-04** | Session Management and Logout | **READY FOR IMPLEMENTATION** | Token rotation, session store, cookie/bearer handling | **UNBLOCKED** — Gated by WP-03 |
-| **WP-05** | Password Change and Recovery | PENDING | Password change & secure recovery token foundation | Gated by WP-04 |
+| **WP-04** | **Session Management and Logout** | **COMPLETE** | [apps/api/src/modules/auth/session.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/session.service.ts)<br>[apps/api/src/modules/auth/token.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/token.service.ts)<br>[apps/api/src/modules/auth/auth.routes.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts) | Verified: **WP-04 COMPLETE — READY FOR WP-05** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp04-implementation-report.md)) |
+| **WP-05** | Password Change and Recovery | **READY FOR IMPLEMENTATION** | Password change & secure recovery token foundation | **UNBLOCKED** — Gated by WP-04 |
 | **WP-06** | Account Lifecycle & Security States | PENDING | Status transitions (`ACTIVE`, `SUSPENDED`, etc.) | Gated by WP-05 |
 | **WP-07** | RBAC and Permission Architecture | PENDING | Fastify authorization hooks & role enforcement | Gated by WP-06 |
 | **WP-08** | Web Authentication Integration | PENDING | React auth context, session cookies, store sync | Gated by WP-07 |
@@ -98,3 +98,32 @@
   - Monorepo: 74/74 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 61).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 30.7s.
 - **Verification Verdict:** **`WP-03 COMPLETE — READY FOR WP-04`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp03-implementation-report.md)).
+
+### WP-04: Session Management and Logout
+- **Deliverables:**
+  - Token cryptography service: `apps/api/src/modules/auth/token.service.ts`
+  - Session domain service: `apps/api/src/modules/auth/session.service.ts`
+  - Extended shared contracts: `packages/contracts/src/auth/index.ts`
+  - Fastify plugins & decorators: `apps/api/src/app.ts`, `apps/api/src/types/fastify.d.ts`
+  - Endpoints implementation: `apps/api/src/modules/auth/auth.routes.ts`
+  - Comprehensive integration test suite: `apps/api/tests/auth.test.ts` (38/38 tests pass)
+- **Endpoints Implemented:**
+  - `POST /api/v1/auth/refresh` (alias: `POST /auth/refresh`)
+  - `POST /api/v1/auth/logout` (alias: `POST /auth/logout`)
+  - `POST /api/v1/auth/logout-all` (alias: `POST /auth/logout-all`)
+  - `GET /api/v1/auth/me` (alias: `GET /auth/me`)
+  - `GET /api/v1/auth/sessions` (alias: `GET /auth/sessions`)
+  - `DELETE /api/v1/auth/sessions/:sessionId` (alias: `DELETE /auth/sessions/:sessionId`)
+- **Key Architectural & Security Controls:**
+  - **Zero Plaintext Token Storage:** 256-bit cryptographically random refresh tokens are generated via `crypto.randomBytes(32)` and persisted exclusively as SHA-256 verifier hashes in `auth_sessions.refresh_token_hash`.
+  - **Atomic Rotation & Row-Level Locking:** Rotation operations are serialized under PostgreSQL `SELECT ... FOR UPDATE` locks, ensuring transaction-safe rotation and eliminating concurrent race conditions.
+  - **Refresh Token Reuse Detection:** Detecting presentation of a previously consumed token (`previous_token_hash`) immediately triggers family revocation of all active sessions for that user and records an immutable `AUTH_TOKEN_REUSE_DETECTED` audit event.
+  - **Zero Residual Access Window:** The Fastify `app.authenticate` decorator verifies active session state directly in PostgreSQL, ensuring revoked sessions are blocked immediately across all protected endpoints.
+  - **Client Transport Separation:** Web clients receive HTTP-only, SameSite=Strict cookies with the refresh token stripped from JSON payloads; Mobile clients receive tokens in the structured response body.
+  - **Multi-Session Lifecycle Management:** Users can inspect active devices (`GET /sessions`), revoke individual sessions (`DELETE /sessions/:sessionId`), or revoke all active sessions (`POST /logout-all`). Cross-tenant session revocation is strictly prohibited.
+- **Quality Gate Results:**
+  - API package: 76/76 Vitest tests pass (38 auth tests + 31 identity DB tests + 7 live DB/health tests).
+  - Monorepo: 89/89 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 76).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 29.9s.
+- **Verification Verdict:** **`WP-04 COMPLETE — READY FOR WP-05`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp04-implementation-report.md)).
+
