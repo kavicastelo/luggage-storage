@@ -21,6 +21,15 @@ BEGIN
   END IF;
 END $$;
 
+-- 2.1 Create Dedicated Role Assigner Role (Non-login, minimal privileges for SECURITY DEFINER)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'luggage_role_assigner') THEN
+    CREATE ROLE luggage_role_assigner WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+  END IF;
+END $$;
+GRANT luggage_role_assigner TO luggage_migrator;
+
 -- 3. Create the Application Runtime User (Tier 3: Runtime DML execution)
 DO $$
 BEGIN
@@ -40,6 +49,9 @@ GRANT USAGE, CREATE ON SCHEMA public TO luggage_migrator;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO luggage_migrator;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO luggage_migrator;
 GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO luggage_migrator;
+
+-- Dedicated Role Assigner Privileges (Restricted to public functions, reading users/roles, writing user_roles)
+GRANT USAGE, CREATE ON SCHEMA public TO luggage_role_assigner;
 
 -- Ensure objects created by administrator or runtime grant privileges to migrator
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO luggage_migrator;

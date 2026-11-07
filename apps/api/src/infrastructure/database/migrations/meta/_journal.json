@@ -15,6 +15,13 @@
       "when": 1794079122395,
       "tag": "0001_empty_puff_adder",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794085669779,
+      "tag": "0002_marvelous_hercules",
+      "breakpoints": true
     }
   ]
 }

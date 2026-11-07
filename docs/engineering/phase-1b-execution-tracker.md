@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01 & WP-02 COMPLETE)**  
+**Status:** **IN PROGRESS (WP-01 & WP-02 COMPLETE — WP-03 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -14,8 +14,8 @@
 | WP ID | Work Package Title | Status | Primary Deliverable / Evidence Reference | Verification Status |
 | :---: | :--- | :---: | :--- | :---: |
 | **WP-01** | **Identity Domain Architecture** | **COMPLETE** | [docs/architecture/phase-1b-identity-design.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/phase-1b-identity-design.md) | Verified & Validated: **PASS** |
-| **WP-02** | **Identity Database Implementation** | **CORRECTIONS REQUIRED** | [apps/api/src/infrastructure/database/schema/identity.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/schema/identity.ts)<br>[apps/api/src/infrastructure/database/migrations/](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/migrations/) | Security Closure Checks: **BOTH CHECKS REQUIRE CORRECTION — WP-03 BLOCKED** (Direct audit `UPDATE user_id = NULL` allowed; RBAC grants on `role_permissions` & `user_roles` broader than intended) |
-| **WP-03** | Registration and Authentication | **BLOCKED** | Fastify auth routes (`/register`, `/login`) & Argon2id | Blocked by WP-02 audit immutability & RBAC privilege corrections |
+| **WP-02** | **Identity Database Implementation** | **COMPLETE** | [apps/api/src/infrastructure/database/schema/identity.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/schema/identity.ts)<br>[apps/api/src/infrastructure/database/migrations/](file:///d:/luggage-storage/luggage-storage/apps/api/src/infrastructure/database/migrations/) | Verified: **WP-02 SECURITY CORRECTIONS PASSED — WP-03 AUTHORIZED** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp02-security-corrections.md)) |
+| **WP-03** | Registration and Authentication | **READY FOR IMPLEMENTATION** | Fastify auth routes (`/register`, `/login`) & Argon2id | **UNBLOCKED** — Ready for implementation |
 | **WP-04** | Session Management and Logout | PENDING | Token rotation, session store, cookie/bearer handling | Gated by WP-03 |
 | **WP-05** | Password Change and Recovery | PENDING | Password change & secure recovery token foundation | Gated by WP-04 |
 | **WP-06** | Account Lifecycle & Security States | PENDING | Status transitions (`ACTIVE`, `SUSPENDED`, etc.) | Gated by WP-05 |
@@ -50,30 +50,26 @@
   - Drizzle configuration: `apps/api/drizzle.config.ts`
   - Forward-only migrations:
     - `0000_outgoing_thunderbolt_ross.sql` (10 initial tables, indexes, relations)
-    - `0001_empty_puff_adder.sql` (immutable audit trigger, normalized email match constraint, advisory lock integration, index on `previous_token_hash`, catalog privilege hardening)
+    - `0001_empty_puff_adder.sql` (initial audit trigger, normalized email match constraint, advisory lock integration, index on `previous_token_hash`, catalog privilege hardening)
+    - `0002_marvelous_hercules.sql` (SEC-04 audit actor FK decoupling and unconditional WORM trigger; SEC-05 complete DML revocation on RBAC tables from `luggage_user` and dedicated `SECURITY DEFINER` function `assign_default_traveller_role` owned by `luggage_role_assigner`)
   - Transaction-safe migration runner: `apps/api/src/infrastructure/database/migrate.ts` with PostgreSQL advisory lock `7461938502847`
-  - Integration test suite: `apps/api/tests/identity-database.test.ts` (21/21 tests pass)
+  - Integration test suite: `apps/api/tests/identity-database.test.ts` (31/31 tests pass against live PostgreSQL)
 - **Tables Implemented (10 tables):**
   1. `users` (normalized email unique, `users_normalized_email_match_check` constraint enforcing `normalized_email = lower(trim(email))`, Argon2id hash storage, status check)
   2. `traveller_profiles` (1-to-1 unique user_id fk cascade)
   3. `host_profiles` (1-to-1 unique user_id fk cascade, host_type and status checks)
-  4. `roles` (unique code, system roles, UPDATE/DELETE revoked from runtime role)
-  5. `permissions` (unique code, module index, UPDATE/DELETE revoked from runtime role)
-  6. `user_roles` (composite unique (user_id, role_id))
-  7. `role_permissions` (composite unique (role_id, permission_id))
+  4. `roles` (unique code, system roles, all DML revoked from runtime role `luggage_user`)
+  5. `permissions` (unique code, module index, all DML revoked from runtime role `luggage_user`)
+  6. `user_roles` (composite unique (user_id, role_id), all direct DML revoked from runtime role `luggage_user`)
+  7. `role_permissions` (composite unique (role_id, permission_id), all direct DML revoked from runtime role `luggage_user`)
   8. `auth_sessions` (unique refresh_token_hash, btree index on previous_token_hash for reuse detection, rotation metadata, client_type check)
   9. `password_reset_tokens` (unique token_hash, 1-hour expiration)
-  10. `security_audit_events` (immutable audit trail, UPDATE/DELETE revoked from runtime role, trigger `trg_prevent_audit_tampering` blocking modifications/deletions, user_id SET NULL cascade preservation)
-- **Independent Security & Integrity Review Findings & Corrections:**
-  - **Audit Immutability Defect (Corrected):** Discovered default privileges granted `UPDATE, DELETE` on `security_audit_events` to `luggage_user`. Corrected by revoking UPDATE, DELETE, TRUNCATE and installing database trigger `trg_prevent_audit_tampering`. Verified that runtime updates/deletes fail while legitimate inserts and `ON DELETE SET NULL` upon user deletion succeed.
-  - **Email Normalization Consistency Gap (Corrected):** Discovered `normalized_email` could silently disagree with `email`. Corrected by adding check constraint `users_normalized_email_match_check`. Verified that disagreeing inputs are rejected.
-  - **Concurrent Migration Safety Gap (Corrected):** Discovered lack of migration locking. Corrected by adding session advisory lock `pg_advisory_lock(7461938502847)` to `migrate.ts`.
-  - **Replay Detection Index Gap (Corrected):** Added btree index on `auth_sessions.previous_token_hash`.
-  - **RBAC Catalog Hardening (Corrected):** Revoked UPDATE, DELETE, TRUNCATE on `roles` and `permissions` from runtime role `luggage_user`.
+  10. `security_audit_events` (immutable append-only audit trail, unconditional trigger `trg_prevent_audit_tampering` rejecting 100% of UPDATE/DELETE operations, actor reference decoupled from foreign keys to preserve historical attribution upon user deletion)
+- **Security Closure Review Findings & Corrections:**
+  - **SEC-04 — Audit Immutability Bypass (Corrected):** Discovered direct `UPDATE user_id = NULL` was permitted via trigger exemption. Corrected by decoupling `security_audit_events.user_id` from cascading foreign key and installing an unconditional trigger rejecting all UPDATE and DELETE operations. Historical actor UUIDs are preserved intact upon user deletion without table mutability.
+  - **SEC-05 — Runtime RBAC Privilege Escalation (Corrected):** Discovered `luggage_user` retained direct DML permissions on `user_roles` and `role_permissions`, allowing direct `SUPERADMIN` role self-assignment. Corrected by revoking all DML (`INSERT, UPDATE, DELETE, TRUNCATE`) on all 4 RBAC tables from `luggage_user`, and creating a minimal `SECURITY DEFINER` function `assign_default_traveller_role(p_user_id uuid)` owned by dedicated non-login role `luggage_role_assigner`.
 - **Quality Gate Results:**
-  - API package: 28/28 Vitest tests pass (21 identity DB tests + 7 live DB/health tests).
-  - Monorepo: 41/41 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 28).
-  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 35s.
-- **Review Verdict:** **`BOTH CHECKS REQUIRE CORRECTION — WP-03 BLOCKED`**.
-  - *Check 1 (Audit Immutability):* Direct `UPDATE user_id = NULL` allowed under `luggage_migrator`; trigger cannot distinguish direct update from referential action. Sound correction proposed: decouple audit actor from cascading FK to achieve absolute immutability.
-  - *Check 2 (RBAC Privileges):* `luggage_user` has `INSERT` on `roles`/`permissions`, full DML on `role_permissions`, and can directly assign `SUPERADMIN` via `user_roles`. Specific privilege boundaries and WP-03/WP-07 enforcement recommended.
+  - API package: 38/38 Vitest tests pass (31 identity DB tests + 7 live DB/health tests).
+  - Monorepo: 51/51 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 38).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 26.0s.
+- **Verification Verdict:** **`WP-02 SECURITY CORRECTIONS PASSED — WP-03 AUTHORIZED`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp02-security-corrections.md)).

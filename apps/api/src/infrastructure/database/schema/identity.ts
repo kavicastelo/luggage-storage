@@ -247,7 +247,7 @@ export const securityAuditEvents = pgTable(
   "security_audit_events",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    userId: uuid("user_id"),
     eventType: varchar("event_type", { length: 64 }).notNull(),
     ipAddress: varchar("ip_address", { length: 45 }),
     userAgent: text("user_agent"),

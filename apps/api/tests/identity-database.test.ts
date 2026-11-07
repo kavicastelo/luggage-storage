@@ -260,19 +260,19 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       const roleId1 = role1.rows[0].id;
       const roleId2 = role2.rows[0].id;
 
-      // Assign first role
-      await runtimePool.query(
+      // Assign first role via migrator
+      await migratorPool.query(
         `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2);`,
         [userId, roleId1]
       );
 
-      // Assign second role (multi-role support)
-      await runtimePool.query(
+      // Assign second role (multi-role support) via migrator
+      await migratorPool.query(
         `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2);`,
         [userId, roleId2]
       );
 
-      // Verify user has both roles
+      // Verify user has both roles (queried via runtimePool)
       const userRolesRes = await runtimePool.query(
         `SELECT role_id FROM user_roles WHERE user_id = $1 ORDER BY role_id;`,
         [userId]
@@ -281,7 +281,7 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
 
       // Reject duplicate assignment of same role
       await expect(
-        runtimePool.query(
+        migratorPool.query(
           `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2);`,
           [userId, roleId1]
         )
@@ -290,11 +290,11 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
 
     it("should reject duplicate role-permission assignments", async () => {
       const uniqueSuffix = Date.now() + 5;
-      const role = await runtimePool.query(
+      const role = await migratorPool.query(
         `INSERT INTO roles (code, name) VALUES ($1, $2) RETURNING id;`,
         [`ROLE_PERM_${uniqueSuffix}`, "Test Role"]
       );
-      const perm = await runtimePool.query(
+      const perm = await migratorPool.query(
         `INSERT INTO permissions (code, name, module) VALUES ($1, $2, $3) RETURNING id;`,
         [`auth:test:${uniqueSuffix}`, "Test Permission", "identity"]
       );
@@ -302,14 +302,14 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       const roleId = role.rows[0].id;
       const permId = perm.rows[0].id;
 
-      await runtimePool.query(
+      await migratorPool.query(
         `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2);`,
         [roleId, permId]
       );
 
       // Duplicate must fail
       await expect(
-        runtimePool.query(
+        migratorPool.query(
           `INSERT INTO role_permissions (role_id, permission_id) VALUES ($1, $2);`,
           [roleId, permId]
         )
@@ -371,18 +371,44 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
     });
   });
 
-  describe("6. Security Audit Trail & SET NULL Referential Behavior", () => {
-    it("should preserve security_audit_events with user_id = null when user is deleted", async () => {
+  describe("6. Security Audit Trail & Truly Append-Only Immutability", () => {
+    it("should allow luggage_user to insert an audit event", async () => {
+      const uniqueSuffix = Date.now() + 6;
+      const userRes = await runtimePool.query(
+        `INSERT INTO users (email, normalized_email, password_hash, display_name)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id;`,
+        [
+          `audit_ins_${uniqueSuffix}@example.com`,
+          `audit_ins_${uniqueSuffix}@example.com`,
+          "$argon2id$mockhash",
+          "Audit Ins User"
+        ]
+      );
+      const userId = userRes.rows[0].id;
+
+      const eventRes = await runtimePool.query(
+        `INSERT INTO security_audit_events (user_id, event_type, metadata)
+         VALUES ($1, $2, $3)
+         RETURNING id, user_id, event_type;`,
+        [userId, "LOGIN_SUCCESS", JSON.stringify({ ip: "127.0.0.1" })]
+      );
+      expect(eventRes.rows[0].id).toBeDefined();
+      expect(eventRes.rows[0].user_id).toBe(userId);
+      expect(eventRes.rows[0].event_type).toBe("LOGIN_SUCCESS");
+    });
+
+    it("should preserve audit record and original historical actor UUID unchanged when associated user is deleted", async () => {
       const uniqueSuffix = Date.now() + 7;
       const userRes = await runtimePool.query(
         `INSERT INTO users (email, normalized_email, password_hash, display_name)
          VALUES ($1, $2, $3, $4)
          RETURNING id;`,
         [
-          `audit_${uniqueSuffix}@example.com`,
-          `audit_${uniqueSuffix}@example.com`,
+          `audit_del_${uniqueSuffix}@example.com`,
+          `audit_del_${uniqueSuffix}@example.com`,
           "$argon2id$mockhash",
-          "Audit User"
+          "Audit Del User"
         ]
       );
       const userId = userRes.rows[0].id;
@@ -399,13 +425,13 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       // Delete user
       await runtimePool.query(`DELETE FROM users WHERE id = $1;`, [userId]);
 
-      // Audit event must still exist, with user_id set to null (audit trail preservation)
+      // Audit event must still exist, with original historical actor UUID intact (NOT NULL)
       const auditCheck = await runtimePool.query(
         `SELECT id, user_id, event_type FROM security_audit_events WHERE id = $1;`,
         [eventId]
       );
       expect(auditCheck.rows.length).toBe(1);
-      expect(auditCheck.rows[0].user_id).toBeNull();
+      expect(auditCheck.rows[0].user_id).toBe(userId);
       expect(auditCheck.rows[0].event_type).toBe("REGISTER_SUCCESS");
     });
 
@@ -418,6 +444,12 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       await expect(
         runtimePool.query(
           `UPDATE security_audit_events SET event_type = 'TAMPERED' WHERE id = '00000000-0000-0000-0000-000000000000';`
+        )
+      ).rejects.toThrowError(/permission denied for table security_audit_events/i);
+
+      await expect(
+        runtimePool.query(
+          `UPDATE security_audit_events SET user_id = NULL WHERE id = '00000000-0000-0000-0000-000000000000';`
         )
       ).rejects.toThrowError(/permission denied for table security_audit_events/i);
     });
@@ -435,7 +467,7 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       ).rejects.toThrowError(/permission denied for table security_audit_events/i);
     });
 
-    it("should block UPDATE and DELETE via database trigger even under migrator", async () => {
+    it("should unconditionally block UPDATE and DELETE via trigger even under table owner migrator", async () => {
       const eventRes = await migratorPool.query(
         `INSERT INTO security_audit_events (event_type, metadata)
          VALUES ($1, $2)
@@ -444,7 +476,7 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       );
       const eventId = eventRes.rows[0].id;
 
-      // UPDATE attempt must be blocked by trigger
+      // UPDATE event_type attempt must be blocked unconditionally
       await expect(
         migratorPool.query(
           `UPDATE security_audit_events SET event_type = 'TAMPERED' WHERE id = $1;`,
@@ -452,7 +484,15 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
         )
       ).rejects.toThrowError(/security_audit_events records are immutable: UPDATE is prohibited/i);
 
-      // DELETE attempt must be blocked by trigger
+      // Direct UPDATE user_id to NULL attempt must also be blocked unconditionally
+      await expect(
+        migratorPool.query(
+          `UPDATE security_audit_events SET user_id = NULL WHERE id = $1;`,
+          [eventId]
+        )
+      ).rejects.toThrowError(/security_audit_events records are immutable: UPDATE is prohibited/i);
+
+      // DELETE attempt must be blocked unconditionally
       await expect(
         migratorPool.query(
           `DELETE FROM security_audit_events WHERE id = $1;`,
@@ -511,18 +551,170 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
       }
     });
 
-    it("should deny luggage_user UPDATE and DELETE on roles and permissions catalogs", async () => {
+    it("should verify luggage_user can read role and permission catalogs", async () => {
+      const rolesRes = await runtimePool.query("SELECT code FROM roles LIMIT 5;");
+      expect(rolesRes.rows).toBeDefined();
+
+      const permsRes = await runtimePool.query("SELECT code FROM permissions LIMIT 5;");
+      expect(permsRes.rows).toBeDefined();
+    });
+
+    it("should verify luggage_user cannot INSERT, UPDATE, or DELETE roles", async () => {
       const res = await runtimePool.query(`
         SELECT 
-          has_table_privilege('luggage_user', 'roles', 'UPDATE') as can_update_roles,
-          has_table_privilege('luggage_user', 'roles', 'DELETE') as can_delete_roles,
-          has_table_privilege('luggage_user', 'permissions', 'UPDATE') as can_update_perms,
-          has_table_privilege('luggage_user', 'permissions', 'DELETE') as can_delete_perms;
+          has_table_privilege('luggage_user', 'roles', 'INSERT') as can_insert,
+          has_table_privilege('luggage_user', 'roles', 'UPDATE') as can_update,
+          has_table_privilege('luggage_user', 'roles', 'DELETE') as can_delete,
+          has_table_privilege('luggage_user', 'roles', 'TRUNCATE') as can_truncate;
       `);
-      expect(res.rows[0].can_update_roles).toBe(false);
-      expect(res.rows[0].can_delete_roles).toBe(false);
-      expect(res.rows[0].can_update_perms).toBe(false);
-      expect(res.rows[0].can_delete_perms).toBe(false);
+      expect(res.rows[0].can_insert).toBe(false);
+      expect(res.rows[0].can_update).toBe(false);
+      expect(res.rows[0].can_delete).toBe(false);
+      expect(res.rows[0].can_truncate).toBe(false);
+
+      await expect(
+        runtimePool.query("INSERT INTO roles (code, name) VALUES ('HACK_ROLE', 'Hack');")
+      ).rejects.toThrowError(/permission denied for table roles/i);
+    });
+
+    it("should verify luggage_user cannot INSERT, UPDATE, or DELETE permissions", async () => {
+      const res = await runtimePool.query(`
+        SELECT 
+          has_table_privilege('luggage_user', 'permissions', 'INSERT') as can_insert,
+          has_table_privilege('luggage_user', 'permissions', 'UPDATE') as can_update,
+          has_table_privilege('luggage_user', 'permissions', 'DELETE') as can_delete,
+          has_table_privilege('luggage_user', 'permissions', 'TRUNCATE') as can_truncate;
+      `);
+      expect(res.rows[0].can_insert).toBe(false);
+      expect(res.rows[0].can_update).toBe(false);
+      expect(res.rows[0].can_delete).toBe(false);
+      expect(res.rows[0].can_truncate).toBe(false);
+
+      await expect(
+        runtimePool.query("INSERT INTO permissions (code, name, module) VALUES ('hack:perm', 'Hack', 'test');")
+      ).rejects.toThrowError(/permission denied for table permissions/i);
+    });
+
+    it("should verify luggage_user cannot INSERT, UPDATE, or DELETE role_permissions", async () => {
+      const res = await runtimePool.query(`
+        SELECT 
+          has_table_privilege('luggage_user', 'role_permissions', 'INSERT') as can_insert,
+          has_table_privilege('luggage_user', 'role_permissions', 'UPDATE') as can_update,
+          has_table_privilege('luggage_user', 'role_permissions', 'DELETE') as can_delete,
+          has_table_privilege('luggage_user', 'role_permissions', 'TRUNCATE') as can_truncate;
+      `);
+      expect(res.rows[0].can_insert).toBe(false);
+      expect(res.rows[0].can_update).toBe(false);
+      expect(res.rows[0].can_delete).toBe(false);
+      expect(res.rows[0].can_truncate).toBe(false);
+
+      await expect(
+        runtimePool.query(
+          "INSERT INTO role_permissions (role_id, permission_id) VALUES ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000');"
+        )
+      ).rejects.toThrowError(/permission denied for table role_permissions/i);
+    });
+
+    it("should verify luggage_user cannot directly INSERT, UPDATE, or DELETE user_roles", async () => {
+      const res = await runtimePool.query(`
+        SELECT 
+          has_table_privilege('luggage_user', 'user_roles', 'INSERT') as can_insert,
+          has_table_privilege('luggage_user', 'user_roles', 'UPDATE') as can_update,
+          has_table_privilege('luggage_user', 'user_roles', 'DELETE') as can_delete,
+          has_table_privilege('luggage_user', 'user_roles', 'TRUNCATE') as can_truncate;
+      `);
+      expect(res.rows[0].can_insert).toBe(false);
+      expect(res.rows[0].can_update).toBe(false);
+      expect(res.rows[0].can_delete).toBe(false);
+      expect(res.rows[0].can_truncate).toBe(false);
+
+      await expect(
+        runtimePool.query(
+          "INSERT INTO user_roles (user_id, role_id) VALUES ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000');"
+        )
+      ).rejects.toThrowError(/permission denied for table user_roles/i);
+    });
+
+    it("should verify luggage_user cannot assign SUPERADMIN or arbitrary roles using direct SQL", async () => {
+      await expect(
+        runtimePool.query(`
+          INSERT INTO user_roles (user_id, role_id)
+          SELECT '00000000-0000-0000-0000-000000000000', id FROM roles WHERE code = 'SUPERADMIN';
+        `)
+      ).rejects.toThrowError(/permission denied for table user_roles/i);
+    });
+
+    it("should verify assign_default_traveller_role function can assign TRAVELLER role", async () => {
+      const uniqueSuffix = Date.now() + 15;
+      const userRes = await runtimePool.query(
+        `INSERT INTO users (email, normalized_email, password_hash, display_name)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id;`,
+        [
+          `fn_trav_${uniqueSuffix}@example.com`,
+          `fn_trav_${uniqueSuffix}@example.com`,
+          "$argon2id$mock",
+          "Fn User"
+        ]
+      );
+      const userId = userRes.rows[0].id;
+
+      // Call function as luggage_user
+      await runtimePool.query("SELECT public.assign_default_traveller_role($1);", [userId]);
+
+      // Verify TRAVELLER role was assigned
+      const assigned = await runtimePool.query(`
+        SELECT ur.user_id, r.code 
+        FROM user_roles ur 
+        JOIN roles r ON ur.role_id = r.id 
+        WHERE ur.user_id = $1;
+      `, [userId]);
+
+      expect(assigned.rows.length).toBe(1);
+      expect(assigned.rows[0].code).toBe("TRAVELLER");
+    });
+
+    it("should verify repeated assign_default_traveller_role invocation is idempotent", async () => {
+      const uniqueSuffix = Date.now() + 16;
+      const userRes = await runtimePool.query(
+        `INSERT INTO users (email, normalized_email, password_hash, display_name)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id;`,
+        [
+          `fn_idemp_${uniqueSuffix}@example.com`,
+          `fn_idemp_${uniqueSuffix}@example.com`,
+          "$argon2id$mock",
+          "Idemp User"
+        ]
+      );
+      const userId = userRes.rows[0].id;
+
+      // Call twice
+      await runtimePool.query("SELECT public.assign_default_traveller_role($1);", [userId]);
+      await runtimePool.query("SELECT public.assign_default_traveller_role($1);", [userId]);
+
+      const assigned = await runtimePool.query(`
+        SELECT COUNT(*) as count FROM user_roles WHERE user_id = $1;
+      `, [userId]);
+      expect(Number(assigned.rows[0].count)).toBe(1);
+    });
+
+    it("should verify assign_default_traveller_role rejects non-existent users", async () => {
+      await expect(
+        runtimePool.query("SELECT public.assign_default_traveller_role('00000000-0000-0000-0000-000000000000');")
+      ).rejects.toThrowError(/Cannot assign role: user 00000000-0000-0000-0000-000000000000 does not exist/i);
+    });
+
+    it("should verify PUBLIC cannot execute assign_default_traveller_role, but luggage_user can", async () => {
+      const pubRes = await runtimePool.query(`
+        SELECT has_function_privilege('public', 'public.assign_default_traveller_role(uuid)', 'EXECUTE') as pub_exec;
+      `);
+      expect(pubRes.rows[0].pub_exec).toBe(false);
+
+      const userRes = await runtimePool.query(`
+        SELECT has_function_privilege('luggage_user', 'public.assign_default_traveller_role(uuid)', 'EXECUTE') as user_exec;
+      `);
+      expect(userRes.rows[0].user_exec).toBe(true);
     });
 
     it("should serialize migrations via PostgreSQL advisory lock", async () => {
