@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01 THROUGH WP-10 COMPLETE — WP-11 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01 THROUGH WP-11 COMPLETE — WP-12 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -23,8 +23,8 @@
 | **WP-08** | **Web Authentication Integration** | **COMPLETE** | [apps/web/src/pages/](file:///d:/luggage-storage/luggage-storage/apps/web/src/pages/)<br>[apps/web/src/store/useAuthStore.ts](file:///d:/luggage-storage/luggage-storage/apps/web/src/store/useAuthStore.ts) | Verified: **WP-08 COMPLETE — READY FOR WP-09** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp08-implementation-report.md)) |
 | **WP-09** | **Mobile Authentication Integration** | **COMPLETE** | [apps/mobile/src/services/](file:///d:/luggage-storage/luggage-storage/apps/mobile/src/services/)<br>[apps/mobile/src/store/useAuthStore.ts](file:///d:/luggage-storage/luggage-storage/apps/mobile/src/store/useAuthStore.ts)<br>[apps/mobile/app/](file:///d:/luggage-storage/luggage-storage/apps/mobile/app/) | Verified: **WP-09 COMPLETE — READY FOR WP-10** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp09-implementation-report.md)) |
 | **WP-10** | **API Contract and Endpoint Design** | **COMPLETE** | [packages/contracts/src/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/)<br>[packages/contracts/tests/](file:///d:/luggage-storage/luggage-storage/packages/contracts/tests/) | Verified: **WP-10 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp10-implementation-report.md)) |
-| **WP-11** | **Auth Security Testing Suite** | **READY FOR IMPLEMENTATION** | Comprehensive Vitest suite for auth & RBAC | **UNBLOCKED** — Gated by WP-10 |
-| **WP-12** | Auditability & Operational Security | PENDING | `security_audit_events` logging implementation | Gated by WP-07 |
+| **WP-11** | **Auth Security Testing Suite** | **COMPLETE** | [apps/api/tests/security-regression-suite.test.ts](file:///d:/luggage-storage/luggage-storage/apps/api/tests/security-regression-suite.test.ts) | Verified: **WP-11 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp11-security-testing-report.md)) |
+| **WP-12** | **Auditability & Operational Security** | **READY FOR IMPLEMENTATION** | `security_audit_events` logging implementation | **UNBLOCKED** — Gated by WP-11 |
 | **WP-13** | Security Architecture Documentation | PENDING | Formal threat model and security evaluation | Post-implementation |
 | **WP-14** | Engineering Quality & Gate Verification | PENDING | Turborepo uncached verification & CI green | Final acceptance |
 
@@ -286,3 +286,20 @@
   - Monorepo: 253/253 tests pass (Contracts: 54, Mobile: 27, Web: 33, API: 139).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 42.885s with 0 lint warnings and 0 errors.
 - **Verification Verdict:** **`WP-10 COMPLETE — READY FOR NEXT WORK PACKAGE`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp10-implementation-report.md)).
+
+### WP-11: Authentication & RBAC Security Testing Suite
+- **Deliverables:**
+  - Dedicated security regression and abuse test suite: `apps/api/tests/security-regression-suite.test.ts` (26 tests)
+  - Comprehensive technical verification report: `docs/engineering/phase-1b-wp11-security-testing-report.md`
+- **Security Scenarios Verified:**
+  - **Authentication Security:** Privileged role injection rejection, case-insensitive email normalization and duplicate conflict handling, zero credential disclosure (no hashes/passwords in responses/logs), timing attack mitigation, account lifecycle gating (`SUSPENDED`/`DEACTIVATED` 403 rejection), and SQL injection payload resilience.
+  - **Session & Token Security:** SHA-256 verifier hash storage only, token rotation, reuse family revocation, row-level lock concurrency serialization, zero-residual access on logout, and cross-user session isolation.
+  - **Password Security & Recovery:** Authenticated password change with sibling session revocation, single-use reset tokens with replay defense, session revocation on reset, and enumeration resistance.
+  - **RBAC Boundaries:** 401 anonymous rejection, 403 insufficient privilege rejection, Support vs Superadmin boundary checks, self-role escalation prevention, minimum role preservation, and immediate real-time permission revocation without stale cache windows.
+  - **Database Privilege Hardening:** Verified `luggage_user` has NO direct DML on RBAC catalog and join tables; `SECURITY DEFINER` functions enforce fixed `search_path = public, pg_temp`; immutable audit trigger `trg_prevent_audit_tampering` blocks direct update/delete even for table owner.
+  - **UUID Architecture Alignment:** Empirical and schema verification confirming transparent acceptance of both UUIDv4 and UUIDv7 across Zod contracts and PostgreSQL storage.
+- **Quality Gate Results:**
+  - API package: 165/165 Vitest tests pass across 7 test files.
+  - Monorepo: 279/279 tests pass across 26 test suites (Contracts: 54, Mobile: 27, Web: 33, API: 165).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 43.517s with 0 lint warnings and 0 errors.
+- **Verification Verdict:** **`WP-11 COMPLETE — READY FOR NEXT WORK PACKAGE`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp11-security-testing-report.md)).
