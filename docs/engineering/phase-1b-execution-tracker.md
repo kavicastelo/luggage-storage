@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01 THROUGH WP-07 COMPLETE — WP-08 READY FOR IMPLEMENTATION)**  
+**Status:** **IN PROGRESS (WP-01 THROUGH WP-08 COMPLETE — WP-09 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -20,8 +20,8 @@
 | **WP-05** | **Password Change and Recovery** | **COMPLETE** | [apps/api/src/modules/auth/password.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/password.service.ts)<br>[apps/api/src/modules/email/email.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/email/email.service.ts)<br>[apps/api/src/modules/auth/auth.routes.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts) | Verified: **WP-05 COMPLETE — READY FOR WP-06** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp05-implementation-report.md)) |
 | **WP-06** | **Admin Account Lifecycle & Security States** | **COMPLETE** | [apps/api/src/modules/admin/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/admin/)<br>[packages/contracts/src/admin/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/admin/) | Verified: **WP-06 COMPLETE — READY FOR WP-07** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp06-implementation-report.md)) |
 | **WP-07** | **RBAC and Permission Architecture** | **COMPLETE** | [apps/api/src/modules/auth/rbac.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/rbac.service.ts)<br>[packages/contracts/src/rbac/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/rbac/) | Verified: **WP-07 COMPLETE — READY FOR WP-08** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp07-implementation-report.md)) |
-| **WP-08** | Web Authentication Integration | **READY FOR IMPLEMENTATION** | React auth context, session cookies, store sync | **UNBLOCKED** — Gated by WP-07 |
-| **WP-09** | Mobile Authentication Integration | PENDING | Expo SecureStore token storage & interceptors | Gated by WP-07 |
+| **WP-08** | **Web Authentication Integration** | **COMPLETE** | [apps/web/src/pages/](file:///d:/luggage-storage/luggage-storage/apps/web/src/pages/)<br>[apps/web/src/store/useAuthStore.ts](file:///d:/luggage-storage/luggage-storage/apps/web/src/store/useAuthStore.ts) | Verified: **WP-08 COMPLETE — READY FOR WP-09** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp08-implementation-report.md)) |
+| **WP-09** | **Mobile Authentication Integration** | **READY FOR IMPLEMENTATION** | Expo SecureStore token storage & interceptors | **UNBLOCKED** — Gated by WP-08 |
 | **WP-10** | API Contract and Endpoint Design | PENDING | Shared Zod schemas in `packages/contracts` | Parallel with WP-03–07 |
 | **WP-11** | Auth Security Testing Suite | PENDING | Comprehensive Vitest suite for auth & RBAC | Continuous |
 | **WP-12** | Auditability & Operational Security | PENDING | `security_audit_events` logging implementation | Gated by WP-07 |
@@ -196,3 +196,35 @@
   - Monorepo: 152/152 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 139).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 38.2s with 0 lint warnings and 0 errors.
 - **Verification Verdict:** **`WP-07 COMPLETE — READY FOR WP-08`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp07-implementation-report.md)).
+
+### WP-08: Web Authentication Integration
+- **Deliverables:**
+  - In-memory API client & 401 refresh interceptor: `apps/web/src/lib/api-client.ts`
+  - Centralized Auth API service: `apps/web/src/services/auth-api.ts`
+  - Zod validation helper: `apps/web/src/lib/validation.ts`
+  - Zustand auth store: `apps/web/src/store/useAuthStore.ts`
+  - Route guards & gates: `apps/web/src/components/auth/ProtectedRoute.tsx`, `apps/web/src/components/auth/PublicOnlyRoute.tsx`, `apps/web/src/components/auth/PermissionGate.tsx`
+  - Authentication screens: `LoginPage.tsx`, `RegisterPage.tsx`, `ForgotPasswordPage.tsx`, `ResetPasswordPage.tsx`, `ProfilePage.tsx`, `SecurityPage.tsx`, `SessionsPage.tsx`, `ForbiddenPage.tsx`
+  - Layout & Router: `apps/web/src/components/layout/AppShell.tsx`, `apps/web/src/app/App.tsx`
+  - Comprehensive automated test suites: `apps/web/tests/auth-store.test.ts`, `apps/web/tests/api-client.test.ts`, `apps/web/tests/validation.test.ts`, `apps/web/tests/auth-flows.test.ts` (33/33 tests pass)
+- **Screens & Flows Implemented:**
+  - `/register`: Registration with email/password/displayName validation, default Traveller role enforcement, 409 conflict handling, and pending verification status notice.
+  - `/login`: Form validation, `clientType: "WEB"`, 401 invalid credentials, 403 suspension/deactivation handling, and return-URL navigation.
+  - `/forgot-password`: Enumeration-resistant password recovery request with generic confirmation.
+  - `/reset-password`: Token-based password reset, complexity validation, 400 invalid/expired token handling, and navigation to login.
+  - `/profile`: User details, email verification status, assigned roles, effective permissions explorer, and navigation to security and sessions.
+  - `/settings/security`: Authenticated password change, password policy validation, and sibling session revocation confirmation.
+  - `/settings/sessions`: Multi-session list, current session awareness, individual session revocation, and logout-all.
+  - `/forbidden`: 403 Access Denied presentation with missing permission/role details.
+- **Key Architectural & Security Controls:**
+  - **HTTP-Only Cookie Refresh Transport:** Refresh tokens transported exclusively via `HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth` cookies. JavaScript has zero access to refresh tokens.
+  - **In-Memory JWT Access Token:** Short-lived access tokens stored in memory only. Zero storage in `localStorage`, `sessionStorage`, or Zustand persistence layers.
+  - **Singleton Refresh Mutex:** Serializes concurrent requests during 401 token refresh to ensure only 1 refresh call is dispatched.
+  - **Infinite Loop Defense:** 401 handling explicitly bypasses auth routes (`/auth/login`, `/auth/register`, `/auth/refresh`).
+  - **Permission-Aware UI:** Dynamic rendering of admin badges and action controls based on backend effective permissions.
+  - **Non-Leaking Route Guards:** Prevents protected content from flashing or rendering while `isInitializing` resolves.
+- **Quality Gate Results:**
+  - Web package: 33/33 Vitest tests pass across 5 test files.
+  - Monorepo: 182/182 tests pass (Contracts: 8, Web: 33, Mobile: 2, API: 139).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 38.7s with 0 lint warnings and 0 errors.
+- **Verification Verdict:** **`WP-08 COMPLETE — READY FOR WP-09`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp08-implementation-report.md)).

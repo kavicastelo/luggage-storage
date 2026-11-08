@@ -17,6 +17,7 @@ import { AppError } from "../../common/errors/app-error.js";
 import { authService } from "./auth.service.js";
 import { sessionService } from "./session.service.js";
 import { passwordService } from "./password.service.js";
+import { rbacService } from "./rbac.service.js";
 
 const UuidParamSchema = z.object({
   sessionId: z.string().uuid("Invalid session ID format")
@@ -495,10 +496,12 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
                       isEmailVerified: { type: "boolean" },
                       isPhoneVerified: { type: "boolean" },
                       roles: { type: "array", items: { type: "string" } },
+                      permissions: { type: "array", items: { type: "string" } },
                       lastLoginAt: { type: "string", nullable: true }
                     }
                   },
-                  sessionId: { type: "string", format: "uuid" }
+                  sessionId: { type: "string", format: "uuid" },
+                  permissions: { type: "array", items: { type: "string" } }
                 }
               },
               meta: {
@@ -515,12 +518,17 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     },
     async (request, reply) => {
       const user = await authService.getCurrentUser(request.user.sub);
+      const permissions = await rbacService.getEffectivePermissions(request.user.sub);
 
       return reply.status(200).send(
         createSuccessResponse(
           {
-            user,
-            sessionId: request.user.sessionId
+            user: {
+              ...user,
+              permissions
+            },
+            sessionId: request.user.sessionId,
+            permissions
           },
           request.id
         )

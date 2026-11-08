@@ -71,6 +71,7 @@ export const AuthenticatedUserSchema = z.object({
   isEmailVerified: z.boolean(),
   isPhoneVerified: z.boolean(),
   roles: z.array(z.string()),
+  permissions: z.array(z.string()).optional(),
   lastLoginAt: z.string().nullable()
 });
 export type AuthenticatedUser = z.infer<typeof AuthenticatedUserSchema>;
@@ -105,7 +106,8 @@ export type LogoutResponseData = z.infer<typeof LogoutResponseDataSchema>;
 
 export const UserMeResponseDataSchema = z.object({
   user: AuthenticatedUserSchema,
-  sessionId: z.string().uuid()
+  sessionId: z.string().uuid(),
+  permissions: z.array(z.string()).optional()
 });
 export type UserMeResponseData = z.infer<typeof UserMeResponseDataSchema>;
 
