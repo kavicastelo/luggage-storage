@@ -72,16 +72,16 @@ flowchart TD
 - **Preconditions**: Attacker has access to dumped username/password lists.
 - **Impact**: Account takeover (ATO), unauthorized booking manipulation, system resource exhaustion.
 - **Implemented Controls**:
-  1. Rate limiting on sensitive authentication routes (`login`, `forgot-password`).
+  1. In-memory sliding-window rate limiting on sensitive authentication routes (`login`, `forgot-password`).
   2. OWASP Argon2id password verification parameters ($m=64\text{ MiB}, t=3, p=4$) imposing prohibitive computational cost (~60ms CPU time per attempt) on attackers attempting local or remote brute force.
   3. Security audit event emission (`AUTH_LOGIN_FAILURE`) capturing IP and User-Agent telemetry for automated SIEM detection.
 - **Code References**:
   - [`auth.routes.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts)
   - [`argon2.service.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/argon2.service.ts#L10)
 - **Test Evidence**: [`security.test.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/tests/security.test.ts) (`records AUTH_LOGIN_FAILURE on bad credentials`).
-- **Residual Risk**: Distributed botnets rotating residential IP pools can evade naive per-IP rate limits.
-- **Future Work**: Integrate Cloudflare Turnstile or CAPTCHA challenge on repeated login failures; enforce Multi-Factor Authentication (MFA/TOTP).
-- **Status**: `MITIGATED`
+- **Residual Risk**: In-memory rate limiting is node-local; distributed botnets rotating residential IP pools across clustered instances can evade per-instance in-memory thresholds.
+- **Future Work**: Deploy distributed Redis-backed rate limiting across cluster instances; integrate Cloudflare Turnstile / CAPTCHA on repeated failures; enforce Multi-Factor Authentication (MFA/TOTP).
+- **Status**: `PARTIALLY_MITIGATED (APPLICATION CRYPTO & LOCAL LIMITING IN PLACE; DISTRIBUTED EDGE WAF DEFERRED)`
 
 ---
 
@@ -92,16 +92,16 @@ flowchart TD
 - **Preconditions**: Attacker knows target user email.
 - **Impact**: Account compromise.
 - **Implemented Controls**:
-  1. Argon2id high memory/time computational resistance.
-  2. Rate limiting per target account and IP.
+  1. Argon2id high memory/time computational resistance ($m=64\text{MB}, t=3, p=4$) preventing high-speed local dictionary lookups.
+  2. In-memory rate limiting per normalized target account and client IP.
   3. Password complexity policy requiring minimum 8 characters, uppercase, lowercase, numeric, and special character.
 - **Code References**:
   - [`contracts/src/auth/index.ts`](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/auth/index.ts) (`RegisterRequestSchema`)
   - [`argon2.service.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/argon2.service.ts)
 - **Test Evidence**: [`contracts.test.ts`](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/index.test.ts) (password complexity tests).
-- **Residual Risk**: Users choosing predictable passwords that meet complexity rules.
-- **Future Work**: HaveIBeenPwned API check for compromised passwords on registration and password change.
-- **Status**: `MITIGATED`
+- **Residual Risk**: Password complexity rules do not prevent dictionary attacks using common complex passwords (e.g. `P@ssw0rd123!`); distributed dictionary attacks against a single user across multiple IPs require account lockout or CAPTCHA.
+- **Future Work**: HaveIBeenPwned API check for compromised passwords; progressive delay and account lockout policy; CAPTCHA on threshold.
+- **Status**: `PARTIALLY_MITIGATED (STRONG IN-APP CRYPTO & LOCAL LIMITING; DISTRIBUTED ATTACK MITIGATION DEFERRED TO EDGE)`
 
 ---
 
@@ -258,10 +258,11 @@ flowchart TD
 - **Preconditions**: Authenticated user.
 - **Impact**: Unauthorized access to private profiles and remote session termination.
 - **Implemented Controls**:
-  1. **UUIDv4 Non-Sequential Identifiers**: All resources utilize 128-bit random UUIDs, preventing sequential enumeration.
-  2. **Strict Ownership Filtering**: Query filters include `user_id = authenticatedUserId`:
+  1. **Strict Ownership Authorization Filtering**: The primary defense is server-side ownership authorization. Query filters enforce `user_id = authenticatedUserId` across data retrieval and mutation operations:
      - In [`session.service.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/session.service.ts#L432): `UPDATE auth_sessions WHERE id = $sessionId AND user_id = $userId`.
-  3. **Administrative Boundary**: Cross-user inspection is restricted to routes protected by `admin.user.read` or `admin.session.read_any`.
+     - In profile endpoints: personal profile routes resolve identity directly from verified JWT claims (`request.user.sub`) rather than arbitrary route parameters.
+  2. **Non-Sequential Identifiers (Defense-in-Depth)**: All primary keys use 128-bit random UUIDs, preventing sequential enumeration or ID guessing.
+  3. **Administrative Boundary**: Cross-user inspection is restricted to distinct administrative routes protected by `admin.user.read` or `admin.session.read_any`.
 - **Code References**:
   - [`session.service.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/session.service.ts#L420-L438)
   - [`admin.service.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/admin/admin.service.ts#L157)
@@ -368,9 +369,9 @@ flowchart TD
   - [`0006_security_audit_events.sql`](file:///d:/luggage-storage/luggage-storage/packages/database/src/migrations/0006_security_audit_events.sql)
   - [`audit.service.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/audit/audit.service.ts#L71-L188)
 - **Test Evidence**: [`audit.test.ts`](file:///d:/luggage-storage/luggage-storage/apps/api/src/tests/audit.test.ts) (`trg_prevent_audit_tampering rejects UPDATE and DELETE`).
-- **Residual Risk**: PostgreSQL superuser (`postgres`) dropping the trigger or database directly on the host VM.
-- **Future Work**: Stream audit events in real time to external WORM (Write Once Read Many) cloud storage (e.g. AWS CloudWatch with Object Lock or Google Cloud Storage Bucket Lock).
-- **Status**: `MITIGATED`
+- **Residual Risk**: A database superuser (`postgres`) or DBA with direct shell/host access to the PostgreSQL server can bypass triggers or drop tables. Application-level triggers protect against runtime application compromises and SQL injection, but do not constrain out-of-band cloud infrastructure administrators.
+- **Future Work**: Stream audit events in real time to external WORM (Write Once Read Many) cloud storage (e.g. AWS CloudWatch with Object Lock or Google Cloud Storage Bucket Lock) for independent out-of-band non-repudiation.
+- **Status**: `MITIGATED (APPLICATION & SQLI LAYER) / RESIDUAL RISK (DATABASE HOST SUPERUSER)`
 
 ---
 
@@ -378,8 +379,8 @@ flowchart TD
 
 | Threat # | Threat Category | STRIDE | Mitigation Status | Core Defense Mechanism |
 | :---: | :--- | :--- | :---: | :--- |
-| **T01** | Credential Stuffing | Spoofing | `MITIGATED` | Rate limiting + Argon2id high cost ($64\text{MB}, t=3, p=4$) |
-| **T02** | Brute-Force Attempts | Spoofing | `MITIGATED` | Strict password complexity policy + rate limiting |
+| **T01** | Credential Stuffing | Spoofing | `PARTIALLY_MITIGATED` | Application rate limiting + Argon2id high cost ($64\text{MB}, t=3, p=4$); distributed edge WAF deferred |
+| **T02** | Brute-Force Attempts | Spoofing | `PARTIALLY_MITIGATED` | Password complexity policy + in-app rate limiting; edge IP-spray mitigation deferred |
 | **T03** | Account Enumeration | Info Disclosure | `MITIGATED` | Generic responses + `verifyDummy()` timing attack equalization |
 | **T04** | Password DB Compromise | Info Disclosure | `MITIGATED` | Salted Argon2id hashing; zero plaintext storage; least-privilege DB role |
 | **T05** | Session Theft | Spoofing | `MITIGATED` | 15-min JWT TTL; in-memory storage; real-time DB session validation |
@@ -387,9 +388,9 @@ flowchart TD
 | **T07** | CSRF | Tampering | `MITIGATED` | `SameSite=Strict` cookies + `Authorization: Bearer` requirement |
 | **T08** | XSS Token Exposure | Info Disclosure | `MITIGATED` | HTTP-only cookies + in-memory access token + CSP headers |
 | **T09** | Privilege Escalation | Elevation of Priv | `MITIGATED` | Real-time DB permission checks + last-superadmin invariant + self-defense |
-| **T10** | IDOR | Info Disclosure | `MITIGATED` | UUIDv4 random identifiers + strict ownership SQL where-clauses |
+| **T10** | IDOR | Info Disclosure | `MITIGATED` | Strict ownership `WHERE user_id = $userId` clauses + UUID non-sequential defense |
 | **T11** | Insecure Account Recovery | Spoofing | `MITIGATED` | 256-bit random tokens + SHA-256 hash storage + 1h TTL + session wipe |
 | **T12** | Compromised Admin Accts | Elevation of Priv | `MITIGATED` | Immutable audit trail + support boundary + self-suspension blocks |
 | **T13** | Session Fixation | Spoofing | `MITIGATED` | Complete fresh session generation and cookie overwrite on authentication |
 | **T14** | Concurrent Refresh Races | DoS | `MITIGATED` | Client-side singleton promise mutex + server-side `FOR UPDATE` row lock |
-| **T15** | Audit-Log Tampering | Tampering | `MITIGATED` | PostgreSQL trigger `trg_prevent_audit_tampering` + DML privilege revocation |
+| **T15** | Audit-Log Tampering | Tampering | `MITIGATED` | PostgreSQL trigger `trg_prevent_audit_tampering` + runtime role DML revocation |
