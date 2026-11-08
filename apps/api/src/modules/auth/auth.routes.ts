@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyPluginAsync } from "fastify";
+import { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -36,6 +36,13 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     const maxAge = env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60;
     return { isSecure, cookiePath, maxAge };
   };
+
+  const getClientInfo = (request: FastifyRequest) => ({
+    ip: request.ip,
+    ipAddress: request.ip,
+    userAgent: request.headers["user-agent"] as string | undefined,
+    correlationId: (request.headers["x-correlation-id"] as string) || request.id
+  });
 
   /**
    * POST /register
@@ -102,10 +109,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         throw AppError.validation("Validation failed", details);
       }
 
-      const clientInfo = {
-        ip: request.ip,
-        userAgent: request.headers["user-agent"]
-      };
+      const clientInfo = getClientInfo(request);
 
       const result = await authService.register(parseResult.data, clientInfo);
 
@@ -187,10 +191,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         throw AppError.validation("Validation failed", details);
       }
 
-      const clientInfo = {
-        ip: request.ip,
-        userAgent: request.headers["user-agent"]
-      };
+      const clientInfo = getClientInfo(request);
 
       const result = await authService.login(parseResult.data, clientInfo);
 
@@ -282,10 +283,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         throw AppError.unauthorized("Refresh token is required");
       }
 
-      const clientInfo = {
-        ipAddress: request.ip,
-        userAgent: request.headers["user-agent"]
-      };
+      const clientInfo = getClientInfo(request);
 
       const rotateResult = await sessionService.rotateRefreshToken({
         rawRefreshToken,
@@ -392,10 +390,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       await sessionService.logout({
         rawRefreshToken,
         sessionId,
-        clientInfo: {
-          ipAddress: request.ip,
-          userAgent: request.headers["user-agent"]
-        }
+        clientInfo: getClientInfo(request)
       });
 
       // Clear cookie for all possible paths
@@ -447,10 +442,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     },
     async (request, reply) => {
       const userId = request.user.sub;
-      const count = await sessionService.logoutAll(userId, {
-        ipAddress: request.ip,
-        userAgent: request.headers["user-agent"]
-      });
+      const count = await sessionService.logoutAll(userId, getClientInfo(request));
 
       reply.clearCookie("refresh_token", { path: "/api/v1/auth" });
       reply.clearCookie("refresh_token", { path: "/" });
@@ -657,10 +649,11 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
 
       const { sessionId } = paramResult.data;
 
-      await sessionService.revokeUserSession(request.user.sub, sessionId, {
-        ipAddress: request.ip,
-        userAgent: request.headers["user-agent"]
-      });
+      await sessionService.revokeUserSession(
+        request.user.sub,
+        sessionId,
+        getClientInfo(request)
+      );
 
       // If user revoked their own current session, clear cookie
       if (sessionId === request.user.sessionId) {
@@ -731,10 +724,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         throw AppError.validation("Validation failed", details);
       }
 
-      const clientInfo = {
-        ip: request.ip,
-        userAgent: request.headers["user-agent"]
-      };
+      const clientInfo = getClientInfo(request);
 
       const result = await passwordService.changePassword({
         userId: request.user.sub,
@@ -803,10 +793,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         throw AppError.validation("Validation failed", details);
       }
 
-      const clientInfo = {
-        ip: request.ip,
-        userAgent: request.headers["user-agent"]
-      };
+      const clientInfo = getClientInfo(request);
 
       const result = await passwordService.requestPasswordReset({
         input: parseResult.data,
@@ -875,10 +862,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         throw AppError.validation("Validation failed", details);
       }
 
-      const clientInfo = {
-        ip: request.ip,
-        userAgent: request.headers["user-agent"]
-      };
+      const clientInfo = getClientInfo(request);
 
       const result = await passwordService.resetPassword({
         input: parseResult.data,

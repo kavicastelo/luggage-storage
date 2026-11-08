@@ -3,10 +3,12 @@ import { ClientType, SessionInfo } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { tokenService } from "./token.service.js";
+import { auditService, SecurityEventType } from "../audit/audit.service.js";
 
 export interface SessionClientInfo {
   ipAddress?: string;
   userAgent?: string;
+  correlationId?: string;
 }
 
 export class SessionService {
@@ -44,20 +46,16 @@ export class SessionService {
       .returning();
 
     // Record session creation security audit event
-    try {
-      await db.insert(schema.securityAuditEvents).values({
-        userId: params.userId,
-        eventType: "AUTH_SESSION_CREATED",
-        ipAddress: params.ipAddress || null,
-        userAgent: params.userAgent || null,
-        metadata: {
-          sessionId: session.id,
-          clientType
-        }
-      });
-    } catch {
-      // Audit failure must not block session creation
-    }
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_SESSION_CREATED,
+      userId: params.userId,
+      ipAddress: params.ipAddress,
+      userAgent: params.userAgent,
+      metadata: {
+        sessionId: session.id,
+        clientType
+      }
+    });
 
     return { session, rawRefreshToken: rawToken };
   }
@@ -110,17 +108,13 @@ export class SessionService {
 
       if (result.rows.length === 0) {
         // Unknown token
-        try {
-          await tx.insert(schema.securityAuditEvents).values({
-            userId: null,
-            eventType: "AUTH_REFRESH_FAILURE",
-            ipAddress: params.clientInfo?.ipAddress || null,
-            userAgent: params.clientInfo?.userAgent || null,
-            metadata: { reason: "TOKEN_NOT_FOUND" }
-          });
-        } catch {
-          // Continue
-        }
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_REFRESH_FAILURE,
+          userId: null,
+          clientInfo: params.clientInfo,
+          metadata: { reason: "TOKEN_NOT_FOUND" },
+          tx
+        });
         throw AppError.unauthorized("Invalid or expired refresh token");
       }
 
@@ -164,21 +158,17 @@ export class SessionService {
         );
 
         // Record security audit event
-        try {
-          await tx.insert(schema.securityAuditEvents).values({
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_TOKEN_REUSE_DETECTED,
+          userId: sessionRow.userId,
+          clientInfo: params.clientInfo,
+          metadata: {
+            sessionId: sessionRow.id,
             userId: sessionRow.userId,
-            eventType: "AUTH_TOKEN_REUSE_DETECTED",
-            ipAddress: params.clientInfo?.ipAddress || null,
-            userAgent: params.clientInfo?.userAgent || null,
-            metadata: {
-              sessionId: sessionRow.id,
-              userId: sessionRow.userId,
-              reason: "REFRESH_TOKEN_REUSE"
-            }
-          });
-        } catch {
-          // Continue
-        }
+            reason: "REFRESH_TOKEN_REUSE"
+          },
+          tx
+        });
 
         return { action: "REUSE_DETECTED" as const };
       }
@@ -256,19 +246,15 @@ export class SessionService {
       const roleCodes = userRolesList.map((r) => r.code);
 
       // Record audit event
-      try {
-        await tx.insert(schema.securityAuditEvents).values({
-          userId: user.id,
-          eventType: "AUTH_TOKEN_ROTATED",
-          ipAddress: params.clientInfo?.ipAddress || null,
-          userAgent: params.clientInfo?.userAgent || null,
-          metadata: {
-            sessionId: sessionRow.id
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_TOKEN_ROTATED,
+        userId: user.id,
+        clientInfo: params.clientInfo,
+        metadata: {
+          sessionId: sessionRow.id
+        },
+        tx
+      });
 
       return {
         action: "SUCCESS" as const,
@@ -352,19 +338,14 @@ export class SessionService {
           sql`id = ${targetSessionId} AND revoked_at IS NULL`
         );
 
-      try {
-        await db.insert(schema.securityAuditEvents).values({
-          userId,
-          eventType: "AUTH_LOGOUT",
-          ipAddress: params.clientInfo?.ipAddress || null,
-          userAgent: params.clientInfo?.userAgent || null,
-          metadata: {
-            sessionId: targetSessionId
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_LOGOUT,
+        userId,
+        clientInfo: params.clientInfo,
+        metadata: {
+          sessionId: targetSessionId
+        }
+      });
     }
   }
 
@@ -387,19 +368,14 @@ export class SessionService {
       )
       .returning({ id: schema.authSessions.id });
 
-    try {
-      await db.insert(schema.securityAuditEvents).values({
-        userId,
-        eventType: "AUTH_LOGOUT_ALL",
-        ipAddress: clientInfo?.ipAddress || null,
-        userAgent: clientInfo?.userAgent || null,
-        metadata: {
-          revokedCount: result.length
-        }
-      });
-    } catch {
-      // Continue
-    }
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_LOGOUT_ALL,
+      userId,
+      clientInfo,
+      metadata: {
+        revokedCount: result.length
+      }
+    });
 
     return result.length;
   }
@@ -461,19 +437,14 @@ export class SessionService {
       throw AppError.notFound("Session not found or already revoked");
     }
 
-    try {
-      await db.insert(schema.securityAuditEvents).values({
-        userId,
-        eventType: "AUTH_SESSION_REVOKED",
-        ipAddress: clientInfo?.ipAddress || null,
-        userAgent: clientInfo?.userAgent || null,
-        metadata: {
-          sessionId
-        }
-      });
-    } catch {
-      // Continue
-    }
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_SESSION_REVOKED,
+      userId,
+      clientInfo,
+      metadata: {
+        sessionId
+      }
+    });
   }
 
   /**

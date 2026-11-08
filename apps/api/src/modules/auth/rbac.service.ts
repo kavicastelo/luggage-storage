@@ -5,6 +5,7 @@ import {
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
+import { auditService, SecurityEventType } from "../audit/audit.service.js";
 
 export interface RoleManagementContext {
   adminId: string;
@@ -14,6 +15,7 @@ export interface RoleManagementContext {
   clientInfo?: {
     ip?: string;
     userAgent?: string;
+    correlationId?: string;
   };
 }
 
@@ -209,11 +211,10 @@ export class RbacService {
     );
 
     // Record immutable security audit event
-    await db.insert(schema.securityAuditEvents).values({
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_ROLE_ASSIGNED,
       userId: context.targetUserId,
-      eventType: "AUTH_ROLE_ASSIGNED",
-      ipAddress: context.clientInfo?.ip || null,
-      userAgent: context.clientInfo?.userAgent || null,
+      clientInfo: context.clientInfo,
       metadata: {
         adminId: context.adminId,
         roleCode: normalizedRoleCode
@@ -278,11 +279,10 @@ export class RbacService {
     );
 
     // Record immutable security audit event
-    await db.insert(schema.securityAuditEvents).values({
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_ROLE_REVOKED,
       userId: context.targetUserId,
-      eventType: "AUTH_ROLE_REVOKED",
-      ipAddress: context.clientInfo?.ip || null,
-      userAgent: context.clientInfo?.userAgent || null,
+      clientInfo: context.clientInfo,
       metadata: {
         adminId: context.adminId,
         roleCode: normalizedRoleCode

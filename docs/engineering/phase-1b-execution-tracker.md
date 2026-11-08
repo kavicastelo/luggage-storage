@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01 THROUGH WP-11 COMPLETE — WP-12 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01 THROUGH WP-12 COMPLETE — WP-13 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -24,8 +24,8 @@
 | **WP-09** | **Mobile Authentication Integration** | **COMPLETE** | [apps/mobile/src/services/](file:///d:/luggage-storage/luggage-storage/apps/mobile/src/services/)<br>[apps/mobile/src/store/useAuthStore.ts](file:///d:/luggage-storage/luggage-storage/apps/mobile/src/store/useAuthStore.ts)<br>[apps/mobile/app/](file:///d:/luggage-storage/luggage-storage/apps/mobile/app/) | Verified: **WP-09 COMPLETE — READY FOR WP-10** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp09-implementation-report.md)) |
 | **WP-10** | **API Contract and Endpoint Design** | **COMPLETE** | [packages/contracts/src/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/)<br>[packages/contracts/tests/](file:///d:/luggage-storage/luggage-storage/packages/contracts/tests/) | Verified: **WP-10 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp10-implementation-report.md)) |
 | **WP-11** | **Auth Security Testing Suite** | **COMPLETE** | [apps/api/tests/security-regression-suite.test.ts](file:///d:/luggage-storage/luggage-storage/apps/api/tests/security-regression-suite.test.ts) | Verified: **WP-11 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp11-security-testing-report.md)) |
-| **WP-12** | **Auditability & Operational Security** | **READY FOR IMPLEMENTATION** | `security_audit_events` logging implementation | **UNBLOCKED** — Gated by WP-11 |
-| **WP-13** | Security Architecture Documentation | PENDING | Formal threat model and security evaluation | Post-implementation |
+| **WP-12** | **Auditability & Operational Security** | **COMPLETE** | [apps/api/src/modules/audit/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/audit/)<br>[packages/contracts/src/audit/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/audit/) | Verified: **WP-12 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp12-implementation-report.md)) |
+| **WP-13** | **Security Architecture Documentation** | **READY FOR IMPLEMENTATION** | Formal threat model and security evaluation | **UNBLOCKED** — Gated by WP-12 |
 | **WP-14** | Engineering Quality & Gate Verification | PENDING | Turborepo uncached verification & CI green | Final acceptance |
 
 ---
@@ -303,3 +303,25 @@
   - Monorepo: 279/279 tests pass across 26 test suites (Contracts: 54, Mobile: 27, Web: 33, API: 165).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 43.517s with 0 lint warnings and 0 errors.
 - **Verification Verdict:** **`WP-11 COMPLETE — READY FOR NEXT WORK PACKAGE`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp11-security-testing-report.md)).
+
+### WP-12: Auditability & Operational Security
+- **Deliverables:**
+  - Shared security event contracts & Zod schemas: `packages/contracts/src/audit/index.ts`
+  - Automated contracts validation suite: `packages/contracts/tests/audit.test.ts` (5 tests)
+  - Unified audit engine & service: `apps/api/src/modules/audit/audit.service.ts`
+  - Domain integration across all auth, session, password, admin, and RBAC modules: `apps/api/src/modules/`
+  - End-to-end integration and immutability test suite: `apps/api/tests/audit-logging.test.ts` (15 tests)
+  - Comprehensive technical implementation report: `docs/engineering/phase-1b-wp12-implementation-report.md`
+- **Key Architectural & Security Controls:**
+  - **Standardized Event Taxonomy:** Defined 24 canonical security event types spanning registration, authentication, token rotation, reuse detection, session revocation, password changes/resets, admin lifecycle transitions, role management, and access denial.
+  - **Zero Credential Disclosure Engine:** Deep recursive metadata sanitizer automatically strips and redacts raw passwords, Argon2id hashes, bearer tokens, JWT strings (`[REDACTED_JWT]`), and raw hex secrets (`[REDACTED_SECRET]`) while preserving safe reference metadata (`sessionId`, `resetTokenId`, `roleCode`, `correlationId`, `adminId`, `email`, `reason`).
+  - **Request Correlation Traceability:** Captures client IP, User-Agent, and correlation ID (`x-correlation-id` / Fastify request ID) across all security event writes.
+  - **Transactional Consistency:** Supports execution within active Drizzle transactions (`tx`) for atomic coupling of state mutations and audit records, with non-disruptive fallback for standalone failure logging.
+  - **Database Immutability & Privileges:** Database trigger `trg_prevent_audit_tampering` unconditionally blocks `UPDATE` and `DELETE` operations on `security_audit_events`. Runtime role `luggage_user` is restricted to `SELECT` and `INSERT` only.
+  - **Proposed Operational Data Retention Framework:** Proposed a three-tier retention model (90-day hot operational window in PostgreSQL, 365-day warm analytical storage, and 7-year immutable compliance archive) pending final legal sign-off.
+- **Quality Gate Results:**
+  - API package: 180/180 Vitest tests pass across 8 test files.
+  - Contracts package: 59/59 Vitest tests pass across 9 test files.
+  - Monorepo: 299/299 tests pass across 28 test suites (Contracts: 59, Mobile: 27, Web: 33, API: 180).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 50.638s with 0 lint warnings and 0 errors.
+- **Verification Verdict:** **`WP-12 COMPLETE — READY FOR NEXT WORK PACKAGE`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp12-implementation-report.md)).

@@ -13,6 +13,7 @@ import {
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
+import { auditService, SecurityEventType } from "../audit/audit.service.js";
 
 export interface AdminActionContext {
   adminId: string;
@@ -21,6 +22,7 @@ export interface AdminActionContext {
   clientInfo?: {
     ip?: string;
     userAgent?: string;
+    correlationId?: string;
   };
 }
 
@@ -288,17 +290,17 @@ export class AdminService {
       const revokedSessions = revokedResult.rows.length;
 
       // Append immutable audit event
-      await tx.insert(schema.securityAuditEvents).values({
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_ACCOUNT_SUSPENDED,
         userId: context.targetUserId,
-        eventType: "AUTH_ACCOUNT_SUSPENDED",
-        ipAddress: context.clientInfo?.ip || null,
-        userAgent: context.clientInfo?.userAgent || null,
+        clientInfo: context.clientInfo,
         metadata: {
           adminId: context.adminId,
           reason: input.reason,
           previousStatus: targetUser.status,
           sessionsRevoked: revokedSessions
-        }
+        },
+        tx
       });
 
       return { updatedUser: updated, revokedCount: revokedSessions };
@@ -358,16 +360,16 @@ export class AdminService {
         .where(eq(schema.users.id, context.targetUserId))
         .returning();
 
-      await tx.insert(schema.securityAuditEvents).values({
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_ACCOUNT_REINSTATED,
         userId: context.targetUserId,
-        eventType: "AUTH_ACCOUNT_REINSTATED",
-        ipAddress: context.clientInfo?.ip || null,
-        userAgent: context.clientInfo?.userAgent || null,
+        clientInfo: context.clientInfo,
         metadata: {
           adminId: context.adminId,
           reason: input.reason || null,
           previousStatus: "SUSPENDED"
-        }
+        },
+        tx
       });
 
       return updated;
@@ -443,17 +445,17 @@ export class AdminService {
 
       const revokedSessions = revokedResult.rows.length;
 
-      await tx.insert(schema.securityAuditEvents).values({
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_ACCOUNT_DEACTIVATED,
         userId: context.targetUserId,
-        eventType: "AUTH_ACCOUNT_DEACTIVATED",
-        ipAddress: context.clientInfo?.ip || null,
-        userAgent: context.clientInfo?.userAgent || null,
+        clientInfo: context.clientInfo,
         metadata: {
           adminId: context.adminId,
           reason: input.reason,
           previousStatus: targetUser.status,
           sessionsRevoked: revokedSessions
-        }
+        },
+        tx
       });
 
       return { updatedUser: updated, revokedCount: revokedSessions };
@@ -513,16 +515,16 @@ export class AdminService {
         .where(eq(schema.users.id, context.targetUserId))
         .returning();
 
-      await tx.insert(schema.securityAuditEvents).values({
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_ACCOUNT_REACTIVATED,
         userId: context.targetUserId,
-        eventType: "AUTH_ACCOUNT_REACTIVATED",
-        ipAddress: context.clientInfo?.ip || null,
-        userAgent: context.clientInfo?.userAgent || null,
+        clientInfo: context.clientInfo,
         metadata: {
           adminId: context.adminId,
           reason: input.reason || null,
           previousStatus: "DEACTIVATED"
-        }
+        },
+        tx
       });
 
       return updated;
@@ -580,17 +582,17 @@ export class AdminService {
         .where(eq(schema.users.id, context.targetUserId))
         .returning();
 
-      await tx.insert(schema.securityAuditEvents).values({
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_EMAIL_VERIFIED_BY_ADMIN,
         userId: context.targetUserId,
-        eventType: "AUTH_EMAIL_VERIFIED_BY_ADMIN",
-        ipAddress: context.clientInfo?.ip || null,
-        userAgent: context.clientInfo?.userAgent || null,
+        clientInfo: context.clientInfo,
         metadata: {
           adminId: context.adminId,
           reason: input.reason || null,
           previousStatus: targetUser.status,
           newStatus
-        }
+        },
+        tx
       });
 
       return updated;

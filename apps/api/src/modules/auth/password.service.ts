@@ -13,10 +13,12 @@ import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { argon2Service } from "./argon2.service.js";
 import { emailService } from "../email/email.service.js";
+import { auditService, SecurityEventType } from "../audit/audit.service.js";
 
 export interface ClientConnectionInfo {
   ip?: string;
   userAgent?: string;
+  correlationId?: string;
 }
 
 interface RateLimitRecord {
@@ -105,19 +107,14 @@ export class PasswordService {
     );
 
     if (!isCurrentValid) {
-      try {
-        await db.insert(schema.securityAuditEvents).values({
-          userId: user.id,
-          eventType: "AUTH_PASSWORD_CHANGE_FAILURE",
-          ipAddress: params.clientInfo?.ip || null,
-          userAgent: params.clientInfo?.userAgent || null,
-          metadata: {
-            reason: "INVALID_CURRENT_PASSWORD"
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_PASSWORD_CHANGE_FAILURE,
+        userId: user.id,
+        clientInfo: params.clientInfo,
+        metadata: {
+          reason: "INVALID_CURRENT_PASSWORD"
+        }
+      });
       throw AppError.badRequest("Current password is incorrect");
     }
 
@@ -154,19 +151,15 @@ export class PasswordService {
       );
 
       // 3. Record audit event
-      try {
-        await tx.insert(schema.securityAuditEvents).values({
-          userId: user.id,
-          eventType: "AUTH_PASSWORD_CHANGE_SUCCESS",
-          ipAddress: params.clientInfo?.ip || null,
-          userAgent: params.clientInfo?.userAgent || null,
-          metadata: {
-            sessionId: params.currentSessionId
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_PASSWORD_CHANGE_SUCCESS,
+        userId: user.id,
+        clientInfo: params.clientInfo,
+        metadata: {
+          sessionId: params.currentSessionId
+        },
+        tx
+      });
     });
 
     return {
@@ -216,39 +209,29 @@ export class PasswordService {
       // Timing attack mitigation: run dummy Argon2id verification
       await argon2Service.verifyDummy("dummyPassword123!");
 
-      try {
-        await db.insert(schema.securityAuditEvents).values({
-          userId: null,
-          eventType: "AUTH_PASSWORD_RESET_REQUESTED",
-          ipAddress: params.clientInfo?.ip || null,
-          userAgent: params.clientInfo?.userAgent || null,
-          metadata: {
-            email: normalized,
-            reason: "ACCOUNT_NOT_FOUND"
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_PASSWORD_RESET_REQUESTED,
+        userId: null,
+        clientInfo: params.clientInfo,
+        metadata: {
+          email: normalized,
+          reason: "ACCOUNT_NOT_FOUND"
+        }
+      });
 
       return genericResponse;
     }
 
     // Inactive account handling (enumeration resistant)
     if (user.status === "SUSPENDED" || user.status === "DEACTIVATED") {
-      try {
-        await db.insert(schema.securityAuditEvents).values({
-          userId: user.id,
-          eventType: "AUTH_PASSWORD_RESET_REQUESTED",
-          ipAddress: params.clientInfo?.ip || null,
-          userAgent: params.clientInfo?.userAgent || null,
-          metadata: {
-            reason: `ACCOUNT_${user.status}`
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_PASSWORD_RESET_REQUESTED,
+        userId: user.id,
+        clientInfo: params.clientInfo,
+        metadata: {
+          reason: `ACCOUNT_${user.status}`
+        }
+      });
       return genericResponse;
     }
 
@@ -275,19 +258,15 @@ export class PasswordService {
       });
 
       // Record audit event (ZERO raw token leakage)
-      try {
-        await tx.insert(schema.securityAuditEvents).values({
-          userId: user.id,
-          eventType: "AUTH_PASSWORD_RESET_REQUESTED",
-          ipAddress: params.clientInfo?.ip || null,
-          userAgent: params.clientInfo?.userAgent || null,
-          metadata: {
-            expiresAt: expiresAt.toISOString()
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_PASSWORD_RESET_REQUESTED,
+        userId: user.id,
+        clientInfo: params.clientInfo,
+        metadata: {
+          expiresAt: expiresAt.toISOString()
+        },
+        tx
+      });
     });
 
     // Deliver via email boundary (respecting OQ-019)
@@ -335,17 +314,13 @@ export class PasswordService {
       );
 
       if (result.rows.length === 0) {
-        try {
-          await tx.insert(schema.securityAuditEvents).values({
-            userId: null,
-            eventType: "AUTH_PASSWORD_RESET_FAILURE",
-            ipAddress: params.clientInfo?.ip || null,
-            userAgent: params.clientInfo?.userAgent || null,
-            metadata: { reason: "TOKEN_NOT_FOUND" }
-          });
-        } catch {
-          // Continue
-        }
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_PASSWORD_RESET_FAILURE,
+          userId: null,
+          clientInfo: params.clientInfo,
+          metadata: { reason: "TOKEN_NOT_FOUND" },
+          tx
+        });
         return { status: "INVALID_TOKEN" as const };
       }
 
@@ -365,32 +340,24 @@ export class PasswordService {
       };
 
       if (tokenRow.usedAt !== null) {
-        try {
-          await tx.insert(schema.securityAuditEvents).values({
-            userId: tokenRow.userId,
-            eventType: "AUTH_PASSWORD_RESET_FAILURE",
-            ipAddress: params.clientInfo?.ip || null,
-            userAgent: params.clientInfo?.userAgent || null,
-            metadata: { reason: "TOKEN_ALREADY_USED" }
-          });
-        } catch {
-          // Continue
-        }
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_PASSWORD_RESET_FAILURE,
+          userId: tokenRow.userId,
+          clientInfo: params.clientInfo,
+          metadata: { reason: "TOKEN_ALREADY_USED" },
+          tx
+        });
         return { status: "TOKEN_ALREADY_USED" as const };
       }
 
       if (tokenRow.expiresAt < now) {
-        try {
-          await tx.insert(schema.securityAuditEvents).values({
-            userId: tokenRow.userId,
-            eventType: "AUTH_PASSWORD_RESET_FAILURE",
-            ipAddress: params.clientInfo?.ip || null,
-            userAgent: params.clientInfo?.userAgent || null,
-            metadata: { reason: "TOKEN_EXPIRED" }
-          });
-        } catch {
-          // Continue
-        }
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_PASSWORD_RESET_FAILURE,
+          userId: tokenRow.userId,
+          clientInfo: params.clientInfo,
+          metadata: { reason: "TOKEN_EXPIRED" },
+          tx
+        });
         return { status: "TOKEN_EXPIRED" as const };
       }
 
@@ -451,19 +418,15 @@ export class PasswordService {
       );
 
       // 5. Record audit event
-      try {
-        await tx.insert(schema.securityAuditEvents).values({
-          userId: tokenRow.userId,
-          eventType: "AUTH_PASSWORD_RESET_COMPLETED",
-          ipAddress: params.clientInfo?.ip || null,
-          userAgent: params.clientInfo?.userAgent || null,
-          metadata: {
-            resetTokenId: tokenRow.id
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_PASSWORD_RESET_COMPLETED,
+        userId: tokenRow.userId,
+        clientInfo: params.clientInfo,
+        metadata: {
+          resetTokenId: tokenRow.id
+        },
+        tx
+      });
 
       return { status: "SUCCESS" as const };
     });

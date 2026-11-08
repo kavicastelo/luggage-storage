@@ -11,10 +11,12 @@ import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { argon2Service } from "./argon2.service.js";
 import { sessionService } from "./session.service.js";
+import { auditService, SecurityEventType } from "../audit/audit.service.js";
 
 export interface ClientConnectionInfo {
   ip?: string;
   userAgent?: string;
+  correlationId?: string;
 }
 
 export interface LoginServiceResult {
@@ -77,16 +79,16 @@ export class AuthService {
           sql`SELECT public.assign_default_traveller_role(${newUser.id}::uuid)`
         );
 
-        // Record security audit event
-        await tx.insert(schema.securityAuditEvents).values({
+        // Record security audit event transactionally
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_REGISTER_SUCCESS,
           userId: newUser.id,
-          eventType: "AUTH_REGISTER_SUCCESS",
-          ipAddress: clientInfo?.ip || null,
-          userAgent: clientInfo?.userAgent || null,
+          clientInfo,
           metadata: {
             email: normalized,
             role: "TRAVELLER"
-          }
+          },
+          tx
         });
 
         return newUser;
@@ -113,6 +115,14 @@ export class AuthService {
             err.message.includes("users_normalized_email_unique")));
 
       if (isUniqueViolation) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_REGISTER_FAILURE,
+          clientInfo,
+          metadata: {
+            email: normalized,
+            reason: "DUPLICATE_EMAIL"
+          }
+        });
         throw AppError.conflict("An account with this email address already exists");
       }
       throw err;
@@ -160,20 +170,15 @@ export class AuthService {
       await argon2Service.verifyDummy(input.password);
 
       // Record audit failure event
-      try {
-        await db.insert(schema.securityAuditEvents).values({
-          userId: null,
-          eventType: "AUTH_LOGIN_FAILURE",
-          ipAddress: clientInfo?.ip || null,
-          userAgent: clientInfo?.userAgent || null,
-          metadata: {
-            email: normalized,
-            reason: "USER_NOT_FOUND"
-          }
-        });
-      } catch {
-        // Audit write failure must not disrupt generic auth error response
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_LOGIN_FAILURE,
+        userId: null,
+        clientInfo,
+        metadata: {
+          email: normalized,
+          reason: "USER_NOT_FOUND"
+        }
+      });
 
       throw AppError.unauthorized("Invalid email or password");
     }
@@ -185,58 +190,43 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
-      try {
-        await db.insert(schema.securityAuditEvents).values({
-          userId: user.id,
-          eventType: "AUTH_LOGIN_FAILURE",
-          ipAddress: clientInfo?.ip || null,
-          userAgent: clientInfo?.userAgent || null,
-          metadata: {
-            email: normalized,
-            reason: "INVALID_PASSWORD"
-          }
-        });
-      } catch {
-        // Audit write failure must not disrupt generic auth error response
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_LOGIN_FAILURE,
+        userId: user.id,
+        clientInfo,
+        metadata: {
+          email: normalized,
+          reason: "INVALID_PASSWORD"
+        }
+      });
 
       throw AppError.unauthorized("Invalid email or password");
     }
 
     // Check account status
     if (user.status === "SUSPENDED") {
-      try {
-        await db.insert(schema.securityAuditEvents).values({
-          userId: user.id,
-          eventType: "AUTH_LOGIN_FAILURE",
-          ipAddress: clientInfo?.ip || null,
-          userAgent: clientInfo?.userAgent || null,
-          metadata: {
-            email: normalized,
-            reason: "ACCOUNT_SUSPENDED"
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_LOGIN_FAILURE,
+        userId: user.id,
+        clientInfo,
+        metadata: {
+          email: normalized,
+          reason: "ACCOUNT_SUSPENDED"
+        }
+      });
       throw AppError.forbidden("Account is suspended");
     }
 
     if (user.status === "DEACTIVATED") {
-      try {
-        await db.insert(schema.securityAuditEvents).values({
-          userId: user.id,
-          eventType: "AUTH_LOGIN_FAILURE",
-          ipAddress: clientInfo?.ip || null,
-          userAgent: clientInfo?.userAgent || null,
-          metadata: {
-            email: normalized,
-            reason: "ACCOUNT_DEACTIVATED"
-          }
-        });
-      } catch {
-        // Continue
-      }
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_LOGIN_FAILURE,
+        userId: user.id,
+        clientInfo,
+        metadata: {
+          email: normalized,
+          reason: "ACCOUNT_DEACTIVATED"
+        }
+      });
       throw AppError.forbidden("Account is deactivated");
     }
 
@@ -257,19 +247,14 @@ export class AuthService {
       .where(eq(schema.users.id, user.id));
 
     // Record login success audit event
-    try {
-      await db.insert(schema.securityAuditEvents).values({
-        userId: user.id,
-        eventType: "AUTH_LOGIN_SUCCESS",
-        ipAddress: clientInfo?.ip || null,
-        userAgent: clientInfo?.userAgent || null,
-        metadata: {
-          email: normalized
-        }
-      });
-    } catch {
-      // Continue
-    }
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_LOGIN_SUCCESS,
+      userId: user.id,
+      clientInfo,
+      metadata: {
+        email: normalized
+      }
+    });
 
     // Create persistent authentication session
     const { session, rawRefreshToken } = await sessionService.createSession({

@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyPluginAsync } from "fastify";
+import { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import {
   AdminUserQuerySchema,
   AdminSuspendUserRequestSchema,
@@ -21,6 +21,14 @@ function validateUserId(userId: string): string {
     throw AppError.badRequest("Invalid user ID format: must be a valid UUID");
   }
   return userId;
+}
+
+function getClientInfo(request: FastifyRequest) {
+  return {
+    ip: request.ip,
+    userAgent: request.headers["user-agent"] as string | undefined,
+    correlationId: (request.headers["x-correlation-id"] as string) || request.id
+  };
 }
 
 export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
@@ -144,10 +152,7 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
           adminId: request.user.sub,
           adminRoles: request.user.roles,
           targetUserId: userId,
-          clientInfo: {
-            ip: request.ip,
-            userAgent: request.headers["user-agent"]
-          }
+          clientInfo: getClientInfo(request)
         },
         parseResult.data
       );
@@ -195,10 +200,7 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
           adminId: request.user.sub,
           adminRoles: request.user.roles,
           targetUserId: userId,
-          clientInfo: {
-            ip: request.ip,
-            userAgent: request.headers["user-agent"]
-          }
+          clientInfo: getClientInfo(request)
         },
         parseResult.data
       );
@@ -252,10 +254,7 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
           adminId: request.user.sub,
           adminRoles: request.user.roles,
           targetUserId: userId,
-          clientInfo: {
-            ip: request.ip,
-            userAgent: request.headers["user-agent"]
-          }
+          clientInfo: getClientInfo(request)
         },
         parseResult.data
       );
@@ -302,10 +301,7 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
           adminId: request.user.sub,
           adminRoles: request.user.roles,
           targetUserId: userId,
-          clientInfo: {
-            ip: request.ip,
-            userAgent: request.headers["user-agent"]
-          }
+          clientInfo: getClientInfo(request)
         },
         parseResult.data
       );
@@ -352,10 +348,7 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
           adminId: request.user.sub,
           adminRoles: request.user.roles,
           targetUserId: userId,
-          clientInfo: {
-            ip: request.ip,
-            userAgent: request.headers["user-agent"]
-          }
+          clientInfo: getClientInfo(request)
         },
         parseResult.data
       );
@@ -487,10 +480,7 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         adminRoles: request.user.roles,
         targetUserId: userId,
         roleCode: parseResult.data.roleCode,
-        clientInfo: {
-          ip: request.ip,
-          userAgent: request.headers["user-agent"]
-        }
+        clientInfo: getClientInfo(request)
       });
 
       return createSuccessResponse(
@@ -536,10 +526,7 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         adminRoles: request.user.roles,
         targetUserId: userId,
         roleCode,
-        clientInfo: {
-          ip: request.ip,
-          userAgent: request.headers["user-agent"]
-        }
+        clientInfo: getClientInfo(request)
       });
 
       return createSuccessResponse(

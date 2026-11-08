@@ -15,6 +15,7 @@ import { authRoutes } from "./modules/auth/auth.routes.js";
 import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { sessionService } from "./modules/auth/session.service.js";
 import { rbacService } from "./modules/auth/rbac.service.js";
+import { auditService, SecurityEventType } from "./modules/audit/audit.service.js";
 
 export function buildApp(): FastifyInstance {
   const app = fastify({
@@ -78,6 +79,22 @@ export function buildApp(): FastifyInstance {
 
       const hasRole = request.user.roles.some((role) => allowedRoles.includes(role));
       if (!hasRole) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_ACCESS_DENIED,
+          userId: request.user.sub || null,
+          clientInfo: {
+            ip: request.ip,
+            userAgent: request.headers["user-agent"] as string,
+            correlationId: (request.headers["x-correlation-id"] as string) || request.id
+          },
+          metadata: {
+            path: request.url,
+            method: request.method,
+            reason: "INSUFFICIENT_ROLE",
+            allowedRoles,
+            roles: request.user.roles
+          }
+        });
         throw AppError.forbidden("Access denied: insufficient permissions");
       }
     };
@@ -93,6 +110,21 @@ export function buildApp(): FastifyInstance {
       ["SUPERADMIN", "SUPPORT"].includes(role)
     );
     if (!isAdmin) {
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_ACCESS_DENIED,
+        userId: request.user.sub || null,
+        clientInfo: {
+          ip: request.ip,
+          userAgent: request.headers["user-agent"] as string,
+          correlationId: (request.headers["x-correlation-id"] as string) || request.id
+        },
+        metadata: {
+          path: request.url,
+          method: request.method,
+          reason: "ADMIN_REQUIRED",
+          roles: request.user.roles
+        }
+      });
       throw AppError.forbidden("Administrative privileges required");
     }
   });
@@ -106,6 +138,22 @@ export function buildApp(): FastifyInstance {
 
       const hasPerm = await rbacService.hasPermission(request.user.sub, permission);
       if (!hasPerm) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_ACCESS_DENIED,
+          userId: request.user.sub,
+          clientInfo: {
+            ip: request.ip,
+            userAgent: request.headers["user-agent"] as string,
+            correlationId: (request.headers["x-correlation-id"] as string) || request.id
+          },
+          metadata: {
+            path: request.url,
+            method: request.method,
+            reason: "MISSING_PERMISSION",
+            requiredPermission: permission,
+            roles: request.user.roles || []
+          }
+        });
         throw AppError.forbidden(`Access denied: missing required permission: ${permission}`);
       }
     };
@@ -120,6 +168,22 @@ export function buildApp(): FastifyInstance {
 
       const hasPerm = await rbacService.hasAnyPermission(request.user.sub, permissions);
       if (!hasPerm) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_ACCESS_DENIED,
+          userId: request.user.sub,
+          clientInfo: {
+            ip: request.ip,
+            userAgent: request.headers["user-agent"] as string,
+            correlationId: (request.headers["x-correlation-id"] as string) || request.id
+          },
+          metadata: {
+            path: request.url,
+            method: request.method,
+            reason: "MISSING_ANY_PERMISSION",
+            requiredPermissions: permissions,
+            roles: request.user.roles || []
+          }
+        });
         throw AppError.forbidden("Access denied: insufficient permissions");
       }
     };
@@ -134,6 +198,22 @@ export function buildApp(): FastifyInstance {
 
       const hasPerm = await rbacService.hasAllPermissions(request.user.sub, permissions);
       if (!hasPerm) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_ACCESS_DENIED,
+          userId: request.user.sub,
+          clientInfo: {
+            ip: request.ip,
+            userAgent: request.headers["user-agent"] as string,
+            correlationId: (request.headers["x-correlation-id"] as string) || request.id
+          },
+          metadata: {
+            path: request.url,
+            method: request.method,
+            reason: "MISSING_ALL_PERMISSIONS",
+            requiredPermissions: permissions,
+            roles: request.user.roles || []
+          }
+        });
         throw AppError.forbidden("Access denied: insufficient permissions");
       }
     };
