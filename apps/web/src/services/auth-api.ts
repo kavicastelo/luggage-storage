@@ -12,7 +12,12 @@ import {
   ForgotPasswordRequest,
   ForgotPasswordResponseData,
   ResetPasswordRequest,
-  ResetPasswordResponseData
+  ResetPasswordResponseData,
+  VerifyEmailRequest,
+  VerifyEmailResponseData,
+  ResendVerificationRequest,
+  ResendVerificationResponseData,
+  SecurityAuditEvent
 } from "@luggage-storage/contracts";
 import { fetchApi } from "../lib/api-client";
 
@@ -128,6 +133,54 @@ export const authApi = {
       method: "POST",
       body: JSON.stringify(data)
     });
+    return res.data;
+  },
+
+  /**
+   * Self-service email verification using single-use token.
+   */
+  async verifyEmail(data: VerifyEmailRequest): Promise<VerifyEmailResponseData> {
+    const res = await fetchApi<VerifyEmailResponseData>("/auth/verify-email", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  /**
+   * Request a fresh email verification link for an unverified account.
+   */
+  async resendVerification(
+    data: ResendVerificationRequest
+  ): Promise<ResendVerificationResponseData> {
+    const res = await fetchApi<ResendVerificationResponseData>(
+      "/auth/resend-verification",
+      {
+        method: "POST",
+        body: JSON.stringify(data)
+      }
+    );
+    return res.data;
+  },
+
+  /**
+   * Retrieve paginated security audit events (requires SUPERADMIN / admin.audit.read).
+   */
+  async listAdminAuditEvents(params?: {
+    page?: number;
+    limit?: number;
+    eventType?: string;
+    userId?: string;
+  }): Promise<SecurityAuditEvent[]> {
+    const search = new URLSearchParams();
+    if (params?.page) search.set("page", String(params.page));
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.eventType) search.set("eventType", params.eventType);
+    if (params?.userId) search.set("userId", params.userId);
+    const queryString = search.toString();
+    const res = await fetchApi<SecurityAuditEvent[]>(
+      `/admin/audit-events${queryString ? `?${queryString}` : ""}`
+    );
     return res.data;
   }
 };

@@ -221,6 +221,15 @@ export class SessionService {
         return { action: "ACCOUNT_DEACTIVATED" as const };
       }
 
+      if (user.status === "PENDING_VERIFICATION" || !user.isEmailVerified) {
+        await tx.execute(
+          sql`UPDATE auth_sessions 
+              SET revoked_at = NOW(), revocation_reason = 'EMAIL_UNVERIFIED' 
+              WHERE id = ${sessionRow.id};`
+        );
+        return { action: "EMAIL_UNVERIFIED" as const };
+      }
+
       // Generate new refresh token
       const { rawToken: newRaw, tokenHash: newHash } = tokenService.generateRefreshToken();
 
@@ -289,6 +298,9 @@ export class SessionService {
     }
     if (txResult.action === "ACCOUNT_DEACTIVATED") {
       throw AppError.forbidden("Account is deactivated");
+    }
+    if (txResult.action === "EMAIL_UNVERIFIED") {
+      throw AppError.forbidden("Account email verification is required before signing in");
     }
 
     return {

@@ -72,6 +72,21 @@ export default function MobileLoginScreen() {
           {serverError && (
             <View style={styles.errorBanner}>
               <Text style={styles.errorBannerText}>{serverError}</Text>
+              {(serverError.toLowerCase().includes("verify your email") ||
+                serverError.toLowerCase().includes("pending_verification")) && (
+                <TouchableOpacity
+                  style={{ marginTop: 8 }}
+                  onPress={() =>
+                    router.push(
+                      `/(traveller)?screen=TM-008&email=${encodeURIComponent(email.trim())}`
+                    )
+                  }
+                >
+                  <Text style={styles.forgotLink}>
+                    Verify or Resend Confirmation Email →
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
 

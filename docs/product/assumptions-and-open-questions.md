@@ -396,20 +396,17 @@ This register maintains a structured record of **explicit architectural assumpti
 
 ---
 
-### `OQ-016` — Operational Support Workflow & Ticket Queue Separation (Pending Workflow Decisions)
+### `OQ-016` — Operational Support Workflow & Ticket Queue Separation
 - **Category:** Product / Support Operations
 - **Source Reference:** `FR -12 Leave Review`, `FR -12 Customer Support`, `FR-40 Support`, `FR-41 Incident Reporting`.
-- **Status:** **Pending Decision** (Operational Support Channel Architecture).
+- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
 - **Scope & Relationship to `OQ-011`:**
-  - While `OQ-011` governs the high-level RBAC permission boundary (confirming Support Staff cannot execute financial actions or host approvals), `OQ-016` governs the remaining operational ticketing separation and intake workflows. There is zero permission overlap: all workflows in `OQ-016` strictly operate within the non-privileged boundaries established by `OQ-011`.
-- **Proposed Operational Separation:**
-  1. **Booking / Host Issue Report:** Linked to a specific `booking_id` / `host_id` (e.g., host closed, bag discrepancy, damage report).
-  2. **General Platform Support Inquiry:** Account, payment, or general help requests not tied to an active host dispute.
-  3. **Host Partner Support (`FR-40`) & Incident Reporting (`FR-41`):** Host-side store operational issues and formal lost/damaged/unclaimed luggage reporting.
-  4. **Post-Collection Review vs. App Feedback (`FR-12`):** Public rating/review for the Host storefront vs. private technical rating/feedback for the Mobile/Web application.
-- **Impact:** Structures support routing, screen workflows in mobile/web, and queue categorization in the Superadmin support console.
-- **Proposed Resolution:** Owner to confirm this four-channel operational separation for implementation in Phase 12.
-- **Owner Approval Required:** **Yes**.
+  - While `OQ-011` governs the high-level RBAC permission boundary (confirming Support Staff cannot execute financial actions or host approvals), `OQ-016` governs the operational ticketing separation and intake workflows.
+- **Approved Operational Separation:**
+  1. **General Support Queue (`AD-011` / `AD-012`):** Accessible to `SUPPORT` (`support.tickets.manage`, `users.read`, `bookings.read.all`) and `SUPERADMIN` for general platform inquiries and non-dispute booking assistance (`WF-039`, `WF-040`).
+  2. **Incident & Dispute Investigation Queue (`AD-013`):** Escalated queue restricted to `SUPERADMIN` (`admin.system.configure`, `refunds.manage`, `payments.manage`) for custody discrepancy, damage/tampering claims, overdue fee disputes (`OQ-015`), and abandoned luggage escalation (`OQ-005`).
+  3. **Host Partner Support (`FR-40`) & Incident Reporting (`FR-41`):** Host-side store operational issues (`HM-036`) routed directly to `AD-013`.
+  4. **Post-Collection Review vs. App Feedback (`FR-12`):** Public rating/review for the Host storefront (`TM-034`, `HD-012`, `AD-014`) separated from support ticketing.
 
 ---
 
@@ -417,11 +414,8 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Roles / Host Staff
 - **Description:** `FR-42 Staff Accounts` states *"Allow employees to handle check-in/out"* and is marked **`Later`**.
 - **Source:** `FR-42 Staff Accounts` (`Later`), `FR-44 Multiple Locations`.
-- **Current Assumption:** In the initial release, all Staff Management screens are built as UI-complete previews (`Later`), and the database schema supports scoping a staff member to specific `StorageLocations` (`FR-44`) with check-in/out and booking-view permissions while hiding financial payout/bank settings (`FR-36`–`FR-38`).
-- **Impact:** Ensures Phase 2 UI screens and Phase 3/4/9 schemas require no refactoring when `FR-42` backend is activated in Phase 11.
-- **Proposed Resolution:** Owner to confirm that scoping Host Staff to assigned location(s) for check-in/out and daily booking operations (without access to host payouts/bank details) is the desired model.
-- **Status:** Pending Approval
-- **Owner Approval Required:** **Yes**
+- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
+- **Approved Resolution:** `HOST_STAFF` is strictly scoped to operational check-in/out (`bookings.checkin.checkout`), location viewing (`locations.read.own`), and booking schedule inspection (`bookings.read.location`), with zero access to Host financials/payouts (`payouts.read.own`), location/pricing modification (`locations.create`, `locations.update.own`), or staff management (`host.staff.manage`). Enforced at the database RBAC, API middleware, Web (`HostDashboardPages.tsx`), and Mobile (`apps/mobile/app/(host)/`) layers.
 
 ---
 
@@ -429,35 +423,26 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Technical / Maps
 - **Description:** `MapLibre` is approved as the client rendering engine (`FR-3`), which requires a commercial vector tile, geocoding (`FR-2`), and routing (`FR-7`) provider.
 - **Source:** Execution Prompt Section 4 (*"do not assume a specific production map provider"*).
-- **Current Assumption:** Map style URLs and geocoding API credentials are injected via environment configuration behind a provider adapter; `FR -7 Directions` supports launching native Google Maps / Apple Maps / Waze turn-by-turn navigation alongside in-app map pin display.
-- **Impact:** Required for live map rendering and address search in Phase 4 and Phase 6.
-- **Proposed Resolution:** Recommend **MapTiler** (or **Stadia Maps / AWS Location Service**) for MapLibre vector tiles + geocoding, paired with **native OS map deep links** for turn-by-turn navigation (`FR -7`). Owner to approve preferred vendor.
-- **Status:** Pending Approval
-- **Owner Approval Required:** **Yes**
+- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
+- **Approved Resolution:** **MapLibre GL + MapTiler Vector Tiles (OpenStreetMap)** selected for MVP web (`PW-002`) and mobile (`TM-012`) rendering, paired with native OS map deep links (`Google Maps` / `Apple Maps`) for turn-by-turn directions (`FR-7`) and a provider-agnostic PostGIS coordinate contract.
 
 ---
 
 ### `OQ-019` — Transactional Email Provider Selection
 - **Category:** Technical / Comms
-- **Description:** Selection of the transactional email delivery service for registration verification (`FR-1`), booking confirmations (`FR-7`, `FR-11`), host approvals (`FR-17`, `FR-35`), and payout notifications (`FR-37`).
+- **Description:** Selection of the transactional email delivery service for registration verification (`FR-1`), password recovery (`WF-003`), booking confirmations (`FR-7`, `FR-11`), host approvals (`FR-17`, `FR-35`), and payout notifications (`FR-37`).
 - **Source:** Execution Prompt Section 4 (*"do not assume a specific ... email provider"*).
-- **Current Assumption:** Abstracted behind `EmailProviderPort` in `apps/api/src/integrations/email/` with a console/local-SMTP adapter for local development.
-- **Impact:** Required before live email delivery in Phase 3 and Phase 10.
-- **Proposed Resolution:** Recommend **Resend** or **Amazon SES**. Owner to approve preferred provider.
-- **Status:** Pending Approval
-- **Owner Approval Required:** **Yes**
+- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
+- **Approved Resolution:** Abstracted behind `EmailDeliveryAdapter` in `apps/api/src/modules/email/email.service.ts` supporting both `sendEmailVerificationEmail` and `sendPasswordResetEmail` with four runtime strategies (`resend` HTTPS adapter for production, `console` for local dev, `test` for deterministic automated test token capture, and `noop` fallback with explicit warning logs).
 
 ---
 
 ### `OQ-020` — SMS / Phone OTP Provider & Verification Policy
 - **Category:** Technical / Comms
-- **Description:** Whether SMS OTP verification is required at signup/booking (`FR-1`) or if email/OAuth verification suffices for MVP, and which SMS gateway to use for Sri Lankan (`+94`) vs. international numbers.
+- **Description:** Whether SMS OTP verification is required at signup/booking (`FR-1`) or if email verification suffices for MVP.
 - **Source:** Execution Prompt Section 4 (*"do not assume a specific ... SMS provider"*).
-- **Current Assumption:** Abstracted behind `SmsProviderPort`. Phone numbers are stored in `E.164` format; SMS OTP screens exist in the UI (`FR-1`), while mandatory SMS dispatch can be toggled by configuration.
-- **Impact:** Affects per-signup/per-booking telecom cost in Sri Lanka.
-- **Proposed Resolution:** Recommend email + Google/Apple OAuth as primary MVP verification (keeping SMS OTP optional or triggered only for high-risk actions via a local Sri Lankan SMS gateway for `+94` + Twilio/SNS for international). Owner to confirm.
-- **Status:** Pending Approval
-- **Owner Approval Required:** **Yes**
+- **Status:** **Deferred (`DEFERRED_POST_MVP` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
+- **Approved Resolution:** Self-service **Email Token Verification** (`POST /api/v1/auth/verify-email` and `POST /api/v1/auth/resend-verification`) is the mandatory and authoritative account activation mechanism for MVP (`PENDING_VERIFICATION` -> `ACTIVE`). Phone numbers are stored in `E.164` format (`users.phone`) for booking contact purposes, while live SMS/WhatsApp OTP dispatch is deferred to Post-MVP.
 
 ---
 
@@ -465,11 +450,8 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Infrastructure
 - **Description:** Approved stack states *"Redis/Upstash when justified by actual requirements."*
 - **Source:** Execution Prompt Section 4.
-- **Current Assumption:** Initial launch runs background tasks (reservation expiration, reminder checks) and rate limiting inside the Fastify + PostgreSQL footprint without requiring a paid Redis instance on day one; Redis/Upstash adapter interfaces are kept ready when multi-node scaling requires it.
-- **Impact:** Saves monthly infrastructure cost and operational moving parts during initial launch.
-- **Proposed Resolution:** Owner to confirm deferring live Redis/Upstash provisioning until multi-instance horizontal scaling or high-frequency queue volume justifies it.
-- **Status:** Proposed (Deferred)
-- **Owner Approval Required:** **Yes**
+- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
+- **Approved Resolution:** Multi-instance-safe rate limiting (`auth_rate_limits`) and token concurrency locks (`SELECT ... FOR UPDATE`) are implemented directly in PostgreSQL for MVP (`RateLimitService`), avoiding premature Redis infrastructure overhead until multi-region horizontal scale requires it.
 
 ---
 

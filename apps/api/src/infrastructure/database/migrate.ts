@@ -2,6 +2,7 @@ import pg from "pg";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { env, buildDatabaseSslConfig } from "../../config/env.js";
 import { logger } from "../logging/logger.js";
 
 const { Pool } = pg;
@@ -15,11 +16,13 @@ export async function runMigrations(customConnectionString?: string): Promise<nu
   const connectionString =
     customConnectionString ||
     process.env.MIGRATION_DATABASE_URL ||
+    env.MIGRATION_DATABASE_URL ||
     "postgresql://luggage_migrator:migrator_password@localhost:5432/luggage_storage_dev";
 
   const pool = new Pool({
     connectionString,
-    max: 1
+    max: 1,
+    ssl: buildDatabaseSslConfig(env)
   });
 
   const client = await pool.connect();

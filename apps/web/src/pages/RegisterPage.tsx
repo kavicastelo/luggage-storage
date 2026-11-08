@@ -90,16 +90,26 @@ export function RegisterPage() {
           </h2>
           <p className="text-xs text-amber-700 mt-1 leading-normal">
             Account status: <span className="font-semibold">{registeredData.status}</span>. We have sent a verification link to{" "}
-            <span className="font-semibold">{registeredData.email}</span>. Please verify your email before publishing storage listings.
+            <span className="font-semibold">{registeredData.email}</span>. Please verify your email address before signing in.
           </p>
         </div>
 
-        <button
-          onClick={() => navigate("/login")}
-          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm"
-        >
-          Proceed to Sign In
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() =>
+              navigate(`/verify-email?email=${encodeURIComponent(registeredData.email)}`)
+            }
+            className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm"
+          >
+            Enter Verification Token / Resend Link
+          </button>
+          <button
+            onClick={() => navigate("/login")}
+            className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-sm transition"
+          >
+            Proceed to Sign In
+          </button>
+        </div>
       </div>
     );
   }

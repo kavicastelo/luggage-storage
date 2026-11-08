@@ -161,5 +161,87 @@ describe("Web Auth API Flows & Endpoint Integration", () => {
     });
     expect(resetRes.message).toBe("Operation completed successfully");
   });
+
+  it("should execute email verification and resend verification calls", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("/auth/verify-email")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              message: "Your email address has been verified and your account is now active.",
+              user: {
+                id: "u-123",
+                email: "unverified@example.com",
+                status: "ACTIVE",
+                isEmailVerified: true
+              }
+            }
+          })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: {
+            message:
+              "If an unverified account exists with that email address, a verification email has been sent."
+          }
+        })
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const verifyRes = await authApi.verifyEmail({
+      token: "a".repeat(64)
+    });
+    expect(verifyRes.user?.status).toBe("ACTIVE");
+    expect(verifyRes.user?.isEmailVerified).toBe(true);
+
+    const resendRes = await authApi.resendVerification({
+      email: "unverified@example.com"
+    });
+    expect(resendRes.message).toContain("verification email");
+  });
+
+  it("should fetch admin audit events via GET /admin/audit-events", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          events: [
+            {
+              id: "evt-1",
+              eventType: "AUTH_LOGIN_SUCCESS",
+              actorUserId: "u-1",
+              targetUserId: "u-1",
+              ipAddress: "127.0.0.1",
+              userAgent: "Mozilla/5.0",
+              metadata: { clientType: "WEB" },
+              createdAt: new Date().toISOString()
+            }
+          ],
+          total: 1,
+          page: 1,
+          limit: 20
+        }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await authApi.listAdminAuditEvents({
+      eventType: "AUTH_LOGIN_SUCCESS",
+      page: 1,
+      limit: 20
+    });
+    expect(res.total).toBe(1);
+    expect(res.events[0].eventType).toBe("AUTH_LOGIN_SUCCESS");
+  });
 });
 

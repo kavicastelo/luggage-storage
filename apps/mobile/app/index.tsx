@@ -3,11 +3,17 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-nati
 import { useRouter } from "expo-router";
 import { useMobileStore } from "../src/store/useMobileStore";
 import { useAuthStore } from "../src/store/useAuthStore";
+import { MascotIllustration } from "../src/components/MascotIllustration";
 
 export default function RoleSelectScreen() {
   const router = useRouter();
   const { setRole } = useMobileStore();
   const { user, isAuthenticated, logout } = useAuthStore();
+
+  const isHost =
+    user?.roles?.includes("HOST_OWNER") ||
+    user?.roles?.includes("HOST_STAFF") ||
+    user?.roles?.includes("SUPERADMIN");
 
   const handleSelectTraveller = () => {
     setRole("traveller");
@@ -15,17 +21,21 @@ export default function RoleSelectScreen() {
   };
 
   const handleSelectHost = () => {
+    if (isAuthenticated && !isHost) {
+      return;
+    }
     setRole("host");
     router.replace("/(host)");
   };
 
-  const isHost =
-    user?.roles?.includes("HOST_OWNER") ||
-    user?.roles?.includes("HOST_STAFF") ||
-    user?.roles?.includes("SUPERADMIN");
-
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      <MascotIllustration
+        mascot="wave"
+        size="md"
+        badgeText="TM-001 / HM-001 • Meet Kiri"
+        caption="70 Active Mobile Screens (39 Traveller + 31 Host)"
+      />
       <Text style={styles.title}>Luggage Storage</Text>
       <Text style={styles.subtitle}>Mobile Marketplace Experience</Text>
 
@@ -84,11 +94,20 @@ export default function RoleSelectScreen() {
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={[styles.button, styles.hostButton, !isHost && isAuthenticated ? styles.hostDisabled : null]}
+        style={[
+          styles.button,
+          styles.hostButton,
+          !isHost && isAuthenticated ? styles.hostDisabled : null
+        ]}
         onPress={handleSelectHost}
+        disabled={Boolean(isAuthenticated && !isHost)}
       >
         <Text style={styles.buttonText}>
-          {isHost ? "Continue as Host Partner" : "Host Partner Hub"}
+          {isAuthenticated
+            ? isHost
+              ? "Continue as Host Partner"
+              : "Host Partner Hub (Host Role Required)"
+            : "Preview Host Partner Hub (Demo)"}
         </Text>
       </TouchableOpacity>
       {!isHost && isAuthenticated && (

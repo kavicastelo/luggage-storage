@@ -188,5 +188,51 @@ describe("Mobile Auth API Flows & Endpoint Integration", () => {
     });
     expect(reset.message).toBe("Success");
   });
+
+  it("should execute email verification and resend verification on mobile", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes("/auth/verify-email")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              message: "Your email address has been verified and your account is now active.",
+              user: {
+                id: "m-user-1",
+                email: "mobile-user@example.com",
+                status: "ACTIVE",
+                isEmailVerified: true
+              }
+            }
+          })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: {
+            message:
+              "If an unverified account exists with that email address, a verification email has been sent."
+          }
+        })
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const verifyRes = await authApi.verifyEmail({
+      token: "b".repeat(64)
+    });
+    expect(verifyRes.user?.status).toBe("ACTIVE");
+    expect(verifyRes.user?.isEmailVerified).toBe(true);
+
+    const resendRes = await authApi.resendVerification({
+      email: "mobile-user@example.com"
+    });
+    expect(resendRes.message).toContain("verification email");
+  });
 });
 

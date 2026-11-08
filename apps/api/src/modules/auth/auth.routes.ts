@@ -8,6 +8,8 @@ import {
   ChangePasswordRequestSchema,
   ForgotPasswordRequestSchema,
   ResetPasswordRequestSchema,
+  VerifyEmailRequestSchema,
+  ResendVerificationRequestSchema,
   LoginResponseData,
   RefreshResponseData,
   createSuccessResponse
@@ -872,6 +874,141 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       return reply
         .status(200)
         .send(createSuccessResponse(result, request.id));
+    }
+  );
+
+  /**
+   * POST /verify-email
+   * Self-service email verification using single-use SHA-256 hashed verification token.
+   */
+  app.post(
+    "/verify-email",
+    {
+      schema: {
+        summary: "Verify Email Address",
+        description:
+          "Consumes a single-use email verification token atomically and transitions the account from PENDING_VERIFICATION to ACTIVE.",
+        tags: ["Authentication"],
+        body: {
+          type: "object",
+          required: ["token"],
+          properties: {
+            token: { type: "string", minLength: 1, maxLength: 256 }
+          }
+        },
+        response: {
+          200: {
+            description: "Email verified successfully",
+            type: "object",
+            properties: {
+              success: { type: "boolean", enum: [true] },
+              data: {
+                type: "object",
+                properties: {
+                  message: { type: "string" },
+                  user: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string", format: "uuid" },
+                      email: { type: "string" },
+                      status: { type: "string" },
+                      isEmailVerified: { type: "boolean" },
+                      emailVerifiedAt: { type: ["string", "null"] }
+                    }
+                  }
+                }
+              },
+              meta: {
+                type: "object",
+                properties: {
+                  timestamp: { type: "string" },
+                  correlationId: { type: "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const parseResult = VerifyEmailRequestSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        const details = parseResult.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+          code: "VALIDATION_ERROR"
+        }));
+        throw AppError.validation("Validation failed", details);
+      }
+
+      const clientInfo = getClientInfo(request);
+      const result = await authService.verifyEmail(parseResult.data, clientInfo);
+
+      return reply.status(200).send(createSuccessResponse(result, request.id));
+    }
+  );
+
+  /**
+   * POST /resend-verification
+   * Resends an email verification link for an unverified account (enumeration-safe and rate-limited).
+   */
+  app.post(
+    "/resend-verification",
+    {
+      schema: {
+        summary: "Resend Email Verification",
+        description:
+          "Issues a new single-use email verification token for an unverified account. Enumeration-safe and rate-limited.",
+        tags: ["Authentication"],
+        body: {
+          type: "object",
+          required: ["email"],
+          properties: {
+            email: { type: "string", format: "email" }
+          }
+        },
+        response: {
+          200: {
+            description: "Verification resend request accepted",
+            type: "object",
+            properties: {
+              success: { type: "boolean", enum: [true] },
+              data: {
+                type: "object",
+                properties: {
+                  message: { type: "string" }
+                }
+              },
+              meta: {
+                type: "object",
+                properties: {
+                  timestamp: { type: "string" },
+                  correlationId: { type: "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const parseResult = ResendVerificationRequestSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        const details = parseResult.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+          code: "VALIDATION_ERROR"
+        }));
+        throw AppError.validation("Validation failed", details);
+      }
+
+      const clientInfo = getClientInfo(request);
+      const result = await authService.resendVerificationEmail(
+        parseResult.data,
+        clientInfo
+      );
+
+      return reply.status(200).send(createSuccessResponse(result, request.id));
     }
   );
 };

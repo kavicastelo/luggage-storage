@@ -6,6 +6,7 @@ export interface PermissionGateProps {
   anyPermission?: string[];
   allPermissions?: string[];
   role?: string;
+  requiredRoles?: string[];
   fallback?: React.ReactNode;
   children: React.ReactNode;
 }
@@ -15,6 +16,7 @@ export function PermissionGate({
   anyPermission,
   allPermissions,
   role,
+  requiredRoles,
   fallback = null,
   children
 }: PermissionGateProps) {
@@ -33,6 +35,14 @@ export function PermissionGate({
   }
 
   if (role && !user?.roles?.includes(role)) {
+    return <>{fallback}</>;
+  }
+
+  if (
+    requiredRoles &&
+    requiredRoles.length > 0 &&
+    !requiredRoles.some((r) => user?.roles?.includes(r))
+  ) {
     return <>{fallback}</>;
   }
 

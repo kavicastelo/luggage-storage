@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
 import {
   AdminUserQuerySchema,
+  AdminAuditEventQuerySchema,
   AdminSuspendUserRequestSchema,
   AdminReinstateUserRequestSchema,
   AdminDeactivateUserRequestSchema,
@@ -12,6 +13,7 @@ import {
 } from "@luggage-storage/contracts";
 import { adminService } from "./admin.service.js";
 import { rbacService } from "../auth/rbac.service.js";
+import { auditService } from "../audit/audit.service.js";
 import { AppError } from "../../common/errors/app-error.js";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -534,6 +536,99 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
           userId,
           roles: updatedRoles,
           message: `Role ${roleCode.toUpperCase()} revoked successfully`
+        },
+        request.id
+      );
+    }
+  );
+
+  // ============================================================================
+  // 13. List Security Audit Events (GET /audit-events)
+  // ============================================================================
+  app.get(
+    "/audit-events",
+    {
+      onRequest: [app.authenticate, app.requirePermission("admin.audit.read")],
+      schema: {
+        tags: ["Admin"],
+        summary: "List immutable security audit events with pagination and filtering",
+        description: "Requires admin.audit.read permission (SUPERADMIN only).",
+        security: [{ bearerAuth: [] }],
+        querystring: {
+          type: "object",
+          properties: {
+            page: { type: "integer", minimum: 1, default: 1 },
+            limit: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+            eventType: { type: "string" },
+            userId: { type: "string", format: "uuid" },
+            from: { type: "string", format: "date-time" },
+            to: { type: "string", format: "date-time" }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const parseResult = AdminAuditEventQuerySchema.safeParse(request.query);
+      if (!parseResult.success) {
+        const details = parseResult.error.issues.map((i) => ({
+          field: i.path.join("."),
+          message: i.message,
+          code: "VALIDATION_ERROR"
+        }));
+        throw AppError.validation("Invalid audit query parameters", details);
+      }
+
+      const { items, total } = await auditService.listAuditEvents(parseResult.data);
+      const page = parseResult.data.page ?? 1;
+      const limit = parseResult.data.limit ?? 20;
+
+      return createPaginatedResponse(items, page, limit, total, request.id);
+    }
+  );
+
+  // ============================================================================
+  // 14. Get Single Security Audit Event Detail (GET /audit-events/:eventId)
+  // ============================================================================
+  app.get<{ Params: { eventId: string } }>(
+    "/audit-events/:eventId",
+    {
+      onRequest: [app.authenticate, app.requirePermission("admin.audit.read")],
+      schema: {
+        tags: ["Admin"],
+        summary: "Inspect a single security audit event by ID",
+        description: "Requires admin.audit.read permission (SUPERADMIN only).",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          required: ["eventId"],
+          properties: {
+            eventId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const eventId = request.params.eventId;
+      if (!UUID_REGEX.test(eventId)) {
+        throw AppError.badRequest("Invalid audit event ID format: must be a valid UUID");
+      }
+
+      const event = await auditService.getEventById(eventId);
+      if (!event) {
+        throw AppError.notFound("Security audit event not found");
+      }
+
+      return createSuccessResponse(
+        {
+          event: {
+            id: event.id,
+            userId: event.userId,
+            eventType: event.eventType,
+            ipAddress: event.ipAddress,
+            userAgent: event.userAgent,
+            metadata: (event.metadata as Record<string, unknown>) ?? {},
+            createdAt: event.createdAt.toISOString()
+          }
         },
         request.id
       );

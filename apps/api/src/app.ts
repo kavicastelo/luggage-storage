@@ -7,7 +7,7 @@ import fastifyJwt from "@fastify/jwt";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { randomUUID } from "node:crypto";
-import { env } from "./config/env.js";
+import { env, parseAllowedCorsOrigins } from "./config/env.js";
 import { AppError } from "./common/errors/app-error.js";
 import { errorHandler, notFoundHandler } from "./common/middleware/error-handler.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
@@ -17,6 +17,40 @@ import { sessionService } from "./modules/auth/session.service.js";
 import { rbacService } from "./modules/auth/rbac.service.js";
 import { auditService, SecurityEventType } from "./modules/audit/audit.service.js";
 
+export function isCorsOriginAllowed(
+  requestOrigin: string | undefined,
+  allowedOrigins: string[],
+  nodeEnv: "development" | "test" | "production"
+): boolean {
+  // Non-browser requests (server-to-server, native mobile apps, CLI) have no Origin header
+  if (!requestOrigin) {
+    return true;
+  }
+
+  // Wildcard is never allowed when credentials: true in production
+  if (nodeEnv === "production") {
+    return allowedOrigins.some((allowed) => allowed !== "*" && allowed === requestOrigin);
+  }
+
+  if (allowedOrigins.includes("*")) {
+    return true;
+  }
+
+  if (allowedOrigins.includes(requestOrigin)) {
+    return true;
+  }
+
+  // Allow localhost / 127.0.0.1 in development and test
+  if (
+    requestOrigin.startsWith("http://localhost:") ||
+    requestOrigin.startsWith("http://127.0.0.1:")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export function buildApp(): FastifyInstance {
   const app = fastify({
     genReqId: (req) => (req.headers["x-correlation-id"] as string) || randomUUID(),
@@ -25,10 +59,18 @@ export function buildApp(): FastifyInstance {
     }
   });
 
+  const allowedOrigins = parseAllowedCorsOrigins(env.CORS_ORIGIN);
+
   // Security plugins
   app.register(helmet, { contentSecurityPolicy: env.NODE_ENV === "production" });
   app.register(cors, {
-    origin: env.CORS_ORIGIN === "*" ? "*" : env.CORS_ORIGIN.split(","),
+    origin: (origin, cb) => {
+      if (isCorsOriginAllowed(origin, allowedOrigins, env.NODE_ENV)) {
+        cb(null, origin || true);
+      } else {
+        cb(null, false);
+      }
+    },
     credentials: true
   });
   app.register(sensible);

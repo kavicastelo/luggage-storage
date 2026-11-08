@@ -99,10 +99,10 @@ This document establishes 100% bidirectional traceability between all 57 normali
 | `REQ-IMPL-004` | Capacity Reservation Expiration Worker | `TM-021`, `HM-006`, `AD-001` | Asynchronous 30s sweeper releasing unconfirmed capacity holds. |
 | `REQ-IMPL-005` | Booking State Machine Guardrails | All Booking Screens (`TM-019`–`TM-027`, `HM-018`–`HM-025`) | Enforces valid status transitions and SLA timeouts. |
 | `REQ-IMPL-006` | Payment Webhook Idempotency & Checksum | `TM-021`, `AD-006` | Reconstructs cryptographic signature (`md5sig`/`sha256sig`) to verify gateway posts. |
-| `REQ-IMPL-007` | QR Code & PIN Cryptographic Generation | `TM-024`, `TM-028`, `TM-030`, `HM-021`, `HM-024`| Generates tamper-proof QR payloads and collision-resistant PINs. |
-| `REQ-IMPL-008` | Photo Evidence Capture & Cloud Storage | `HM-023`, `HD-008`, `AD-005` | Host camera upload to R2 bucket for custody condition records. |
-| `REQ-IMPL-009` | Overdue Grace Period & Surcharge Engine | `TM-029`, `HM-026`, `HM-027`, `AD-013` | 30m grace period calculation and automated 1.5x daily surcharge generation. |
-| `REQ-IMPL-010` | Decoupled Custody Release Invariant | `HM-028`, `HD-009`, `AD-013` | **Enforces zero possessory lien: luggage released even if fees are disputed.** |
+| `REQ-IMPL-007` | QR Code & PIN Cryptographic Generation | `TM-024`, `TM-028`, `TM-030`, `HM-021`, `HM-024`| Server-side verification of tamper-proof QR payloads with rate-limited, audited 6-digit PIN fallback (`OQ-014`). |
+| `REQ-IMPL-008` | Photo Evidence Capture & Cloud Storage | `HM-023`, `HD-008`, `AD-005`, `AD-016` | Host camera upload to R2 bucket for custody condition records (optional by default; configurable mandatory per location per `OQ-014`). |
+| `REQ-IMPL-009` | Overdue Grace Period & Surcharge Engine | `PW-004`, `TM-018`, `TM-029`, `HM-014`, `HM-026`, `HM-027`, `HD-006`, `AD-013`, `AD-016` | Configurable grace period and configurable disclosed late fee calculation with in-app payment settlement (`OQ-015`; e.g., illustrative 30m / 1.5x). |
+| `REQ-IMPL-010` | Decoupled Custody Release Invariant | `HM-028`, `HD-009`, `AD-013` | **Enforces zero possessory lien (`OQ-015` / `BR-035`): luggage released upon QR/PIN & bag-count verification even if overdue fees are unpaid or disputed.** |
 | `REQ-IMPL-011` | Immutable Financial Ledger Journal | `HD-010`, `AD-008`, `AD-010` | Append-only double-entry general ledger for all credits, debits, and commissions. |
 | `REQ-IMPL-012` | Manual Payout Authorization & Reference Log | `HM-031`, `HD-011`, `AD-008`, `AD-009` | Superadmin manual bank transfer disbursement logging. |
 | `REQ-IMPL-013` | Multi-Stage Refund Execution & Review | `TM-033`, `AD-007` | Explicit 7-stage refund lifecycle with manual fallback review. |

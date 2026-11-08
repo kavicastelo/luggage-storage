@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { UserStatusSchema } from "../auth/index.js";
 import { PaginationQuerySchema } from "../api/pagination.js";
+import { SecurityAuditEventSchema, SecurityEventTypeSchema } from "../audit/index.js";
 
 // ============================================================================
 // Query Parameters
@@ -11,6 +12,19 @@ export const AdminUserQuerySchema = PaginationQuerySchema.extend({
   role: z.string().trim().max(32).optional()
 });
 export type AdminUserQuery = z.infer<typeof AdminUserQuerySchema>;
+
+export const AdminAuditEventQuerySchema = PaginationQuerySchema.extend({
+  eventType: SecurityEventTypeSchema.optional(),
+  userId: z.string().uuid().optional(),
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional()
+});
+export type AdminAuditEventQuery = z.infer<typeof AdminAuditEventQuerySchema>;
+
+export const AdminAuditEventDetailResponseDataSchema = z.object({
+  event: SecurityAuditEventSchema
+});
+export type AdminAuditEventDetailResponseData = z.infer<typeof AdminAuditEventDetailResponseDataSchema>;
 
 // ============================================================================
 // Request Payloads
