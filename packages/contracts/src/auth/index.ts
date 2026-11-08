@@ -186,6 +186,27 @@ export const ResetPasswordResponseDataSchema = z.object({
 });
 export type ResetPasswordResponseData = z.infer<typeof ResetPasswordResponseDataSchema>;
 
+// ============================================================================
+// Section 14 Endpoint Name Compatibility Aliases
+// ============================================================================
+export const PasswordChangeRequestSchema = ChangePasswordRequestSchema;
+export type PasswordChangeRequest = ChangePasswordRequest;
+
+export const PasswordChangeResponseDataSchema = ChangePasswordResponseDataSchema;
+export type PasswordChangeResponseData = ChangePasswordResponseData;
+
+export const PasswordRecoveryRequestSchema = ForgotPasswordRequestSchema;
+export type PasswordRecoveryRequest = ForgotPasswordRequest;
+
+export const PasswordRecoveryResponseDataSchema = ForgotPasswordResponseDataSchema;
+export type PasswordRecoveryResponseData = ForgotPasswordResponseData;
+
+export const PasswordResetRequestSchema = ResetPasswordRequestSchema;
+export type PasswordResetRequest = ResetPasswordRequest;
+
+export const PasswordResetResponseDataSchema = ResetPasswordResponseDataSchema;
+export type PasswordResetResponseData = ResetPasswordResponseData;
+
 /**
  * Normalizes an email address according to the database constraint:
  * lower(trim(email))

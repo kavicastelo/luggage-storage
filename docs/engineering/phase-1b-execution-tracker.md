@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01 THROUGH WP-09 COMPLETE — WP-10 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01 THROUGH WP-10 COMPLETE — WP-11 AUTHORIZED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -22,8 +22,8 @@
 | **WP-07** | **RBAC and Permission Architecture** | **COMPLETE** | [apps/api/src/modules/auth/rbac.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/rbac.service.ts)<br>[packages/contracts/src/rbac/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/rbac/) | Verified: **WP-07 COMPLETE — READY FOR WP-08** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp07-implementation-report.md)) |
 | **WP-08** | **Web Authentication Integration** | **COMPLETE** | [apps/web/src/pages/](file:///d:/luggage-storage/luggage-storage/apps/web/src/pages/)<br>[apps/web/src/store/useAuthStore.ts](file:///d:/luggage-storage/luggage-storage/apps/web/src/store/useAuthStore.ts) | Verified: **WP-08 COMPLETE — READY FOR WP-09** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp08-implementation-report.md)) |
 | **WP-09** | **Mobile Authentication Integration** | **COMPLETE** | [apps/mobile/src/services/](file:///d:/luggage-storage/luggage-storage/apps/mobile/src/services/)<br>[apps/mobile/src/store/useAuthStore.ts](file:///d:/luggage-storage/luggage-storage/apps/mobile/src/store/useAuthStore.ts)<br>[apps/mobile/app/](file:///d:/luggage-storage/luggage-storage/apps/mobile/app/) | Verified: **WP-09 COMPLETE — READY FOR WP-10** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp09-implementation-report.md)) |
-| **WP-10** | **API Contract and Endpoint Design** | **READY FOR IMPLEMENTATION** | Shared Zod schemas in `packages/contracts` | **UNBLOCKED** — Gated by WP-09 |
-| **WP-11** | Auth Security Testing Suite | PENDING | Comprehensive Vitest suite for auth & RBAC | Continuous |
+| **WP-10** | **API Contract and Endpoint Design** | **COMPLETE** | [packages/contracts/src/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/)<br>[packages/contracts/tests/](file:///d:/luggage-storage/luggage-storage/packages/contracts/tests/) | Verified: **WP-10 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp10-implementation-report.md)) |
+| **WP-11** | **Auth Security Testing Suite** | **READY FOR IMPLEMENTATION** | Comprehensive Vitest suite for auth & RBAC | **UNBLOCKED** — Gated by WP-10 |
 | **WP-12** | Auditability & Operational Security | PENDING | `security_audit_events` logging implementation | Gated by WP-07 |
 | **WP-13** | Security Architecture Documentation | PENDING | Formal threat model and security evaluation | Post-implementation |
 | **WP-14** | Engineering Quality & Gate Verification | PENDING | Turborepo uncached verification & CI green | Final acceptance |
@@ -264,3 +264,25 @@
   - Monorepo: 207/207 tests pass (Contracts: 8, Mobile: 27, Web: 33, API: 139).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 45.3s with 0 lint warnings and 0 errors.
 - **Verification Verdict:** **`WP-09 COMPLETE — READY FOR WP-10`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp09-implementation-report.md)).
+
+### WP-10: API Contract and Endpoint Design
+- **Deliverables:**
+  - Shared global primitives & identifiers: `packages/contracts/src/common/identifiers.ts`
+  - High-precision monetary & currency contracts: `packages/contracts/src/common/currency.ts`
+  - ISO 8601 UTC date & range contracts: `packages/contracts/src/common/dates.ts`
+  - Standard response envelope & error schemas: `packages/contracts/src/api/response.ts`, `errors.ts`
+  - Pagination, sorting & metadata schemas: `packages/contracts/src/api/pagination.ts`
+  - Identity & profile domain contracts: `packages/contracts/src/identity/index.ts`
+  - Full endpoint catalogue & specification alignment: `docs/engineering/phase-1b-wp10-implementation-report.md`
+  - Comprehensive automated test suite: `packages/contracts/tests/` (8 test suites, 54/54 tests pass)
+- **Key Architectural & Security Controls:**
+  - **TypeScript-First Runtime Validation:** Explicit Zod schemas for all request payloads, query parameters, path variables, response envelopes, and errors with zero runtime framework dependencies.
+  - **Global-Readiness Primitives (ADR-010):** Enforces integer minor units for money (no floating-point values), ISO 4217 currencies with explicit exponents, ISO 3166-1 alpha-2 country codes, international E.164 phone numbers, IANA timezones, and BCP 47 language tags.
+  - **Standardized Error Taxonomy:** 12 platform error codes with safe field-level details (`ApiErrorDetail`) preventing database columns, SQL errors, or stack trace exposure.
+  - **Identity & Profile Schemas:** Full contracts for `GET /api/v1/identity/profile` and `PATCH /api/v1/identity/profile` supporting decoupled Traveller and Host profile models.
+  - **Backwards Compatibility:** 100% compatibility maintained with existing WP-03 through WP-09 auth, session, admin, and RBAC contracts, including Section 14 alias exports.
+- **Quality Gate Results:**
+  - Contracts package: 54/54 Vitest tests pass across 8 test files.
+  - Monorepo: 253/253 tests pass (Contracts: 54, Mobile: 27, Web: 33, API: 139).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 42.885s with 0 lint warnings and 0 errors.
+- **Verification Verdict:** **`WP-10 COMPLETE — READY FOR NEXT WORK PACKAGE`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp10-implementation-report.md)).
