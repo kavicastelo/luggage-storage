@@ -1,5 +1,5 @@
 import pg from "pg";
-import { env } from "../../config/env.js";
+import { env, buildDatabaseSslConfig } from "../../config/env.js";
 import { logger } from "../logging/logger.js";
 
 const { Pool } = pg;
@@ -7,7 +7,7 @@ const { Pool } = pg;
 export const dbPool = new Pool({
   connectionString: env.DATABASE_URL,
   max: env.DATABASE_MAX_CONNECTIONS,
-  ssl: env.DATABASE_SSL ? { rejectUnauthorized: false } : false
+  ssl: buildDatabaseSslConfig(env)
 });
 
 dbPool.on("error", (err) => {

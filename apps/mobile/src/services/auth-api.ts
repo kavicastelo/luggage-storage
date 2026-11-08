@@ -12,7 +12,11 @@ import {
   ForgotPasswordRequest,
   ForgotPasswordResponseData,
   ResetPasswordRequest,
-  ResetPasswordResponseData
+  ResetPasswordResponseData,
+  VerifyEmailRequest,
+  VerifyEmailResponseData,
+  ResendVerificationRequest,
+  ResendVerificationResponseData
 } from "@luggage-storage/contracts";
 import { fetchApi } from "./api-client";
 
@@ -129,6 +133,33 @@ export const authApi = {
       method: "POST",
       body: JSON.stringify(data)
     });
+    return res.data;
+  },
+
+  /**
+   * Completes self-service email verification with a single-use verification token.
+   */
+  async verifyEmail(data: VerifyEmailRequest): Promise<VerifyEmailResponseData> {
+    const res = await fetchApi<VerifyEmailResponseData>("/auth/verify-email", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  /**
+   * Requests a rate-limited verification email resend.
+   */
+  async resendVerification(
+    data: ResendVerificationRequest
+  ): Promise<ResendVerificationResponseData> {
+    const res = await fetchApi<ResendVerificationResponseData>(
+      "/auth/resend-verification",
+      {
+        method: "POST",
+        body: JSON.stringify(data)
+      }
+    );
     return res.data;
   }
 };

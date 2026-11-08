@@ -81,6 +81,11 @@ describe("WP-11: Authentication & RBAC Security Testing Suite", () => {
     password = "SecPass123!@#",
     clientType: "WEB" | "MOBILE" = "WEB"
   ) {
+    await migratorPool.query(
+      "UPDATE users SET status = 'ACTIVE', is_email_verified = true, email_verified_at = COALESCE(email_verified_at, NOW()) WHERE normalized_email = $1 AND status = 'PENDING_VERIFICATION';",
+      [email.trim().toLowerCase()]
+    );
+
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/auth/login",
@@ -228,9 +233,18 @@ describe("WP-11: Authentication & RBAC Security Testing Suite", () => {
       expect(durationB).toBeGreaterThan(20);
     });
 
-    it("SEC-REG-06: should immediately block login attempts for SUSPENDED and DEACTIVATED accounts with 403 Forbidden", async () => {
+    it("SEC-REG-06: should immediately block login attempts for PENDING_VERIFICATION, SUSPENDED, and DEACTIVATED accounts with 403 Forbidden", async () => {
       const { email, password, body } = await registerUser();
       const userId = body.data.id;
+
+      // Newly registered user in PENDING_VERIFICATION cannot log in before verifying email
+      const unverifiedRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        payload: { email, password, clientType: "WEB" }
+      });
+      expect(unverifiedRes.statusCode).toBe(403);
+      expect(JSON.parse(unverifiedRes.body).error.message).toMatch(/email verification is required/i);
 
       // Suspend user
       await migratorPool.query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1;", [userId]);

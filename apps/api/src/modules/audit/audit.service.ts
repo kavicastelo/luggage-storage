@@ -1,8 +1,10 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { logger } from "../../infrastructure/logging/logger.js";
 import {
   SecurityEventType,
+  type AdminAuditEventQuery,
+  type SecurityAuditEvent,
   type SecurityEventType as SecurityEventTypeString
 } from "@luggage-storage/contracts";
 
@@ -36,6 +38,8 @@ export interface RecordSecurityEventParams {
 const ALLOWED_METADATA_KEYS = new Set([
   "sessionId",
   "resetTokenId",
+  "verificationTokenId",
+  "keyHashPrefix",
   "tokenType",
   "tokenFamily",
   "roleCode",
@@ -52,6 +56,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   "attempts",
   "previousStatus",
   "previousState",
+  "newStatus",
   "sessionsRevoked",
   "revokedCount",
   "path",
@@ -60,7 +65,11 @@ const ALLOWED_METADATA_KEYS = new Set([
   "missingPermission",
   "roles",
   "statusCode",
-  "expiresAt"
+  "expiresAt",
+  "scope",
+  "points",
+  "maxPoints",
+  "retryAfterSeconds"
 ]);
 
 const FORBIDDEN_KEY_PATTERN = /(?:password|passwd|pwd|hash|salt|secret|token|bearer|authorization|cookie|credential)/i;
@@ -236,6 +245,62 @@ export class AuditService {
       .limit(1);
 
     return event || null;
+  }
+
+  /**
+   * Paginated, filterable retrieval of security audit events for administrative inspection.
+   */
+  async listAuditEvents(query: AdminAuditEventQuery): Promise<{
+    items: SecurityAuditEvent[];
+    total: number;
+  }> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const offset = (page - 1) * limit;
+
+    const conditions: SQL[] = [];
+    if (query.eventType) {
+      conditions.push(eq(schema.securityAuditEvents.eventType, query.eventType));
+    }
+    if (query.userId) {
+      conditions.push(eq(schema.securityAuditEvents.userId, query.userId));
+    }
+    if (query.from) {
+      conditions.push(gte(schema.securityAuditEvents.createdAt, new Date(query.from)));
+    }
+    if (query.to) {
+      conditions.push(lte(schema.securityAuditEvents.createdAt, new Date(query.to)));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [countRes] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.securityAuditEvents)
+      .where(whereClause);
+
+    const rows = await db
+      .select()
+      .from(schema.securityAuditEvents)
+      .where(whereClause)
+      .orderBy(desc(schema.securityAuditEvents.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const items: SecurityAuditEvent[] = rows.map((row) => ({
+      id: row.id,
+      userId: row.userId,
+      eventType: row.eventType as SecurityAuditEvent["eventType"],
+      ipAddress: row.ipAddress,
+      userAgent: row.userAgent,
+      metadata: (row.metadata as Record<string, unknown>) ?? {},
+      createdAt: row.createdAt.toISOString()
+    }));
+
+    return {
+      items,
+      total: Number(countRes?.count ?? 0)
+    };
   }
 }
 

@@ -83,11 +83,10 @@ export function LoginPage() {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
-                fieldErrors.email
+              className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${fieldErrors.email
                   ? "border-red-300 focus:ring-red-400"
                   : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
-              }`}
+                }`}
               placeholder="you@example.com"
               disabled={isLoading}
             />
@@ -117,11 +116,10 @@ export function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={`w-full pl-10 pr-10 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
-                fieldErrors.password
+              className={`w-full pl-10 pr-10 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${fieldErrors.password
                   ? "border-red-300 focus:ring-red-400"
                   : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
-              }`}
+                }`}
               placeholder="••••••••"
               disabled={isLoading}
             />
@@ -155,11 +153,22 @@ export function LoginPage() {
         </button>
       </form>
 
-      <div className="mt-6 text-center text-sm text-slate-500">
-        Don&apos;t have an account?{" "}
-        <Link to="/register" className="font-semibold text-blue-600 hover:text-blue-700">
-          Create account
-        </Link>
+      <div className="mt-6 text-center text-sm text-slate-500 space-y-2">
+        <div>
+          Don&apos;t have an account?{" "}
+          <Link to="/register" className="font-semibold text-blue-600 hover:text-blue-700">
+            Create account
+          </Link>
+        </div>
+        <div>
+          Need to verify your email?{" "}
+          <Link
+            to={email ? `/verify-email?email=${encodeURIComponent(email)}` : "/verify-email"}
+            className="font-semibold text-blue-600 hover:text-blue-700"
+          >
+            Verify email or resend link
+          </Link>
+        </div>
       </div>
     </div>
   );

@@ -7,7 +7,11 @@ import {
   formatCurrencyMinorUnits,
   isValidISODateString,
   addDurationToISO,
-  ErrorCodeSchema
+  ErrorCodeSchema,
+  VerifyEmailRequestSchema,
+  ResendVerificationRequestSchema,
+  AdminAuditEventQuerySchema,
+  SecurityEventTypeSchema
 } from "../src/index.js";
 
 describe("Shared Contracts & Utilities", () => {
@@ -89,5 +93,29 @@ describe("Shared Contracts & Utilities", () => {
     expect(ErrorCodeSchema.safeParse("CAPACITY_EXCEEDED").success).toBe(true);
     expect(ErrorCodeSchema.safeParse("PAYMENT_FAILED").success).toBe(true);
     expect(ErrorCodeSchema.safeParse("UNKNOWN_CUSTOM_CODE").success).toBe(false);
+  });
+
+  it("should validate self-service email verification and resend schemas", () => {
+    expect(VerifyEmailRequestSchema.safeParse({ token: "valid-token-hex-12345" }).success).toBe(true);
+    expect(VerifyEmailRequestSchema.safeParse({ token: "" }).success).toBe(false);
+    expect(ResendVerificationRequestSchema.safeParse({ email: "traveller@example.com" }).success).toBe(true);
+    expect(ResendVerificationRequestSchema.safeParse({ email: "invalid-email" }).success).toBe(false);
+  });
+
+  it("should validate admin audit event query parameters and security event types", () => {
+    expect(SecurityEventTypeSchema.safeParse("AUTH_EMAIL_VERIFICATION_SENT").success).toBe(true);
+    expect(SecurityEventTypeSchema.safeParse("AUTH_EMAIL_VERIFICATION_COMPLETED").success).toBe(true);
+    expect(SecurityEventTypeSchema.safeParse("AUTH_RATE_LIMIT_EXCEEDED").success).toBe(true);
+    expect(SecurityEventTypeSchema.safeParse("ADMIN_AUDIT_LOG_ACCESSED").success).toBe(true);
+
+    const queryResult = AdminAuditEventQuerySchema.safeParse({
+      page: "1",
+      limit: "25",
+      eventType: "AUTH_LOGIN_SUCCESS",
+      userId: "550e8400-e29b-41d4-a716-446655440000",
+      from: "2026-11-01T00:00:00.000Z",
+      to: "2026-11-09T23:59:59.000Z"
+    });
+    expect(queryResult.success).toBe(true);
   });
 });

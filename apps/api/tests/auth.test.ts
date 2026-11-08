@@ -412,7 +412,7 @@ describe("WP-03: Registration and Authentication Engine", () => {
   // 2. User Login (/api/v1/auth/login)
   // ==========================================================================
   describe("2. User Login & Authentication", () => {
-    it("should successfully authenticate with valid credentials", async () => {
+    it("should successfully authenticate with valid credentials after email verification", async () => {
       const uniqueSuffix = Date.now() + "_login_valid";
       const email = `login_${uniqueSuffix}@example.com`;
       const password = "ValidPassword123!";
@@ -425,6 +425,12 @@ describe("WP-03: Registration and Authentication Engine", () => {
         payload: { email, password, displayName }
       });
       expect(regRes.statusCode).toBe(201);
+      const regUser = JSON.parse(regRes.body).data;
+
+      await runtimePool.query(
+        `UPDATE users SET status = 'ACTIVE', is_email_verified = true, email_verified_at = NOW() WHERE id = $1;`,
+        [regUser.id]
+      );
 
       // Now login
       const loginRes = await app.inject({
@@ -440,7 +446,8 @@ describe("WP-03: Registration and Authentication Engine", () => {
       expect(body.data.user).toBeDefined();
       expect(body.data.user.email).toBe(email);
       expect(body.data.user.displayName).toBe(displayName);
-      expect(body.data.user.status).toBe("PENDING_VERIFICATION");
+      expect(body.data.user.status).toBe("ACTIVE");
+      expect(body.data.user.isEmailVerified).toBe(true);
       expect(body.data.user.roles).toContain("TRAVELLER");
       expect(body.data.user.lastLoginAt).toBeDefined();
 
@@ -462,7 +469,7 @@ describe("WP-03: Registration and Authentication Engine", () => {
       const password = "ValidPassword123!";
 
       // Register with mixed case
-      await app.inject({
+      const regRes = await app.inject({
         method: "POST",
         url: "/api/v1/auth/register",
         payload: {
@@ -471,6 +478,11 @@ describe("WP-03: Registration and Authentication Engine", () => {
           displayName: "Case Insensitive User"
         }
       });
+      const regUser = JSON.parse(regRes.body).data;
+      await runtimePool.query(
+        `UPDATE users SET status = 'ACTIVE', is_email_verified = true, email_verified_at = NOW() WHERE id = $1;`,
+        [regUser.id]
+      );
 
       // Login with lowercase
       const loginLower = await app.inject({
@@ -603,7 +615,7 @@ describe("WP-03: Registration and Authentication Engine", () => {
       expect(body.error.message).toBe("Account is deactivated");
     });
 
-    it("should allow login for PENDING_VERIFICATION account and report verification status", async () => {
+    it("should reject login for PENDING_VERIFICATION account with 403 Forbidden until email is verified", async () => {
       const email = `unverified_${Date.now()}@example.com`;
       const password = "ValidPassword123!";
 
@@ -619,10 +631,11 @@ describe("WP-03: Registration and Authentication Engine", () => {
         payload: { email, password }
       });
 
-      expect(loginRes.statusCode).toBe(200);
+      expect(loginRes.statusCode).toBe(403);
       const body = JSON.parse(loginRes.body);
-      expect(body.data.user.status).toBe("PENDING_VERIFICATION");
-      expect(body.data.user.isEmailVerified).toBe(false);
+      expect(body.success).toBe(false);
+      expect(body.error.code).toBe("FORBIDDEN");
+      expect(body.error.message).toContain("Account email verification is required");
     });
 
     it("should reject malformed login request with 400 Bad Request", async () => {
@@ -745,7 +758,7 @@ describe("WP-03: Registration and Authentication Engine", () => {
 
       // Update status to ACTIVE for full test interactions
       await runtimePool.query(
-        `UPDATE users SET status = 'ACTIVE' WHERE id = $1;`,
+        `UPDATE users SET status = 'ACTIVE', is_email_verified = true, email_verified_at = NOW() WHERE id = $1;`,
         [user.id]
       );
 
@@ -1401,10 +1414,10 @@ describe("WP-03: Registration and Authentication Engine", () => {
   describe("WP-05: Password Change & Recovery", () => {
     let testAdapter: DeterministicTestEmailAdapter;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       testAdapter = new DeterministicTestEmailAdapter();
       emailService.setAdapter(testAdapter);
-      passwordService.clearRateLimits();
+      await passwordService.clearRateLimits();
     });
 
     async function createTestUser(suffix: string, initialPassword = "OriginalPassword123!") {
@@ -1420,7 +1433,7 @@ describe("WP-03: Registration and Authentication Engine", () => {
       const user = JSON.parse(res.body).data;
 
       await runtimePool.query(
-        `UPDATE users SET status = 'ACTIVE' WHERE id = $1;`,
+        `UPDATE users SET status = 'ACTIVE', is_email_verified = true, email_verified_at = NOW() WHERE id = $1;`,
         [user.id]
       );
 

@@ -1,0 +1,930 @@
+import React, { useEffect, useState } from "react";
+import { Link, Outlet, useLocation, useParams } from "react-router-dom";
+import {
+  Shield,
+  Users,
+  Building2,
+  MapPin,
+  Briefcase,
+  CreditCard,
+  RotateCcw,
+  Layers,
+  Send,
+  BookOpen,
+  LifeBuoy,
+  MessageSquare,
+  AlertOctagon,
+  Star,
+  Sparkles,
+  Settings,
+  FileSearch,
+  KeyRound,
+  Lock
+} from "lucide-react";
+import { SecurityAuditEvent } from "@luggage-storage/contracts";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
+import { ScreenHeaderBadge, DeferredBackendNotice } from "@/components/ui/DeferredBackendNotice";
+import { useAuthStore } from "@/store/useAuthStore";
+import { PermissionGate } from "@/components/auth/PermissionGate";
+import { authApi } from "@/services/auth-api";
+import {
+  DEMO_LOCATIONS,
+  DEMO_BOOKINGS,
+  REFUND_SEVEN_STAGES,
+  formatLkr,
+  WEB_ADMIN_SCREENS
+} from "@/data/mock-marketplace";
+
+// ============================================================================
+// Superadmin Dashboard Layout (Enforces SUPERADMIN vs SUPPORT RBAC Boundaries)
+// ============================================================================
+export function AdminDashboardLayout() {
+  const location = useLocation();
+  const { isAuthenticated, user } = useAuthStore();
+  const [adminRoleMode, setAdminRoleMode] = useState<"SUPERADMIN" | "SUPPORT">("SUPERADMIN");
+
+  const searchParams = new URLSearchParams(location.search);
+  const querySuffix = searchParams.get("preview") === "demo" ? "?preview=demo" : "";
+
+  const canActAsSuperadmin =
+    !isAuthenticated || Boolean(user?.roles?.includes("SUPERADMIN"));
+
+  const effectiveAdminRole: "SUPERADMIN" | "SUPPORT" = isAuthenticated
+    ? canActAsSuperadmin
+      ? adminRoleMode
+      : "SUPPORT"
+    : adminRoleMode;
+
+  const navItems = [
+    { id: "AD-001", label: "Command Dashboard", to: "/admin", icon: Shield, superadminOnly: true },
+    { id: "AD-002", label: "Host KYC Queue", to: "/admin/hosts/review", icon: Building2, superadminOnly: true },
+    { id: "AD-003", label: "Host Directory", to: "/admin/hosts", icon: Users, superadminOnly: false },
+    { id: "AD-004", label: "Location Moderation", to: "/admin/locations", icon: MapPin, superadminOnly: true },
+    { id: "AD-005", label: "Global Bookings", to: "/admin/bookings", icon: Briefcase, superadminOnly: false },
+    { id: "AD-006", label: "Payment Log", to: "/admin/payments", icon: CreditCard, superadminOnly: true },
+    { id: "AD-007", label: "Refund Queue", to: "/admin/refunds", icon: RotateCcw, superadminOnly: true },
+    { id: "AD-008", label: "Payout Batches", to: "/admin/payouts/batches", icon: Layers, superadminOnly: true },
+    { id: "AD-009", label: "Manual Disbursement", to: "/admin/payouts/disburse", icon: Send, superadminOnly: true },
+    { id: "AD-010", label: "Double-Entry Ledger", to: "/admin/finance/ledger", icon: BookOpen, superadminOnly: true },
+    { id: "AD-011", label: "Support Triage", to: "/admin/support", icon: LifeBuoy, superadminOnly: false },
+    { id: "AD-012", label: "Ticket Resolution", to: "/admin/support/TKT-9042", icon: MessageSquare, superadminOnly: false },
+    { id: "AD-013", label: "Incident & Disputes", to: "/admin/incidents", icon: AlertOctagon, superadminOnly: true },
+    { id: "AD-014", label: "Review Moderation", to: "/admin/reviews", icon: Star, superadminOnly: true },
+    { id: "AD-015", label: "Promotions Engine", to: "/admin/promotions", icon: Sparkles, superadminOnly: true },
+    { id: "AD-016", label: "System Settings", to: "/admin/settings", icon: Settings, superadminOnly: true },
+    { id: "AD-017", label: "Security Audit Log", to: "/admin/audit", icon: FileSearch, superadminOnly: true },
+    { id: "AD-018", label: "Admin Staff & RBAC", to: "/admin/staff", icon: KeyRound, superadminOnly: true }
+  ];
+
+  const activeNav = navItems.find((item) => location.pathname === item.to);
+  const blockedForSupport = effectiveAdminRole === "SUPPORT" && activeNav?.superadminOnly;
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <aside className="lg:col-span-3 space-y-4">
+        <div className="bg-slate-950 text-white rounded-2xl p-4 space-y-3 shadow-md border border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-purple-300 font-bold">
+              Platform Governance (18 Screens)
+            </span>
+            <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-200 font-mono">
+              {effectiveAdminRole}
+            </span>
+          </div>
+          {canActAsSuperadmin ? (
+            <div className="grid grid-cols-2 gap-1.5 bg-slate-900 p-1 rounded-xl text-xs">
+              <button
+                onClick={() => setAdminRoleMode("SUPERADMIN")}
+                className={`py-1.5 rounded-lg font-bold transition ${
+                  effectiveAdminRole === "SUPERADMIN" ? "bg-purple-600 text-white" : "text-slate-400"
+                }`}
+              >
+                Superadmin
+              </button>
+              <button
+                onClick={() => setAdminRoleMode("SUPPORT")}
+                className={`py-1.5 rounded-lg font-bold transition ${
+                  effectiveAdminRole === "SUPPORT" ? "bg-amber-500 text-slate-950" : "text-slate-400"
+                }`}
+              >
+                Support Agent
+              </button>
+            </div>
+          ) : (
+            <div className="bg-slate-900 px-3 py-2 rounded-xl text-xs text-amber-300 font-mono">
+              Authenticated Role: SUPPORT (Non-Financial Queue Scope)
+            </div>
+          )}
+        </div>
+
+        <nav className="bg-white rounded-2xl border border-slate-200 p-2.5 space-y-1 shadow-sm max-h-[75vh] overflow-y-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.to;
+            const restricted = effectiveAdminRole === "SUPPORT" && item.superadminOnly;
+            return (
+              <Link
+                key={item.id}
+                to={`${item.to}${querySuffix}`}
+                className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition ${
+                  isActive
+                    ? "bg-purple-700 text-white shadow-sm"
+                    : restricted
+                    ? "text-slate-400 hover:bg-slate-50"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </span>
+                <span className="flex items-center gap-1">
+                  {restricted && <Lock className="h-3 w-3 text-amber-500" />}
+                  <span
+                    className={`font-mono text-[10px] ${
+                      isActive ? "text-purple-100" : "text-slate-400"
+                    }`}
+                  >
+                    {item.id}
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+
+      <div className="lg:col-span-9">
+        {blockedForSupport ? (
+          <div className="bg-white rounded-2xl border border-red-200 p-8 text-center space-y-4">
+            <MascotIllustration
+              mascot="key"
+              size="lg"
+              badgeText="RBAC Guard Active: SUPERADMIN Required"
+              caption={`Screen ${activeNav?.id} (${activeNav?.label}) is restricted to SUPERADMIN governance (OQ-016). SUPPORT agents are scoped to AD-003, AD-005, AD-011, and AD-012.`}
+            />
+            <div className="flex justify-center gap-3">
+              {canActAsSuperadmin && (
+                <PermissionGate requiredRoles={["SUPERADMIN"]} fallback={
+                  !isAuthenticated ? (
+                    <button
+                      onClick={() => setAdminRoleMode("SUPERADMIN")}
+                      className="px-4 py-2 rounded-xl bg-purple-700 text-white text-xs font-bold"
+                    >
+                      Elevate Role Preview to SUPERADMIN
+                    </button>
+                  ) : null
+                }>
+                  <button
+                    onClick={() => setAdminRoleMode("SUPERADMIN")}
+                    className="px-4 py-2 rounded-xl bg-purple-700 text-white text-xs font-bold"
+                  >
+                    Return to SUPERADMIN View
+                  </button>
+                </PermissionGate>
+              )}
+              <Link
+                to={`/admin/support${querySuffix}`}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold"
+              >
+                Go to Support Triage Queue (AD-011)
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <Outlet />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-001: Platform Command Dashboard (/admin)
+// ============================================================================
+export function AdminCommandDashboardPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-001">
+      <ScreenHeaderBadge
+        screenId="AD-001"
+        title="Superadmin Platform Command Dashboard"
+        subtitle="Global GMV, 15% commission revenue, KYC review queues, and custody incident telemetry."
+        workflows={["WF-005", "WF-031", "WF-034", "WF-041"]}
+        roleScope="Superadmin"
+        backendStatus="HYBRID_PREVIEW"
+        rightSlot={<MascotIllustration mascot="salute" size="sm" caption="Platform Command" />}
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+          <span className="text-xs text-slate-400 font-bold uppercase">Monthly GMV</span>
+          <p className="text-2xl font-extrabold text-slate-900 mt-1">{formatLkr(4280000)}</p>
+          <span className="text-[11px] text-emerald-700 font-semibold">15% Take Rate: {formatLkr(642000)}</span>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+          <span className="text-xs text-slate-400 font-bold uppercase">Pending Host KYC</span>
+          <p className="text-2xl font-extrabold text-amber-600 mt-1">3 Hosts</p>
+          <span className="text-[11px] text-slate-500">Queue in AD-002</span>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+          <span className="text-xs text-slate-400 font-bold uppercase">Active Escrow Held</span>
+          <p className="text-2xl font-extrabold text-blue-600 mt-1">{formatLkr(912400)}</p>
+          <span className="text-[11px] text-slate-500">Double-entry balanced (AD-010)</span>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-200 p-4">
+          <span className="text-xs text-slate-400 font-bold uppercase">Security Audit Events</span>
+          <p className="text-2xl font-extrabold text-purple-700 mt-1">Immutable</p>
+          <span className="text-[11px] text-emerald-700 font-semibold">Live Phase 1B DB Triggers</span>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+        <h2 className="text-base font-bold text-slate-900">All 18 Superadmin Dashboard Screens</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {WEB_ADMIN_SCREENS.map((scr) => (
+            <Link
+              key={scr.id}
+              to={scr.route.replace(":id", "TKT-9042")}
+              className="p-3 rounded-xl border border-slate-200 hover:border-purple-500 transition flex items-center justify-between text-xs"
+            >
+              <div>
+                <span className="font-mono font-bold text-purple-700">{scr.id}</span>
+                <p className="font-semibold text-slate-900">{scr.name}</p>
+              </div>
+              <span className="text-[10px] text-slate-400">{scr.actorScope}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-002: Host Verification Queue (/admin/hosts/review)
+// ============================================================================
+export function AdminHostVerificationQueuePage() {
+  const [status, setStatus] = useState("PENDING_KYC_REVIEW");
+  return (
+    <div className="space-y-6" data-screen-id="AD-002">
+      <ScreenHeaderBadge
+        screenId="AD-002"
+        title="Host KYC & Business Verification Queue"
+        subtitle="Inspect Registrar of Companies BRN certificates, NIC/Passport scans, and storage room photos."
+        workflows={["WF-005"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="selfie" size="sm" caption="KYC Document Review" />}
+      />
+      <DeferredBackendNotice featureName="Host KYC Approval & Role Promotion" />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <span className="px-2.5 py-0.5 rounded bg-amber-50 text-amber-800 text-xs font-bold">
+              {status}
+            </span>
+            <h3 className="text-base font-bold text-slate-900 mt-1">
+              Sigiriya Rock View Transit Lockers (Pvt) Ltd
+            </h3>
+            <p className="text-xs text-slate-500">BRN: PV-00918231 • Submitted by Dinesh Perera</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setStatus("APPROVED")}
+              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold"
+            >
+              Approve Host (Preview)
+            </button>
+            <button
+              onClick={() => setStatus("REJECTED_RESUBMIT")}
+              className="px-4 py-2 rounded-xl bg-red-600 text-white text-xs font-bold"
+            >
+              Request Resubmission
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-003: Host Directory & Management (/admin/hosts)
+// ============================================================================
+export function AdminHostDirectoryManagementPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-003">
+      <ScreenHeaderBadge
+        screenId="AD-003"
+        title="Global Host Partner Directory & Account Lifecycle"
+        subtitle="Inspect verified host entities, SLA compliance rates, and account suspension controls."
+        workflows={["WF-005", "WF-013"]}
+        roleScope="Superadmin / Support"
+        backendStatus="HYBRID_PREVIEW"
+        rightSlot={<MascotIllustration mascot="high-five" size="sm" caption="Verified Hosts" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
+        {DEMO_LOCATIONS.map((loc) => (
+          <div
+            key={loc.id}
+            className="flex flex-wrap items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200"
+          >
+            <div>
+              <p className="font-bold text-slate-900">{loc.verifiedHost}</p>
+              <p className="text-slate-500">
+                Primary Hub: {loc.name} ({loc.city}) • Rating ★ {loc.rating}
+              </p>
+            </div>
+            <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 font-bold">
+              ACTIVE PARTNER
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-004: Storage Location Moderation (/admin/locations)
+// ============================================================================
+export function AdminStorageLocationModerationPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-004">
+      <ScreenHeaderBadge
+        screenId="AD-004"
+        title="Storage Location Moderation & Safety Audit"
+        subtitle="Verify CCTV coverage, physical rack capacities, and geospatial pin accuracy."
+        workflows={["WF-010", "WF-013"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="map" size="sm" caption="Geospatial Audit" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
+        {DEMO_LOCATIONS.map((loc) => (
+          <div
+            key={loc.id}
+            className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+          >
+            <div>
+              <span className="font-bold text-slate-900">{loc.name}</span>
+              <p className="text-slate-500">
+                Coordinates: {loc.coordinates.lat}, {loc.coordinates.lng} • Capacity: {loc.totalCapacity}
+              </p>
+            </div>
+            <span className="px-2.5 py-1 rounded bg-blue-50 text-blue-700 font-bold">
+              MODERATION PASSED
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-005: Global Bookings Ledger (/admin/bookings)
+// ============================================================================
+export function AdminGlobalBookingsLedgerPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-005">
+      <ScreenHeaderBadge
+        screenId="AD-005"
+        title="Global Platform Bookings & Custody Ledger"
+        subtitle="Cross-location visibility into every active, completed, overdue, and refunded booking."
+        workflows={["WF-018", "WF-028", "WF-029"]}
+        roleScope="Superadmin / Support"
+        rightSlot={<MascotIllustration mascot="suitcase-hug" size="sm" caption="Global Custody" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2.5 text-xs">
+        {DEMO_BOOKINGS.map((b) => (
+          <div
+            key={b.id}
+            className="flex flex-wrap items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+          >
+            <div>
+              <span className="font-mono font-bold text-purple-700">{b.reference}</span>
+              <span className="ml-2 font-bold text-slate-900">{b.travellerName}</span>
+              <span className="ml-2 text-slate-500">• {b.locationName}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-bold">{formatLkr(b.totalAmountLkr)}</span>
+              <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono">
+                {b.status}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-006: Payment Transactions Log (/admin/payments)
+// ============================================================================
+export function AdminPaymentTransactionsLogPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-006">
+      <ScreenHeaderBadge
+        screenId="AD-006"
+        title="PayHere Payment Gateway Transactions & Webhook Log"
+        subtitle="Inspect cryptographic MD5/HMAC webhook signatures, authorization codes, and LKR captures."
+        workflows={["WF-019", "WF-020"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="phone" size="sm" caption="Gateway Webhooks" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2.5 text-xs">
+        {DEMO_BOOKINGS.map((b) => (
+          <div
+            key={b.id}
+            className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+          >
+            <div>
+              <span className="font-mono font-bold text-slate-900">PAYHERE-{b.id.toUpperCase()}</span>
+              <span className="ml-2 text-slate-500">Booking {b.reference}</span>
+            </div>
+            <span className="font-bold text-emerald-700">
+              CAPTURED • {formatLkr(b.totalAmountLkr)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-007: Refund Management Queue (/admin/refunds)
+// ============================================================================
+export function AdminRefundManagementQueuePage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-007">
+      <ScreenHeaderBadge
+        screenId="AD-007"
+        title="Refund Management & 7-Stage Settlement Queue"
+        subtitle="Adjudicate cancellation policy windows (>24h 100%, <24h 50%) and monitor acquiring bank reversals."
+        workflows={["WF-030", "WF-031", "WF-032"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="sitting-suitcase" size="sm" caption="7-Stage Tracking" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
+        <p className="font-bold text-slate-900">
+          Active Refund #RFD-8799 — Sophie Laurent ({formatLkr(15980)} • 100% Policy Window)
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {REFUND_SEVEN_STAGES.map((s) => (
+            <div key={s.stage} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+              <span className="font-mono font-bold text-purple-700">Stage {s.stage}:</span>{" "}
+              <span>{s.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-008: Host Payout Batch Generation (/admin/payouts/batches)
+// ============================================================================
+export function AdminHostPayoutBatchGenerationPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-008">
+      <ScreenHeaderBadge
+        screenId="AD-008"
+        title="Host Payout Batch Generation Engine"
+        subtitle="Aggregate completed bookings into weekly LKR settlement batches (85% Host Net / 15% Commission)."
+        workflows={["WF-034"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="alarm-clock" size="sm" caption="Weekly Settlement" />}
+      />
+      <DeferredBackendNotice featureName="Automated Payout Batch Compilation" />
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
+        <p className="font-bold text-slate-900">
+          Batch #BATCH-2026-W45 • 5 Verified Host Entities • Net Disbursement: {formatLkr(642800)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-009: Manual Payout Disbursement (/admin/payouts/disburse)
+// ============================================================================
+export function AdminManualPayoutDisbursementPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-009">
+      <ScreenHeaderBadge
+        screenId="AD-009"
+        title="Manual Payout Disbursement & Bank Reference Recording"
+        subtitle="Record CEFT/SLIPS bank transfer reference numbers and upload settlement receipts."
+        workflows={["WF-035"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="jump" size="sm" caption="CEFT / SLIPS Settlement" />}
+      />
+      <DeferredBackendNotice featureName="Disbursement Execution & Ledger Posting" />
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
+        <p className="font-bold text-slate-900">
+          Awaiting Bank Reference Confirmation: Batch #BATCH-2026-W45 (Commercial Bank CEFT)
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-010: Double-Entry Financial Ledger (/admin/finance/ledger)
+// ============================================================================
+export function AdminDoubleEntryFinancialLedgerPage() {
+  const entries = [
+    { id: "JRN-901", account: "1100_ESCROW_CASH_ASSET", debit: 3800, credit: 0, ref: "LS-2026-8841" },
+    { id: "JRN-902", account: "2100_HOST_PAYABLE_85", debit: 0, credit: 3230, ref: "LS-2026-8841" },
+    { id: "JRN-903", account: "4100_PLATFORM_REVENUE_15", debit: 0, credit: 570, ref: "LS-2026-8841" }
+  ];
+  return (
+    <div className="space-y-6" data-screen-id="AD-010">
+      <ScreenHeaderBadge
+        screenId="AD-010"
+        title="Immutable Double-Entry Financial Ledger"
+        subtitle="Every LKR booking capture, 85/15 split, and refund reversal balanced to zero discrepancy."
+        workflows={["WF-036"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="blank-tag" size="sm" caption="Balanced Debit = Credit" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2 text-xs font-mono">
+        {entries.map((e) => (
+          <div
+            key={e.id}
+            className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+          >
+            <span>
+              {e.id} • {e.account} ({e.ref})
+            </span>
+            <span>
+              DR: {formatLkr(e.debit)} | CR: {formatLkr(e.credit)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-011: Support Ticket Triage Queue (/admin/support)
+// ============================================================================
+export function AdminSupportTicketTriageQueuePage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-011">
+      <ScreenHeaderBadge
+        screenId="AD-011"
+        title="Support Ticket Triage Queue"
+        subtitle="Prioritized traveller and host support inquiries with SLA timers."
+        workflows={["WF-039", "WF-040"]}
+        roleScope="Support / Superadmin"
+        rightSlot={<MascotIllustration mascot="thinking" size="sm" caption="Support Triage" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 flex items-center justify-between text-xs">
+        <div>
+          <span className="font-mono font-bold text-purple-700">#TKT-9042</span>
+          <p className="font-bold text-slate-900 mt-0.5">
+            Train Delayed at Peradeniya — Requesting 2-Hour Pick-Up Extension
+          </p>
+        </div>
+        <Link
+          to="/admin/support/TKT-9042"
+          className="px-4 py-2 rounded-xl bg-purple-700 text-white font-bold"
+        >
+          Resolve Ticket (AD-012)
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-012: Support Ticket Resolution View (/admin/support/:id)
+// ============================================================================
+export function AdminSupportTicketResolutionViewPage() {
+  const { id } = useParams<{ id: string }>();
+  return (
+    <div className="space-y-6" data-screen-id="AD-012">
+      <ScreenHeaderBadge
+        screenId="AD-012"
+        title={`Support Ticket Resolution Workspace — ${id || "TKT-9042"}`}
+        subtitle="Unified conversation thread with linked booking custody metadata and resolution macros."
+        workflows={["WF-040"]}
+        roleScope="Support / Superadmin"
+        rightSlot={<MascotIllustration mascot="phone" size="sm" caption="Active Thread" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
+        <p className="font-bold text-slate-900">
+          Linked Booking: #LS-2026-8841 • Traveller: Amaya Perera
+        </p>
+        <p className="text-slate-600">
+          Host notified of 2-hour scenic rail delay; grace note attached to custody record.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-013: Incident & Dispute Investigation (/admin/incidents)
+// ============================================================================
+export function AdminIncidentDisputeInvestigationPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-013">
+      <ScreenHeaderBadge
+        screenId="AD-013"
+        title="Custody Incident, Overdue Dispute & Seal Investigation"
+        subtitle="Adjudicate decoupled Mandatory Release (OQ-015 / BR-035) handovers, audited PIN fallbacks, and seal or bag-count exceptions."
+        workflows={["WF-027", "WF-041", "WF-042"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="shrug" size="sm" caption="OQ-015 / BR-035 Enforcement" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
+        <p className="font-bold text-slate-900">
+          Incident #INC-2026-14 — Decoupled Overdue Release & Fee Dispute (Booking #LS-2026-8835)
+        </p>
+        <p className="text-slate-600">
+          Physical luggage custody released immediately to traveller upon QR/PIN verification and
+          bag-count reconciliation under OQ-015 & Invariant BR-035 (custody completion and financial
+          dispute handling are strictly separated). Location&apos;s disclosed, configurable late fee
+          request (illustrative demo policy: 1.5x daily rate after illustrative 30m grace window) is
+          logged for in-app review and dispute resolution—no silent charge was executed.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-014: Review Moderation Queue (/admin/reviews)
+// ============================================================================
+export function AdminReviewModerationQueuePage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-014">
+      <ScreenHeaderBadge
+        screenId="AD-014"
+        title="Traveller Review & Rating Moderation Queue"
+        subtitle="Verify authentic post-checkout reviews and moderate flagged content."
+        workflows={["WF-038"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="high-five" size="sm" caption="Verified Reviews" />}
+      />
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
+        <p className="font-bold text-slate-900">All 931 published reviews verified via completed check-out tokens.</p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-015: Promotion & Marketing Engine (/admin/promotions)
+// ============================================================================
+export function AdminPromotionMarketingEnginePage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-015">
+      <ScreenHeaderBadge
+        screenId="AD-015"
+        title="Promotions, Discount Vouchers & Campaign Engine"
+        subtitle="Manage seasonal Sri Lanka tourism promo codes (SLWELCOME10, ELLAEXPRESS15) and redemption caps."
+        workflows={["WF-043"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="blank-tag" size="sm" caption="Active Promo Codes" />}
+      />
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
+        <p className="font-bold text-slate-900">Active Campaign: SLWELCOME10 (10% Off First Custody Booking)</p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-016: Platform System Configuration (/admin/settings)
+// ============================================================================
+export function AdminPlatformSystemConfigurationPage() {
+  const [gracePolicyMode, setGracePolicyMode] = useState("LOCATION_CONFIGURABLE");
+  const [photoPolicyMode, setPhotoPolicyMode] = useState("OPTIONAL_DEFAULT_PER_LOCATION_MANDATORY");
+
+  return (
+    <div className="space-y-6" data-screen-id="AD-016">
+      <ScreenHeaderBadge
+        screenId="AD-016"
+        title="Global Platform System Configuration & Policy Parameters"
+        subtitle="Configure commission split, Host SLA timeout, configurable late collection fee bounds (OQ-015), and photo evidence rules (OQ-014)."
+        workflows={["WF-044"]}
+        roleScope="Superadmin"
+        rightSlot={<MascotIllustration mascot="pointing" size="sm" caption="Configurable Policies" />}
+      />
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <div className="p-3 rounded-xl bg-slate-50 border">
+          Platform Commission: <strong>15% (Host Net 85%)</strong>
+        </div>
+        <div className="p-3 rounded-xl bg-slate-50 border">
+          Host Approval SLA: <strong>15 Minutes</strong>
+        </div>
+        <div className="p-3 rounded-xl bg-slate-50 border space-y-1">
+          <span className="block font-bold text-slate-800">
+            Late Collection Grace & Fee Policy (OQ-015):
+          </span>
+          <select
+            aria-label="Late Collection Grace & Fee Policy"
+            value={gracePolicyMode}
+            onChange={(e) => setGracePolicyMode(e.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-2 py-1 text-xs bg-white"
+          >
+            <option value="LOCATION_CONFIGURABLE">
+              Configurable per Location (Illustrative Demo: 30m–60m Grace / Disclosed Rate)
+            </option>
+            <option value="HOURLY_EXTENSION_CAP">
+              Configurable Hourly / Daily Cap Extension Policy
+            </option>
+          </select>
+          <span className="block text-[11px] text-slate-500">
+            No universal hardcoded default; disclosed before checkout; in-app payment only; no
+            silent charges.
+          </span>
+        </div>
+        <div className="p-3 rounded-xl bg-slate-50 border space-y-1">
+          <span className="block font-bold text-slate-800">
+            Check-In Photo Evidence Policy (OQ-014):
+          </span>
+          <select
+            aria-label="Check-In Photo Evidence Policy"
+            value={photoPolicyMode}
+            onChange={(e) => setPhotoPolicyMode(e.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-2 py-1 text-xs bg-white"
+          >
+            <option value="OPTIONAL_DEFAULT_PER_LOCATION_MANDATORY">
+              Optional by Default • Configurable Mandatory per Location
+            </option>
+            <option value="MANDATORY_HIGH_RISK_HUBS">
+              Mandatory for High-Volume Transit Vaults
+            </option>
+          </select>
+          <span className="block text-[11px] text-slate-500">
+            Server-side QR verification with rate-limited PIN fallback & mandatory bag-count check.
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-017: Security & Compliance Audit Log (/admin/audit)
+// ============================================================================
+export function AdminSecurityComplianceAuditLogPage() {
+  const { isAuthenticated, user } = useAuthStore();
+  const [liveEvents, setLiveEvents] = useState<SecurityAuditEvent[]>([]);
+  const [eventFilter, setEventFilter] = useState<string>("");
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const isSuperadmin = Boolean(isAuthenticated && user?.roles?.includes("SUPERADMIN"));
+
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    let active = true;
+    setIsLoading(true);
+    setErrorMessage(null);
+    authApi
+      .listAdminAuditEvents({
+        page: 1,
+        limit: 25,
+        eventType: eventFilter || undefined
+      })
+      .then((items) => {
+        if (active) setLiveEvents(items);
+      })
+      .catch((err: unknown) => {
+        if (active) {
+          setErrorMessage(
+            err instanceof Error ? err.message : "Failed to load security audit events."
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isSuperadmin, eventFilter]);
+
+  return (
+    <div className="space-y-6" data-screen-id="AD-017">
+      <ScreenHeaderBadge
+        screenId="AD-017"
+        title="Immutable Security & Compliance Audit Log"
+        subtitle="Append-only PostgreSQL trigger-protected security_audit_events stream (/api/v1/admin/audit-events)."
+        workflows={["WF-005", "WF-031", "WF-035", "WF-044"]}
+        roleScope="Superadmin"
+        backendStatus="LIVE_PHASE_1B"
+        rightSlot={<MascotIllustration mascot="key" size="sm" caption="Append-Only Audit" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="font-semibold text-slate-800">
+            {isSuperadmin
+              ? "Connected to Live /api/v1/admin/audit-events Stream (admin.audit.read)"
+              : "Demo Preview Stream (Sign in as SUPERADMIN for live PostgreSQL audit stream)"}
+          </div>
+          <select
+            value={eventFilter}
+            onChange={(e) => setEventFilter(e.target.value)}
+            aria-label="Filter security audit events by type"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs bg-white font-mono"
+          >
+            <option value="">All Event Types</option>
+            <option value="AUTH_LOGIN_SUCCESS">AUTH_LOGIN_SUCCESS</option>
+            <option value="AUTH_LOGIN_FAILURE">AUTH_LOGIN_FAILURE</option>
+            <option value="AUTH_EMAIL_VERIFICATION_SENT">AUTH_EMAIL_VERIFICATION_SENT</option>
+            <option value="AUTH_EMAIL_VERIFICATION_COMPLETED">
+              AUTH_EMAIL_VERIFICATION_COMPLETED
+            </option>
+            <option value="AUTH_RATE_LIMIT_EXCEEDED">AUTH_RATE_LIMIT_EXCEEDED</option>
+            <option value="AUTH_ROLE_ASSIGNED">AUTH_ROLE_ASSIGNED</option>
+            <option value="AUTH_ACCESS_DENIED">AUTH_ACCESS_DENIED</option>
+          </select>
+        </div>
+
+        {errorMessage && (
+          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700">
+            {errorMessage}
+          </div>
+        )}
+
+        {isSuperadmin && !isLoading && liveEvents.length > 0 ? (
+          <div className="space-y-2 font-mono">
+            {liveEvents.map((ev) => (
+              <div
+                key={ev.id}
+                className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2"
+              >
+                <span>
+                  [{ev.eventType}] user={ev.userId ?? "anonymous"} • ip={ev.ipAddress ?? "n/a"}
+                </span>
+                <span className="text-slate-500">{ev.createdAt}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2 font-mono">
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+              [AUTH_LOGIN_SUCCESS] actor=superadmin@luggagestorage.lk • ip=127.0.0.1 • surface=WEB
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+              [AUTH_EMAIL_VERIFICATION_COMPLETED] target=traveller@luggagestorage.lk • status=ACTIVE
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+              [AUTH_ROLE_ASSIGNED] target=host.owner@ceylontransit.lk • role=HOST_OWNER • outcome=SUCCESS
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AD-018: Administrative Staff & RBAC (/admin/staff)
+// ============================================================================
+export function AdminStaffRbacManagementPage() {
+  return (
+    <div className="space-y-6" data-screen-id="AD-018">
+      <ScreenHeaderBadge
+        screenId="AD-018"
+        title="Administrative Staff & RBAC Matrix Governance"
+        subtitle="Manage SUPERADMIN, SUPPORT, HOST_OWNER, HOST_STAFF, and TRAVELLER role assignments with last-Superadmin protection."
+        workflows={["WF-006", "WF-044"]}
+        roleScope="Superadmin"
+        backendStatus="LIVE_PHASE_1B"
+        rightSlot={<MascotIllustration mascot="key" size="sm" caption="Phase 1B RBAC Matrix" />}
+      />
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2 text-xs">
+        <p className="font-bold text-slate-900">
+          Enforced via Phase 1B RBAC API (/api/v1/admin/users & /api/v1/admin/roles):
+        </p>
+        <p className="text-slate-600">
+          5 Canonical Roles • 12 Granular Permissions • Last-Superadmin demotion/deactivation guard
+          active.
+        </p>
+      </div>
+    </div>
+  );
+}
+

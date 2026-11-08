@@ -73,7 +73,7 @@ describe("WP-06: Admin Account Lifecycle Management", () => {
     }
 
     // Set desired account status and email verification flag
-    const isEmailVerified = status === "ACTIVE";
+    const isEmailVerified = status !== "PENDING_VERIFICATION";
     await migratorPool.query(
       "UPDATE users SET status = $1, is_email_verified = $2, updated_at = NOW() WHERE id = $3;",
       [status, isEmailVerified, userId]

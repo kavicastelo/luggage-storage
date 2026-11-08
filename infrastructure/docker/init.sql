@@ -66,10 +66,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO luggage_u
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO luggage_user;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO luggage_user;
 
--- Ensure objects created by migrator or administrator automatically grant DML to runtime role
+-- Ensure objects created by migrator or administrator automatically grant DML to runtime role and revoke PUBLIC function execution
+ALTER DEFAULT PRIVILEGES FOR ROLE luggage_migrator IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE luggage_role_assigner IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE luggage_migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO luggage_user;
 ALTER DEFAULT PRIVILEGES FOR ROLE luggage_migrator IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO luggage_user;
 ALTER DEFAULT PRIVILEGES FOR ROLE luggage_migrator IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO luggage_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE luggage_role_assigner IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO luggage_user;
+ALTER DEFAULT PRIVILEGES FOR ROLE luggage_role_assigner IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO luggage_migrator;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO luggage_user;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO luggage_user;

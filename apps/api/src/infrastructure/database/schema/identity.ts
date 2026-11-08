@@ -4,6 +4,7 @@ import {
   varchar,
   text,
   boolean,
+  integer,
   timestamp,
   jsonb,
   uniqueIndex,
@@ -26,6 +27,7 @@ export const users = pgTable(
     displayName: varchar("display_name", { length: 128 }).notNull(),
     status: varchar("status", { length: 32 }).notNull().default("PENDING_VERIFICATION"),
     isEmailVerified: boolean("is_email_verified").notNull().default(false),
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
     isPhoneVerified: boolean("is_phone_verified").notNull().default(false),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }),
@@ -262,6 +264,46 @@ export const securityAuditEvents = pgTable(
 );
 
 // ============================================================================
+// 11. Self-Service Email Verification Tokens
+// ============================================================================
+export const emailVerificationTokens = pgTable(
+  "email_verification_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex("email_verification_tokens_token_hash_unique").on(table.tokenHash),
+    index("email_verification_tokens_user_expires_idx").on(table.userId, table.expiresAt)
+  ]
+);
+
+// ============================================================================
+// 12. Multi-Instance PostgreSQL Rate Limits
+// ============================================================================
+export const authRateLimits = pgTable(
+  "auth_rate_limits",
+  {
+    keyHash: varchar("key_hash", { length: 64 }).primaryKey(),
+    scope: varchar("scope", { length: 32 }).notNull(),
+    points: integer("points").notNull().default(1),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => [
+    index("auth_rate_limits_expires_at_idx").on(table.expiresAt),
+    index("auth_rate_limits_scope_idx").on(table.scope)
+  ]
+);
+
+// ============================================================================
 // Drizzle Relations
 // ============================================================================
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -276,6 +318,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   userRoles: many(userRoles),
   sessions: many(authSessions),
   passwordResetTokens: many(passwordResetTokens),
+  emailVerificationTokens: many(emailVerificationTokens),
   securityAuditEvents: many(securityAuditEvents)
 }));
 
@@ -342,6 +385,13 @@ export const passwordResetTokensRelations = relations(passwordResetTokens, ({ on
   })
 }));
 
+export const emailVerificationTokensRelations = relations(emailVerificationTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [emailVerificationTokens.userId],
+    references: [users.id]
+  })
+}));
+
 export const securityAuditEventsRelations = relations(securityAuditEvents, ({ one }) => ({
   user: one(users, {
     fields: [securityAuditEvents.userId],
@@ -378,6 +428,12 @@ export type NewAuthSession = typeof authSessions.$inferInsert;
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type NewPasswordResetToken = typeof passwordResetTokens.$inferInsert;
+
+export type EmailVerificationToken = typeof emailVerificationTokens.$inferSelect;
+export type NewEmailVerificationToken = typeof emailVerificationTokens.$inferInsert;
+
+export type AuthRateLimit = typeof authRateLimits.$inferSelect;
+export type NewAuthRateLimit = typeof authRateLimits.$inferInsert;
 
 export type SecurityAuditEvent = typeof securityAuditEvents.$inferSelect;
 export type NewSecurityAuditEvent = typeof securityAuditEvents.$inferInsert;

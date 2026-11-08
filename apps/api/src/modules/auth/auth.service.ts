@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import {
   RegisterRequest,
@@ -5,6 +6,10 @@ import {
   LoginRequest,
   AuthenticatedUser,
   UserStatus,
+  VerifyEmailRequest,
+  VerifyEmailResponseData,
+  ResendVerificationRequest,
+  ResendVerificationResponseData,
   normalizeEmail
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
@@ -12,6 +17,8 @@ import { AppError } from "../../common/errors/app-error.js";
 import { argon2Service } from "./argon2.service.js";
 import { sessionService } from "./session.service.js";
 import { auditService, SecurityEventType } from "../audit/audit.service.js";
+import { emailService } from "../email/email.service.js";
+import { rateLimitService } from "./rate-limit.service.js";
 
 export interface ClientConnectionInfo {
   ip?: string;
@@ -25,19 +32,24 @@ export interface LoginServiceResult {
   rawRefreshToken: string;
 }
 
+const VALID_ACCOUNT_STATE_TRANSITIONS: Record<UserStatus, readonly UserStatus[]> = {
+  PENDING_VERIFICATION: ["ACTIVE", "SUSPENDED", "DEACTIVATED"],
+  ACTIVE: ["ACTIVE", "SUSPENDED", "DEACTIVATED"],
+  SUSPENDED: ["ACTIVE", "DEACTIVATED"],
+  DEACTIVATED: ["ACTIVE"]
+};
+
+export function isValidAccountStateTransition(
+  fromStatus: UserStatus,
+  toStatus: UserStatus
+): boolean {
+  return VALID_ACCOUNT_STATE_TRANSITIONS[fromStatus]?.includes(toStatus) ?? false;
+}
+
 export class AuthService {
   /**
-   * Registers a new user account with default TRAVELLER role assignment.
-   *
-   * Security guarantees:
-   * 1. Validates inputs and normalizes email (lower(trim(email))).
-   * 2. Hashes password using Argon2id with OWASP parameters (never stores plaintext).
-   * 3. Atomically inserts user and assigns TRAVELLER role via SECURITY DEFINER function
-   *    in a single database transaction. Rolls back completely on any error.
-   * 4. Ignores any client-supplied role assignment (e.g. SUPERADMIN).
-   * 5. Safely catches unique constraint violations (23505) and returns generic conflict.
-   * 6. Emits an immutable security audit event.
-   * 7. Returns only public user fields; never exposes password hashes.
+   * Registers a new user account with default TRAVELLER role assignment and issues
+   * a single-use SHA-256 hashed email verification token (24h TTL).
    */
   async register(
     input: RegisterRequest,
@@ -46,8 +58,29 @@ export class AuthService {
     const rawEmail = input.email.trim();
     const normalized = normalizeEmail(rawEmail);
 
+    if (clientInfo?.ip) {
+      await rateLimitService.enforce({
+        scope: "auth_register_ip",
+        identifier: clientInfo.ip,
+        message: "Too many registration attempts. Please try again later.",
+        clientInfo
+      });
+    }
+    await rateLimitService.enforce({
+      scope: "auth_register_email",
+      identifier: normalized,
+      message: "Too many registration attempts for this email. Please try again later.",
+      clientInfo
+    });
+
     // Hash password with Argon2id before entering the transaction
     const passwordHash = await argon2Service.hashPassword(input.password);
+    const rawVerificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationTokenHash = crypto
+      .createHash("sha256")
+      .update(rawVerificationToken)
+      .digest("hex");
+    const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours TTL
 
     try {
       const createdUser = await db.transaction(async (tx) => {
@@ -62,6 +95,7 @@ export class AuthService {
             phoneNumber: input.phoneNumber ? input.phoneNumber.trim() : null,
             status: "PENDING_VERIFICATION",
             isEmailVerified: false,
+            emailVerifiedAt: null,
             isPhoneVerified: false
           })
           .returning({
@@ -79,6 +113,14 @@ export class AuthService {
           sql`SELECT public.assign_default_traveller_role(${newUser.id}::uuid)`
         );
 
+        // Store SHA-256 hashed email verification token
+        await tx.insert(schema.emailVerificationTokens).values({
+          userId: newUser.id,
+          tokenHash: verificationTokenHash,
+          expiresAt: verificationExpiresAt,
+          usedAt: null
+        });
+
         // Record security audit event transactionally
         await auditService.recordEvent({
           eventType: SecurityEventType.AUTH_REGISTER_SUCCESS,
@@ -91,7 +133,26 @@ export class AuthService {
           tx
         });
 
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_SENT,
+          userId: newUser.id,
+          clientInfo,
+          metadata: {
+            email: normalized,
+            expiresAt: verificationExpiresAt.toISOString()
+          },
+          tx
+        });
+
         return newUser;
+      });
+
+      // Dispatch verification email via EmailService adapter boundary
+      await emailService.sendEmailVerificationEmail({
+        to: createdUser.email,
+        displayName: createdUser.displayName,
+        verificationToken: rawVerificationToken,
+        verificationUrl: `/verify-email?token=${rawVerificationToken}`
       });
 
       return {
@@ -131,24 +192,22 @@ export class AuthService {
 
   /**
    * Authenticates a user with email and password.
-   *
-   * Security guarantees:
-   * 1. Normalizes email identically to registration.
-   * 2. Retrieves account safely using runtime role privileges.
-   * 3. Mitigates user enumeration timing attacks by executing a dummy Argon2id
-   *    verification when an account does not exist.
-   * 4. Returns identical generic 401 UNAUTHORIZED responses for non-existent users
-   *    and invalid passwords.
-   * 5. Enforces account status restrictions: blocks SUSPENDED and DEACTIVATED accounts.
-   * 6. Records immutable security audit events for both successes and failures.
-   * 7. Updates last_login_at timestamp on successful authentication.
-   * 8. Returns authenticated user summary with active roles. Never returns password hashes.
+   * Rejects PENDING_VERIFICATION / unverified accounts, SUSPENDED accounts, and DEACTIVATED accounts.
    */
   async login(
     input: LoginRequest,
     clientInfo?: ClientConnectionInfo
   ): Promise<LoginServiceResult> {
     const normalized = normalizeEmail(input.email);
+
+    if (clientInfo?.ip) {
+      await rateLimitService.enforce({
+        scope: "auth_login_ip",
+        identifier: clientInfo.ip,
+        message: "Too many login attempts from this IP. Please try again later.",
+        clientInfo
+      });
+    }
 
     // Look up user by normalized email
     const [user] = await db
@@ -169,7 +228,6 @@ export class AuthService {
       // Timing attack mitigation: run dummy Argon2id verification
       await argon2Service.verifyDummy(input.password);
 
-      // Record audit failure event
       await auditService.recordEvent({
         eventType: SecurityEventType.AUTH_LOGIN_FAILURE,
         userId: null,
@@ -178,6 +236,13 @@ export class AuthService {
           email: normalized,
           reason: "USER_NOT_FOUND"
         }
+      });
+
+      await rateLimitService.enforce({
+        scope: "auth_login_email",
+        identifier: normalized,
+        message: "Too many failed login attempts. Please wait before trying again.",
+        clientInfo
       });
 
       throw AppError.unauthorized("Invalid email or password");
@@ -200,10 +265,17 @@ export class AuthService {
         }
       });
 
+      await rateLimitService.enforce({
+        scope: "auth_login_email",
+        identifier: normalized,
+        message: "Too many failed login attempts. Please wait before trying again.",
+        clientInfo
+      });
+
       throw AppError.unauthorized("Invalid email or password");
     }
 
-    // Check account status
+    // Check account status restrictions
     if (user.status === "SUSPENDED") {
       await auditService.recordEvent({
         eventType: SecurityEventType.AUTH_LOGIN_FAILURE,
@@ -229,6 +301,22 @@ export class AuthService {
       });
       throw AppError.forbidden("Account is deactivated");
     }
+
+    if (user.status === "PENDING_VERIFICATION" || !user.isEmailVerified) {
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_LOGIN_FAILURE,
+        userId: user.id,
+        clientInfo,
+        metadata: {
+          email: normalized,
+          reason: "ACCOUNT_PENDING_VERIFICATION"
+        }
+      });
+      throw AppError.forbidden("Account email verification is required before signing in");
+    }
+
+    // Reset failed login counter for this email upon valid authentication
+    await rateLimitService.resetKey("auth_login_email", normalized);
 
     // Retrieve active user roles
     const userRolesList = await db
@@ -281,8 +369,297 @@ export class AuthService {
   }
 
   /**
+   * Verifies a user's email address using a single-use SHA-256 hashed token,
+   * transitioning PENDING_VERIFICATION -> ACTIVE atomically under row-level lock.
+   */
+  async verifyEmail(
+    input: VerifyEmailRequest,
+    clientInfo?: ClientConnectionInfo
+  ): Promise<VerifyEmailResponseData> {
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(input.token.trim())
+      .digest("hex");
+
+    const now = new Date();
+
+    const txResult = await db.transaction(async (tx) => {
+      const result = await tx.execute(
+        sql`SELECT * FROM email_verification_tokens
+            WHERE token_hash = ${tokenHash}
+            FOR UPDATE;`
+      );
+
+      if (result.rows.length === 0) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_FAILED,
+          userId: null,
+          clientInfo,
+          metadata: { reason: "TOKEN_NOT_FOUND" },
+          tx
+        });
+        return { status: "INVALID_TOKEN" as const };
+      }
+
+      const rawRow = result.rows[0] as {
+        id: string;
+        user_id: string;
+        token_hash: string;
+        expires_at: string | Date;
+        used_at: string | Date | null;
+      };
+
+      const tokenRow = {
+        id: rawRow.id,
+        userId: rawRow.user_id,
+        expiresAt: new Date(rawRow.expires_at),
+        usedAt: rawRow.used_at ? new Date(rawRow.used_at) : null
+      };
+
+      if (tokenRow.usedAt !== null) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_FAILED,
+          userId: tokenRow.userId,
+          clientInfo,
+          metadata: { reason: "TOKEN_ALREADY_USED" },
+          tx
+        });
+        return { status: "TOKEN_ALREADY_USED" as const };
+      }
+
+      if (tokenRow.expiresAt < now) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_FAILED,
+          userId: tokenRow.userId,
+          clientInfo,
+          metadata: { reason: "TOKEN_EXPIRED" },
+          tx
+        });
+        return { status: "TOKEN_EXPIRED" as const };
+      }
+
+      const userRes = await tx
+        .select({
+          id: schema.users.id,
+          email: schema.users.email,
+          status: schema.users.status,
+          isEmailVerified: schema.users.isEmailVerified
+        })
+        .from(schema.users)
+        .where(eq(schema.users.id, tokenRow.userId))
+        .limit(1);
+
+      if (userRes.length === 0) {
+        return { status: "USER_NOT_FOUND" as const };
+      }
+
+      const user = userRes[0];
+
+      if (user.status === "SUSPENDED") {
+        return { status: "ACCOUNT_SUSPENDED" as const };
+      }
+      if (user.status === "DEACTIVATED") {
+        return { status: "ACCOUNT_DEACTIVATED" as const };
+      }
+
+      const nextStatus: UserStatus =
+        user.status === "PENDING_VERIFICATION" ? "ACTIVE" : (user.status as UserStatus);
+
+      // 1. Mark token as consumed
+      await tx
+        .update(schema.emailVerificationTokens)
+        .set({ usedAt: now })
+        .where(eq(schema.emailVerificationTokens.id, tokenRow.id));
+
+      // 2. Invalidate any other unused verification tokens for this user
+      await tx.execute(
+        sql`UPDATE email_verification_tokens
+            SET used_at = NOW()
+            WHERE user_id = ${tokenRow.userId}
+              AND id != ${tokenRow.id}
+              AND used_at IS NULL;`
+      );
+
+      // 3. Activate user and mark email verified
+      const [updatedUser] = await tx
+        .update(schema.users)
+        .set({
+          status: nextStatus,
+          isEmailVerified: true,
+          emailVerifiedAt: now,
+          updatedAt: now
+        })
+        .where(eq(schema.users.id, tokenRow.userId))
+        .returning({
+          id: schema.users.id,
+          email: schema.users.email,
+          status: schema.users.status,
+          isEmailVerified: schema.users.isEmailVerified,
+          emailVerifiedAt: schema.users.emailVerifiedAt
+        });
+
+      // 4. Record audit event
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_COMPLETED,
+        userId: tokenRow.userId,
+        clientInfo,
+        metadata: {
+          verificationTokenId: tokenRow.id,
+          previousStatus: user.status,
+          newStatus: nextStatus
+        },
+        tx
+      });
+
+      return {
+        status: "SUCCESS" as const,
+        user: updatedUser
+      };
+    });
+
+    if (
+      txResult.status === "INVALID_TOKEN" ||
+      txResult.status === "TOKEN_ALREADY_USED" ||
+      txResult.status === "TOKEN_EXPIRED" ||
+      txResult.status === "USER_NOT_FOUND"
+    ) {
+      throw AppError.badRequest("Invalid or expired email verification token");
+    }
+    if (txResult.status === "ACCOUNT_SUSPENDED") {
+      throw AppError.forbidden("Account is suspended");
+    }
+    if (txResult.status === "ACCOUNT_DEACTIVATED") {
+      throw AppError.forbidden("Account is deactivated");
+    }
+
+    return {
+      message: "Email verified successfully. Your account is now active.",
+      user: {
+        id: txResult.user.id,
+        email: txResult.user.email,
+        status: txResult.user.status as UserStatus,
+        isEmailVerified: txResult.user.isEmailVerified,
+        emailVerifiedAt: txResult.user.emailVerifiedAt?.toISOString() ?? now.toISOString()
+      }
+    };
+  }
+
+  /**
+   * Resends a verification email for an unverified account (rate-limited and enumeration-safe).
+   */
+  async resendVerificationEmail(
+    input: ResendVerificationRequest,
+    clientInfo?: ClientConnectionInfo
+  ): Promise<ResendVerificationResponseData> {
+    const genericResponse: ResendVerificationResponseData = {
+      message:
+        "If an unverified account exists with that email address, a new verification link has been sent."
+    };
+
+    const normalized = normalizeEmail(input.email);
+
+    if (clientInfo?.ip) {
+      await rateLimitService.enforce({
+        scope: "auth_verify_resend_ip",
+        identifier: clientInfo.ip,
+        message: "Too many verification email requests. Please try again later.",
+        clientInfo
+      });
+    }
+    await rateLimitService.enforce({
+      scope: "auth_verify_resend_email",
+      identifier: normalized,
+      message: "Too many verification email requests. Please try again later.",
+      clientInfo
+    });
+
+    const [user] = await db
+      .select({
+        id: schema.users.id,
+        email: schema.users.email,
+        displayName: schema.users.displayName,
+        status: schema.users.status,
+        isEmailVerified: schema.users.isEmailVerified
+      })
+      .from(schema.users)
+      .where(eq(schema.users.normalizedEmail, normalized))
+      .limit(1);
+
+    if (!user) {
+      await argon2Service.verifyDummy("dummyPassword123!");
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_RESENT,
+        userId: null,
+        clientInfo,
+        metadata: {
+          email: normalized,
+          reason: "ACCOUNT_NOT_FOUND"
+        }
+      });
+      return genericResponse;
+    }
+
+    if (
+      user.isEmailVerified ||
+      user.status === "SUSPENDED" ||
+      user.status === "DEACTIVATED"
+    ) {
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_RESENT,
+        userId: user.id,
+        clientInfo,
+        metadata: {
+          reason: user.isEmailVerified ? "ALREADY_VERIFIED" : `ACCOUNT_${user.status}`
+        }
+      });
+      return genericResponse;
+    }
+
+    const rawVerificationToken = crypto.randomBytes(32).toString("hex");
+    const verificationTokenHash = crypto
+      .createHash("sha256")
+      .update(rawVerificationToken)
+      .digest("hex");
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`UPDATE email_verification_tokens
+            SET used_at = NOW()
+            WHERE user_id = ${user.id} AND used_at IS NULL;`
+      );
+
+      await tx.insert(schema.emailVerificationTokens).values({
+        userId: user.id,
+        tokenHash: verificationTokenHash,
+        expiresAt,
+        usedAt: null
+      });
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_RESENT,
+        userId: user.id,
+        clientInfo,
+        metadata: {
+          expiresAt: expiresAt.toISOString()
+        },
+        tx
+      });
+    });
+
+    await emailService.sendEmailVerificationEmail({
+      to: user.email,
+      displayName: user.displayName,
+      verificationToken: rawVerificationToken,
+      verificationUrl: `/verify-email?token=${rawVerificationToken}`
+    });
+
+    return genericResponse;
+  }
+
+  /**
    * Retrieves current authenticated user details with active roles.
-   * Ensures account is still active and valid.
+   * Ensures account is still active and email-verified.
    */
   async getCurrentUser(userId: string): Promise<AuthenticatedUser> {
     const [user] = await db
@@ -309,6 +686,10 @@ export class AuthService {
 
     if (user.status === "DEACTIVATED") {
       throw AppError.forbidden("Account is deactivated");
+    }
+
+    if (user.status === "PENDING_VERIFICATION" || !user.isEmailVerified) {
+      throw AppError.forbidden("Account email verification is required before signing in");
     }
 
     const userRolesList = await db

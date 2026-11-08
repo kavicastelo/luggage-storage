@@ -8,13 +8,15 @@ export interface ProtectedRouteProps {
   requiredPermissions?: string[];
   requireAnyPermission?: string[];
   requiredRoles?: string[];
+  allowDemoPreview?: boolean;
 }
 
 export function ProtectedRoute({
   requiredPermission,
   requiredPermissions,
   requireAnyPermission,
-  requiredRoles
+  requiredRoles,
+  allowDemoPreview = false
 }: ProtectedRouteProps) {
   const location = useLocation();
   const {
@@ -35,7 +37,28 @@ export function ProtectedRoute({
     );
   }
 
+  const searchParams = new URLSearchParams(location.search);
+  const isDemoPreviewOptIn = allowDemoPreview && searchParams.get("preview") === "demo";
+
   if (!isAuthenticated) {
+    if (isDemoPreviewOptIn) {
+      return (
+        <div className="space-y-4">
+          <div
+            data-testid="demo-preview-isolation-banner"
+            className="rounded-xl bg-amber-50 border border-amber-300 px-4 py-2.5 text-xs text-amber-900 flex items-center justify-between"
+          >
+            <span className="font-semibold">
+              DEMO PREVIEW MODE (Explicit Opt-In Sandbox) — Unauthenticated UX inspection only. Live API mutations require authentication.
+            </span>
+            <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-amber-200/70 text-amber-950">
+              ?preview=demo
+            </span>
+          </div>
+          <Outlet />
+        </div>
+      );
+    }
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

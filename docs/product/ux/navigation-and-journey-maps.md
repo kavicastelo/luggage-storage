@@ -94,9 +94,9 @@ flowchart TD
     CheckStatus -- Yes --> InspectBags[HM-022 Verify Bag Count & Sizes]
     
     InspectBags --> BagMismatch{Bags Match Booking?}
-    BagMismatch -- Discrepancy --> AdjustLine[HM-022 Adjust Bag Count / Surcharge]
+    BagMismatch -- Discrepancy --> AdjustLine[HM-022 Log Authorized Exception / Adjust]
     AdjustLine --> PhotoDoc
-    BagMismatch -- Matches --> PhotoDoc[HM-023 Capture Photo Evidence]
+    BagMismatch -- Matches --> PhotoDoc[HM-023 Configurable Photo Evidence Capture]
     
     PhotoDoc --> CommitCheckin[Host Taps Confirm Handover]
     CommitCheckin --> TransCustody[Custody Transferred: Status IN_STORAGE]
@@ -109,15 +109,15 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    ReturnTraveller[Traveller Returns to Collect Luggage] --> PresentCheckout[TM-030 Present Collection QR / PIN]
-    PresentCheckout --> HostScanOut[Host Scans via HM-024]
+    ReturnTraveller[Traveller Returns to Collect Luggage] --> PresentCheckout[TM-030 Present Collection QR / PIN Fallback]
+    PresentCheckout --> HostScanOut[Host Scans QR or Enters PIN Fallback via HM-024]
     
     HostScanOut --> TimeCheck{Collection Time Window?}
-    TimeCheck -- On Time / Within 30m Grace --> ReleaseBags[HM-025 Hand Over Bags to Traveller]
+    TimeCheck -- On Time / Within Configurable Grace Period --> ReleaseBags[HM-025 Reconcile Bag Count & Hand Over Bags]
     
-    TimeCheck -- Overdue > 30 mins --> OverdueNotice[HM-026 Overdue Alert Screen]
-    OverdueNotice --> GenCharge[HM-027 Generate Overdue Fee: 1.5x Daily Rate]
-    GenCharge --> TravPayPrompt[TM-029 Traveller Prompted to Pay Overdue]
+    TimeCheck -- Overdue Past Configurable Grace --> OverdueNotice[HM-026 Overdue Alert Screen]
+    OverdueNotice --> GenCharge[HM-027 Request In-App Overdue Fee per Disclosed Policy]
+    GenCharge --> TravPayPrompt[TM-029 Traveller Prompted to Pay Overdue In-App]
     
     TravPayPrompt --> OverduePaymentDecision{Traveller Pays Overdue Fee?}
     OverduePaymentDecision -- Paid Online --> ReleaseBags

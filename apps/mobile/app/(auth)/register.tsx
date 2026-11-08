@@ -91,12 +91,23 @@ export default function MobileRegisterScreen() {
           <View style={styles.verificationNotice}>
             <Text style={styles.noticeTitle}>Email Verification Required</Text>
             <Text style={styles.noticeBody}>
-              Status: <Text style={styles.boldText}>{registeredData.status}</Text>. Please verify the confirmation email sent to <Text style={styles.boldText}>{registeredData.email}</Text> before publishing storage spots.
+              Status: <Text style={styles.boldText}>{registeredData.status}</Text>. Please verify the confirmation email sent to <Text style={styles.boldText}>{registeredData.email}</Text> before signing in.
             </Text>
           </View>
 
           <TouchableOpacity
             style={styles.button}
+            onPress={() =>
+              router.replace(
+                `/(traveller)?screen=TM-008&email=${encodeURIComponent(registeredData.email)}`
+              )
+            }
+          >
+            <Text style={styles.buttonText}>Verify Email Now (TM-008)</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, { backgroundColor: "#0f172a", marginTop: 10 }]}
             onPress={() => router.replace("/(auth)/login")}
           >
             <Text style={styles.buttonText}>Proceed to Sign In</Text>

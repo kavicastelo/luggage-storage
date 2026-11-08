@@ -186,6 +186,35 @@ export const ResetPasswordResponseDataSchema = z.object({
 });
 export type ResetPasswordResponseData = z.infer<typeof ResetPasswordResponseDataSchema>;
 
+export const VerifyEmailRequestSchema = z.object({
+  token: z.string().trim().min(1, "Verification token is required").max(256)
+});
+export type VerifyEmailRequest = z.infer<typeof VerifyEmailRequestSchema>;
+
+export const VerifyEmailResponseDataSchema = z.object({
+  message: z.string(),
+  user: z
+    .object({
+      id: z.string().uuid(),
+      email: z.string(),
+      status: UserStatusSchema,
+      isEmailVerified: z.boolean(),
+      emailVerifiedAt: z.string().nullable().optional()
+    })
+    .optional()
+});
+export type VerifyEmailResponseData = z.infer<typeof VerifyEmailResponseDataSchema>;
+
+export const ResendVerificationRequestSchema = z.object({
+  email: EmailSchema
+});
+export type ResendVerificationRequest = z.infer<typeof ResendVerificationRequestSchema>;
+
+export const ResendVerificationResponseDataSchema = z.object({
+  message: z.string()
+});
+export type ResendVerificationResponseData = z.infer<typeof ResendVerificationResponseDataSchema>;
+
 // ============================================================================
 // Section 14 Endpoint Name Compatibility Aliases
 // ============================================================================

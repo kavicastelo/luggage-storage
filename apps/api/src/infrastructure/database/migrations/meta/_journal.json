@@ -36,6 +36,13 @@
       "when": 1794100000000,
       "tag": "0004_permissions_and_rbac",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794150000000,
+      "tag": "0005_stabilization_verification_and_rate_limits",
+      "breakpoints": true
     }
   ]
 }

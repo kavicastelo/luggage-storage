@@ -14,6 +14,7 @@ import { AppError } from "../../common/errors/app-error.js";
 import { argon2Service } from "./argon2.service.js";
 import { emailService } from "../email/email.service.js";
 import { auditService, SecurityEventType } from "../audit/audit.service.js";
+import { rateLimitService } from "./rate-limit.service.js";
 
 export interface ClientConnectionInfo {
   ip?: string;
@@ -21,43 +22,36 @@ export interface ClientConnectionInfo {
   correlationId?: string;
 }
 
-interface RateLimitRecord {
-  count: number;
-  resetAt: number;
-}
-
 export class PasswordService {
-  private emailRateLimits = new Map<string, RateLimitRecord>();
-
   /**
-   * Clears in-memory rate limits (useful for test isolation).
+   * Clears PostgreSQL-backed rate limits (useful for test isolation).
    */
-  clearRateLimits(): void {
-    this.emailRateLimits.clear();
+  async clearRateLimits(): Promise<void> {
+    await rateLimitService.clearAll();
   }
 
   /**
-   * Rate limits password reset requests to prevent flood abuse.
+   * Rate limits password reset requests using PostgreSQL-backed rate limiting (REM-B03/REM-B04).
    * Window: 15 minutes, Max: 5 requests per normalized email.
    */
-  private checkRateLimit(key: string): void {
-    const now = Date.now();
-    const windowMs = 15 * 60 * 1000;
-    const maxAttempts = 5;
-
-    const record = this.emailRateLimits.get(key);
-    if (!record || now > record.resetAt) {
-      this.emailRateLimits.set(key, { count: 1, resetAt: now + windowMs });
-      return;
+  private async checkRateLimit(
+    normalizedEmailStr: string,
+    clientInfo?: ClientConnectionInfo
+  ): Promise<void> {
+    if (clientInfo?.ip) {
+      await rateLimitService.enforce({
+        scope: "auth_recovery_ip",
+        identifier: clientInfo.ip,
+        message: "Too many password reset requests. Please try again later.",
+        clientInfo
+      });
     }
-
-    if (record.count >= maxAttempts) {
-      throw AppError.rateLimited(
-        "Too many password reset requests. Please try again later."
-      );
-    }
-
-    record.count += 1;
+    await rateLimitService.enforce({
+      scope: "auth_recovery_email",
+      identifier: normalizedEmailStr,
+      message: "Too many password reset requests. Please try again later.",
+      clientInfo
+    });
   }
 
   /**
@@ -191,7 +185,7 @@ export class PasswordService {
     const normalized = normalizeEmail(params.input.email);
 
     // Apply abuse protection rate limiting
-    this.checkRateLimit(`reset:${normalized}`);
+    await this.checkRateLimit(normalized, params.clientInfo);
 
     // Look up user by normalized email
     const [user] = await db

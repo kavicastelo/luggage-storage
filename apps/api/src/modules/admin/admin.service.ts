@@ -570,17 +570,25 @@ export class AdminService {
 
     const newStatus =
       targetUser.status === "PENDING_VERIFICATION" ? "ACTIVE" : targetUser.status;
+    const now = new Date();
 
     const updatedUser = await db.transaction(async (tx) => {
       const [updated] = await tx
         .update(schema.users)
         .set({
           isEmailVerified: true,
+          emailVerifiedAt: now,
           status: newStatus,
-          updatedAt: new Date()
+          updatedAt: now
         })
         .where(eq(schema.users.id, context.targetUserId))
         .returning();
+
+      await tx.execute(
+        sql`UPDATE email_verification_tokens
+            SET used_at = NOW()
+            WHERE user_id = ${context.targetUserId} AND used_at IS NULL;`
+      );
 
       await auditService.recordEvent({
         eventType: SecurityEventType.AUTH_EMAIL_VERIFIED_BY_ADMIN,
