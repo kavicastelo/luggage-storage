@@ -1,3 +1,4 @@
+import nodemailer from "nodemailer";
 import { env } from "../../config/env.js";
 import { logger } from "../../infrastructure/logging/logger.js";
 import {
@@ -6,12 +7,293 @@ import {
   SendEmailVerificationParams,
   SendPasswordResetEmailParams
 } from "./email.types.js";
+import {
+  buildPasswordResetEmailTemplate,
+  buildVerificationEmailTemplate
+} from "./email.templates.js";
+
+const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export interface SmtpSendMailOptions {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}
+
+export interface SmtpSendMailResult {
+  messageId?: string;
+  accepted?: Array<string | unknown>;
+  rejected?: Array<string | unknown>;
+}
+
+export interface SmtpTransportLike {
+  sendMail(mailOptions: SmtpSendMailOptions): Promise<SmtpSendMailResult>;
+}
+
+export interface ZohoSmtpAdapterOptions {
+  host?: string;
+  port?: number;
+  secure?: boolean;
+  requireTls?: boolean;
+  user?: string;
+  password?: string;
+  fromAddress?: string;
+  fromName?: string;
+  timeoutMs?: number;
+  publicBaseUrl?: string;
+  transporter?: SmtpTransportLike;
+}
+
+/**
+ * ZohoSmtpEmailAdapter:
+ * Production Zoho Mail SMTP delivery adapter with strict TLS/STARTTLS validation,
+ * timeout protection, and structured token-safe logging (AUD-002 / OQ-019).
+ */
+export class ZohoSmtpEmailAdapter implements EmailDeliveryAdapter {
+  readonly name = "zoho";
+  private readonly host: string;
+  private readonly port: number;
+  private readonly secure: boolean;
+  private readonly requireTls: boolean;
+  private readonly user: string;
+  private readonly password: string;
+  private readonly fromAddress: string;
+  private readonly fromName: string;
+  private readonly timeoutMs: number;
+  private readonly publicBaseUrl: string;
+  private transporter: SmtpTransportLike | null;
+
+  constructor(options?: ZohoSmtpAdapterOptions) {
+    this.host = (options?.host ?? env.ZOHO_SMTP_HOST ?? "").trim();
+    this.port = options?.port ?? env.ZOHO_SMTP_PORT ?? 587;
+    this.secure = options?.secure ?? env.ZOHO_SMTP_SECURE ?? false;
+    this.requireTls = options?.requireTls ?? env.ZOHO_SMTP_REQUIRE_TLS ?? true;
+    this.user = (options?.user ?? env.ZOHO_SMTP_USER ?? "").trim();
+    this.password = options?.password ?? env.ZOHO_SMTP_PASSWORD ?? "";
+    this.fromAddress = (options?.fromAddress ?? env.EMAIL_FROM_ADDRESS ?? "").trim();
+    this.fromName = (options?.fromName ?? env.EMAIL_FROM_NAME ?? "Luggage Storage Marketplace").trim();
+    this.timeoutMs = options?.timeoutMs ?? env.ZOHO_SMTP_TIMEOUT_MS ?? 10000;
+    this.publicBaseUrl = (options?.publicBaseUrl ?? env.APP_PUBLIC_URL).trim();
+    this.transporter = options?.transporter ?? null;
+  }
+
+  public getConfigurationSummary(): {
+    host: string;
+    port: number;
+    secure: boolean;
+    requireTls: boolean;
+    fromAddress: string;
+    fromName: string;
+    timeoutMs: number;
+    hasCredentials: boolean;
+  } {
+    return {
+      host: this.host,
+      port: this.port,
+      secure: this.secure,
+      requireTls: this.requireTls,
+      fromAddress: this.fromAddress,
+      fromName: this.fromName,
+      timeoutMs: this.timeoutMs,
+      hasCredentials: Boolean(this.user && this.password)
+    };
+  }
+
+  private validateConfiguration(): string | null {
+    if (!this.host || /^https?:\/\//i.test(this.host) || /\s/.test(this.host)) {
+      return "MISSING_OR_INVALID_ZOHO_SMTP_HOST";
+    }
+    if (!Number.isInteger(this.port) || this.port <= 0 || this.port > 65535) {
+      return "INVALID_ZOHO_SMTP_PORT";
+    }
+    if (!this.user || !this.password) {
+      return "MISSING_ZOHO_SMTP_CREDENTIALS";
+    }
+    if (!this.fromAddress || !SIMPLE_EMAIL_REGEX.test(this.fromAddress)) {
+      return "INVALID_EMAIL_FROM_ADDRESS";
+    }
+    if (this.port === 465 && !this.secure) {
+      return "INSECURE_ZOHO_SMTP_TLS_CONFIG";
+    }
+    if (this.port === 587 && this.secure) {
+      return "INSECURE_ZOHO_SMTP_TLS_CONFIG";
+    }
+    if (!this.secure && !this.requireTls) {
+      return "INSECURE_ZOHO_SMTP_TLS_CONFIG";
+    }
+    return null;
+  }
+
+  private getOrCreateTransporter(): SmtpTransportLike {
+    if (this.transporter) {
+      return this.transporter;
+    }
+
+    this.transporter = nodemailer.createTransport({
+      host: this.host,
+      port: this.port,
+      secure: this.secure,
+      requireTLS: !this.secure && this.requireTls,
+      auth: {
+        user: this.user,
+        pass: this.password
+      },
+      connectionTimeout: this.timeoutMs,
+      greetingTimeout: this.timeoutMs,
+      socketTimeout: this.timeoutMs,
+      tls: {
+        rejectUnauthorized: true,
+        minVersion: "TLSv1.2"
+      }
+    });
+
+    return this.transporter;
+  }
+
+  private async dispatchEmail(params: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    emailCategory: "email_verification" | "password_reset";
+  }): Promise<EmailSendResult> {
+    const configError = this.validateConfiguration();
+    if (configError) {
+      logger.error(
+        {
+          provider: this.name,
+          emailCategory: params.emailCategory,
+          errorCode: configError
+        },
+        "[ZohoSmtpEmailAdapter] Configuration validation failed"
+      );
+      return {
+        delivered: false,
+        error: configError,
+        provider: this.name
+      };
+    }
+
+    const formattedFrom = this.fromName
+      ? `"${this.fromName.replace(/"/g, "")}" <${this.fromAddress}>`
+      : this.fromAddress;
+
+    try {
+      const transport = this.getOrCreateTransporter();
+      const info = await transport.sendMail({
+        from: formattedFrom,
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+        text: params.text
+      });
+
+      const rejectedCount = Array.isArray(info.rejected) ? info.rejected.length : 0;
+      const acceptedCount = Array.isArray(info.accepted) ? info.accepted.length : 1;
+
+      if (rejectedCount > 0 && acceptedCount === 0) {
+        logger.warn(
+          {
+            provider: this.name,
+            emailCategory: params.emailCategory,
+            errorCode: "ZOHO_SMTP_RECIPIENT_REJECTED"
+          },
+          "[ZohoSmtpEmailAdapter] Recipient rejected by SMTP server"
+        );
+        return {
+          delivered: false,
+          error: "ZOHO_SMTP_RECIPIENT_REJECTED",
+          provider: this.name
+        };
+      }
+
+      const messageId = info.messageId || `zoho-${Date.now()}`;
+      logger.info(
+        {
+          provider: this.name,
+          emailCategory: params.emailCategory,
+          messageId
+        },
+        "[ZohoSmtpEmailAdapter] Transactional email accepted for delivery"
+      );
+
+      return {
+        delivered: true,
+        messageId,
+        provider: this.name
+      };
+    } catch (err: unknown) {
+      const errCode = (err as { code?: string })?.code;
+      const errMsg = err instanceof Error ? err.message : "ZOHO_SMTP_DELIVERY_FAILED";
+      const normalizedError =
+        errCode === "EAUTH" || /auth/i.test(errMsg)
+          ? "ZOHO_SMTP_AUTH_FAILED"
+          : errCode === "ETIMEDOUT" || /timeout/i.test(errMsg)
+            ? "ZOHO_SMTP_TIMEOUT"
+            : errCode || errMsg;
+
+      logger.error(
+        {
+          provider: this.name,
+          emailCategory: params.emailCategory,
+          errorCode: normalizedError
+        },
+        "[ZohoSmtpEmailAdapter] Failed to dispatch transactional email"
+      );
+
+      return {
+        delivered: false,
+        error: normalizedError,
+        provider: this.name
+      };
+    }
+  }
+
+  async sendEmailVerificationEmail(
+    params: SendEmailVerificationParams
+  ): Promise<EmailSendResult> {
+    const rendered = buildVerificationEmailTemplate({
+      displayName: params.displayName,
+      verificationUrl: params.verificationUrl,
+      publicBaseUrl: this.publicBaseUrl,
+      brandName: this.fromName
+    });
+
+    return await this.dispatchEmail({
+      to: params.to,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+      emailCategory: "email_verification"
+    });
+  }
+
+  async sendPasswordResetEmail(
+    params: SendPasswordResetEmailParams
+  ): Promise<EmailSendResult> {
+    const rendered = buildPasswordResetEmailTemplate({
+      displayName: params.displayName,
+      resetUrl: params.resetUrl,
+      publicBaseUrl: this.publicBaseUrl,
+      brandName: this.fromName
+    });
+
+    return await this.dispatchEmail({
+      to: params.to,
+      subject: rendered.subject,
+      html: rendered.html,
+      text: rendered.text,
+      emailCategory: "password_reset"
+    });
+  }
+}
 
 /**
  * NoopEmailDeliveryAdapter:
- * Safe fallback when no external email provider is configured.
- * Explicitly returns delivered: false so the application never falsely claims
- * an email was delivered in production when unconfigured.
+ * Non-production fallback when no external email provider is configured.
+ * Explicitly returns delivered: false and is forbidden in production.
  */
 export class NoopEmailDeliveryAdapter implements EmailDeliveryAdapter {
   readonly name = "noop";
@@ -39,7 +321,7 @@ export class NoopEmailDeliveryAdapter implements EmailDeliveryAdapter {
 
 /**
  * ConsoleDevEmailAdapter:
- * Local development adapter that logs transactional email metadata to stdout.
+ * Local development adapter that logs transactional email metadata without exposing raw tokens.
  */
 export class ConsoleDevEmailAdapter implements EmailDeliveryAdapter {
   readonly name = "console-dev";
@@ -48,7 +330,7 @@ export class ConsoleDevEmailAdapter implements EmailDeliveryAdapter {
     params: SendPasswordResetEmailParams
   ): Promise<EmailSendResult> {
     logger.info(
-      { to: params.to, resetUrl: params.resetUrl, provider: this.name },
+      { to: params.to, provider: this.name, emailCategory: "password_reset" },
       "[ConsoleDevEmailAdapter] Dispatched password reset email"
     );
     return {
@@ -62,7 +344,7 @@ export class ConsoleDevEmailAdapter implements EmailDeliveryAdapter {
     params: SendEmailVerificationParams
   ): Promise<EmailSendResult> {
     logger.info(
-      { to: params.to, verificationUrl: params.verificationUrl, provider: this.name },
+      { to: params.to, provider: this.name, emailCategory: "email_verification" },
       "[ConsoleDevEmailAdapter] Dispatched account email verification"
     );
     return {
@@ -75,22 +357,25 @@ export class ConsoleDevEmailAdapter implements EmailDeliveryAdapter {
 
 /**
  * ResendHttpEmailAdapter:
- * Production-capable HTTPS transactional email adapter (OQ-019 / OTD-003).
+ * Optional HTTPS transactional email adapter retained for compatibility.
  */
 export class ResendHttpEmailAdapter implements EmailDeliveryAdapter {
   readonly name = "resend";
   private readonly apiKey: string;
   private readonly fromAddress: string;
+  private readonly publicBaseUrl: string;
 
-  constructor(options?: { apiKey?: string; fromAddress?: string }) {
+  constructor(options?: { apiKey?: string; fromAddress?: string; publicBaseUrl?: string }) {
     this.apiKey = options?.apiKey ?? env.RESEND_API_KEY ?? "";
     this.fromAddress = options?.fromAddress ?? env.EMAIL_FROM_ADDRESS;
+    this.publicBaseUrl = options?.publicBaseUrl ?? env.APP_PUBLIC_URL;
   }
 
   private async dispatchHtmlEmail(
     to: string,
     subject: string,
-    html: string
+    html: string,
+    text: string
   ): Promise<EmailSendResult> {
     if (!this.apiKey) {
       return {
@@ -111,7 +396,8 @@ export class ResendHttpEmailAdapter implements EmailDeliveryAdapter {
           from: this.fromAddress,
           to: [to],
           subject,
-          html
+          html,
+          text
         })
       });
 
@@ -141,38 +427,50 @@ export class ResendHttpEmailAdapter implements EmailDeliveryAdapter {
   async sendPasswordResetEmail(
     params: SendPasswordResetEmailParams
   ): Promise<EmailSendResult> {
-    return await this.dispatchHtmlEmail(
-      params.to,
-      "Reset your Luggage Storage Marketplace password",
-      `<p>Hello ${params.displayName},</p><p>Use the link below to reset your password (valid for 60 minutes):</p><p><a href="${params.resetUrl}">${params.resetUrl}</a></p>`
-    );
+    const rendered = buildPasswordResetEmailTemplate({
+      displayName: params.displayName,
+      resetUrl: params.resetUrl,
+      publicBaseUrl: this.publicBaseUrl
+    });
+    return await this.dispatchHtmlEmail(params.to, rendered.subject, rendered.html, rendered.text);
   }
 
   async sendEmailVerificationEmail(
     params: SendEmailVerificationParams
   ): Promise<EmailSendResult> {
-    return await this.dispatchHtmlEmail(
-      params.to,
-      "Verify your Luggage Storage Marketplace account",
-      `<p>Hello ${params.displayName},</p><p>Please verify your email address to activate your account:</p><p><a href="${params.verificationUrl}">${params.verificationUrl}</a></p>`
-    );
+    const rendered = buildVerificationEmailTemplate({
+      displayName: params.displayName,
+      verificationUrl: params.verificationUrl,
+      publicBaseUrl: this.publicBaseUrl
+    });
+    return await this.dispatchHtmlEmail(params.to, rendered.subject, rendered.html, rendered.text);
   }
 }
 
 /**
  * DeterministicTestEmailAdapter:
- * In-memory adapter for automated test suites and local development.
- * Allows tests to inspect dispatched tokens deterministically without exposing them
- * via public API responses or log streams.
+ * In-memory adapter for automated test suites.
  */
 export class DeterministicTestEmailAdapter implements EmailDeliveryAdapter {
   readonly name = "deterministic-test";
   private sentEmails: SendPasswordResetEmailParams[] = [];
   private sentVerificationEmails: SendEmailVerificationParams[] = [];
+  private simulateFailureError: string | null = null;
+
+  setSimulatedFailure(errorCode: string | null): void {
+    this.simulateFailureError = errorCode;
+  }
 
   async sendPasswordResetEmail(
     params: SendPasswordResetEmailParams
   ): Promise<EmailSendResult> {
+    if (this.simulateFailureError) {
+      return {
+        delivered: false,
+        error: this.simulateFailureError,
+        provider: this.name
+      };
+    }
     this.sentEmails.push({ ...params });
     return {
       delivered: true,
@@ -184,6 +482,13 @@ export class DeterministicTestEmailAdapter implements EmailDeliveryAdapter {
   async sendEmailVerificationEmail(
     params: SendEmailVerificationParams
   ): Promise<EmailSendResult> {
+    if (this.simulateFailureError) {
+      return {
+        delivered: false,
+        error: this.simulateFailureError,
+        provider: this.name
+      };
+    }
     this.sentVerificationEmails.push({ ...params });
     return {
       delivered: true,
@@ -221,12 +526,44 @@ export class DeterministicTestEmailAdapter implements EmailDeliveryAdapter {
   clear(): void {
     this.sentEmails = [];
     this.sentVerificationEmails = [];
+    this.simulateFailureError = null;
   }
+}
+
+export function createAdapterForEnvironment(
+  provider: typeof env.EMAIL_PROVIDER,
+  nodeEnv: typeof env.NODE_ENV
+): EmailDeliveryAdapter {
+  if (nodeEnv === "production") {
+    if (provider !== "zoho") {
+      throw new Error(
+        `Invalid production email provider '${String(provider)}'. Production requires EMAIL_PROVIDER=zoho.`
+      );
+    }
+    return new ZohoSmtpEmailAdapter();
+  }
+
+  if (provider === "zoho") {
+    return new ZohoSmtpEmailAdapter();
+  }
+  if (provider === "resend") {
+    return new ResendHttpEmailAdapter();
+  }
+  if (provider === "console") {
+    return new ConsoleDevEmailAdapter();
+  }
+  if (provider === "noop") {
+    return new NoopEmailDeliveryAdapter();
+  }
+  if (nodeEnv === "test" || provider === "test") {
+    return new DeterministicTestEmailAdapter();
+  }
+  return new ConsoleDevEmailAdapter();
 }
 
 /**
  * EmailService:
- * Provider-agnostic boundary for email delivery.
+ * Provider-agnostic boundary for transactional email delivery.
  */
 export class EmailService {
   private adapter: EmailDeliveryAdapter;
@@ -234,16 +571,8 @@ export class EmailService {
   constructor(initialAdapter?: EmailDeliveryAdapter) {
     if (initialAdapter) {
       this.adapter = initialAdapter;
-    } else if (env.EMAIL_PROVIDER === "resend") {
-      this.adapter = new ResendHttpEmailAdapter();
-    } else if (env.EMAIL_PROVIDER === "console") {
-      this.adapter = new ConsoleDevEmailAdapter();
-    } else if (env.EMAIL_PROVIDER === "noop") {
-      this.adapter = new NoopEmailDeliveryAdapter();
-    } else if (env.NODE_ENV === "test" || env.EMAIL_PROVIDER === "test") {
-      this.adapter = new DeterministicTestEmailAdapter();
     } else {
-      this.adapter = new NoopEmailDeliveryAdapter();
+      this.adapter = createAdapterForEnvironment(env.EMAIL_PROVIDER, env.NODE_ENV);
     }
   }
 

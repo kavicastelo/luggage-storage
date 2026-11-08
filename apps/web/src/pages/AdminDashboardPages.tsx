@@ -27,6 +27,7 @@ import { ScreenHeaderBadge, DeferredBackendNotice } from "@/components/ui/Deferr
 import { useAuthStore } from "@/store/useAuthStore";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { authApi } from "@/services/auth-api";
+import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
   DEMO_LOCATIONS,
   DEMO_BOOKINGS,
@@ -43,8 +44,12 @@ export function AdminDashboardLayout() {
   const { isAuthenticated, user } = useAuthStore();
   const [adminRoleMode, setAdminRoleMode] = useState<"SUPERADMIN" | "SUPPORT">("SUPERADMIN");
 
-  const searchParams = new URLSearchParams(location.search);
-  const querySuffix = searchParams.get("preview") === "demo" ? "?preview=demo" : "";
+  const isDemoActive = isDemoPreviewActive({
+    allowDemoPreview: true,
+    search: location.search,
+    isAuthenticated
+  });
+  const querySuffix = isDemoActive ? "?preview=demo" : "";
 
   const canActAsSuperadmin =
     !isAuthenticated || Boolean(user?.roles?.includes("SUPERADMIN"));

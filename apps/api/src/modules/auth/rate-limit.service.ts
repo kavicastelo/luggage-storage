@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "../../infrastructure/database/drizzle.js";
 import { authRateLimits } from "../../infrastructure/database/schema/identity.js";
@@ -15,6 +15,57 @@ export type RateLimitScope =
   | "auth_recovery_ip"
   | "auth_verify_resend_email"
   | "auth_verify_resend_ip";
+
+export interface RateLimitPolicy {
+  maxPoints: number;
+  windowSeconds: number;
+}
+
+/**
+ * Single authoritative configuration for rate-limit policies (AUD-004):
+ * - Login by IP: 20 per 15 minutes (900s)
+ * - Login by normalized email: 5 per 15 minutes (900s)
+ * - Registration by IP: 10 per 15 minutes (900s)
+ * - Registration by normalized email: 5 per 1 hour (3600s)
+ * - Verification resend by IP: 10 per 15 minutes (900s)
+ * - Verification resend by email: 3 per 15 minutes (900s)
+ * - Password recovery by IP: 10 per 15 minutes (900s)
+ * - Password recovery by email: 3 per 15 minutes (900s)
+ */
+export const RATE_LIMIT_POLICIES: Record<RateLimitScope, RateLimitPolicy> = {
+  auth_login_ip: {
+    maxPoints: env.RATE_LIMIT_LOGIN_IP_MAX,
+    windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS
+  },
+  auth_login_email: {
+    maxPoints: env.RATE_LIMIT_LOGIN_MAX,
+    windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS
+  },
+  auth_register_ip: {
+    maxPoints: env.RATE_LIMIT_REGISTER_IP_MAX,
+    windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS
+  },
+  auth_register_email: {
+    maxPoints: env.RATE_LIMIT_REGISTER_MAX,
+    windowSeconds: env.RATE_LIMIT_REGISTER_EMAIL_WINDOW_SECONDS
+  },
+  auth_verify_resend_ip: {
+    maxPoints: env.RATE_LIMIT_VERIFY_RESEND_IP_MAX,
+    windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS
+  },
+  auth_verify_resend_email: {
+    maxPoints: env.RATE_LIMIT_VERIFICATION_RESEND_MAX,
+    windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS
+  },
+  auth_recovery_ip: {
+    maxPoints: env.RATE_LIMIT_RECOVERY_IP_MAX,
+    windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS
+  },
+  auth_recovery_email: {
+    maxPoints: env.RATE_LIMIT_RECOVERY_MAX,
+    windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS
+  }
+};
 
 export interface RateLimitConsumeParams {
   scope: RateLimitScope;
@@ -38,38 +89,27 @@ export interface RateLimitConsumeResult {
 
 export class RateLimitService {
   /**
-   * Computes a privacy-preserving SHA-256 hash of (scope + normalized identifier)
-   * so raw emails and IP addresses are never stored in the rate limit table.
+   * Computes a keyed HMAC-SHA-256 digest of (version + scope + normalized identifier)
+   * using RATE_LIMIT_HASH_SECRET so raw emails and IP addresses are never stored
+   * in the rate limit table and are protected against offline dictionary rainbow tables (AUD-004).
    */
-  hashKey(scope: RateLimitScope, identifier: string): string {
+  hashKey(scope: RateLimitScope, identifier: string, secretOverride?: string): string {
     const normalized = identifier.trim().toLowerCase();
-    return createHash("sha256").update(`${scope}:${normalized}`).digest("hex");
+    const secret = secretOverride ?? env.RATE_LIMIT_HASH_SECRET;
+    return createHmac("sha256", secret).update(`v1:${scope}:${normalized}`).digest("hex");
   }
 
-  private getDefaultMaxPoints(scope: RateLimitScope): number {
-    switch (scope) {
-      case "auth_login_email":
-        return env.RATE_LIMIT_LOGIN_MAX;
-      case "auth_register_email":
-        return env.RATE_LIMIT_REGISTER_MAX;
-      case "auth_recovery_email":
-        return env.RATE_LIMIT_RECOVERY_MAX;
-      case "auth_verify_resend_email":
-        return env.RATE_LIMIT_VERIFICATION_RESEND_MAX;
-      case "auth_login_ip":
-      case "auth_register_ip":
-      case "auth_recovery_ip":
-      case "auth_verify_resend_ip":
-        return env.RATE_LIMIT_IP_MAX;
-    }
+  getPolicy(scope: RateLimitScope): RateLimitPolicy {
+    return RATE_LIMIT_POLICIES[scope];
   }
 
   /**
    * Atomically increments the rate-limit counter in PostgreSQL and returns whether the request is allowed.
    */
   async consume(params: RateLimitConsumeParams): Promise<RateLimitConsumeResult> {
-    const maxPoints = params.maxPoints ?? this.getDefaultMaxPoints(params.scope);
-    const windowSeconds = params.windowSeconds ?? env.RATE_LIMIT_WINDOW_SECONDS;
+    const defaultPolicy = this.getPolicy(params.scope);
+    const maxPoints = params.maxPoints ?? defaultPolicy.maxPoints;
+    const windowSeconds = params.windowSeconds ?? defaultPolicy.windowSeconds;
     const keyHash = this.hashKey(params.scope, params.identifier);
 
     const res = await db.execute(sql`
@@ -131,13 +171,14 @@ export class RateLimitService {
   }
 
   /**
-   * Consumes a point and throws 429 RATE_LIMITED if the threshold is exceeded.
+   * Consumes a point and throws 429 RATE_LIMITED (with Retry-After seconds) if the threshold is exceeded.
    */
   async enforce(params: RateLimitConsumeParams): Promise<RateLimitConsumeResult> {
     const result = await this.consume(params);
     if (!result.allowed) {
       throw AppError.rateLimited(
-        params.message ?? "Too many requests. Please wait before trying again."
+        params.message ?? "Too many requests. Please wait before trying again.",
+        result.retryAfterSeconds
       );
     }
     return result;

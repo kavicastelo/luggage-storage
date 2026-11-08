@@ -22,30 +22,42 @@ This register maintains a structured record of **explicit architectural assumpti
 
 ## 2. Priority Summary Matrix
 
-| ID | Category | Title / Topic | FRS Ref | Priority | Status | Owner Approval / Gate Status |
+### 2.1 Governance Status Model (`AUD-005`)
+
+All items in this register use the standardized 7-status governance model so internal engineering baselines are never conflated with external commercial, legal, tax, or owner sign-off gates:
+
+- `RESOLVED_INTERNAL` — Internal engineering/product design decision implemented or adopted as the default baseline.
+- `OWNER_APPROVAL_REQUIRED` — Internal recommendation exists, but final business policy or commercial sign-off requires Product Owner approval.
+- `VENDOR_CONFIRMATION_REQUIRED` — Depends on written confirmation, API capability, or contract from an external vendor.
+- `LEGAL_REVIEW_REQUIRED` — Depends on qualified legal counsel review.
+- `TAX_REVIEW_REQUIRED` — Depends on qualified tax/accounting counsel review.
+- `DEFERRED` — Intentionally postponed to a later phase with documented rationale.
+- `BLOCKED` — Cannot be finalized for commercial production launch until a named external dependency is completed.
+
+| ID | Category | Title / Topic | FRS Ref | Priority | Internal Engineering Baseline | External / Owner Gate Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :---: |
-| `OQ-001` | Technical / Security | Authentication Strategy | `FR-1`, `FR-15` | **Critical** | **Owner-Approved Decision** (Fastify self-managed auth, Postgres, Argon2id) | **Approved** |
-| `OQ-002` | Legal / Operations | Host Identity & Business Verification Requirements | `FR-16`, `FR-17` | **High** | **Pending Decision** (Mandatory document checklist pending) | **Yes** |
-| `OQ-003` | Commercial / Regulatory | PayHere Marketplace Payment Model | `FR-6`, `FR-37` | **Critical** | **Settlement Model Approved in Principle / PayHere Written Approval is Launch Gate Blocker** | **External Verification Gate** |
-| `OQ-004` | Product / Booking | Booking Modes, Configuration Hierarchy & Payment Timing | `FR-6`, `FR-26` | **High** | **Owner-Approved Decision** (Both modes configurable per location, 15m host SLA default, 10m traveller pay default, payment after acceptance) | **Approved** |
-| `OQ-005` | Product / Pricing | Platform Commission & Promotional Discounts | `FR-5`, `FR-23`, `FR-38` | **High** | **Owner-Approved Decision** (15% initial commission on storage subtotal, gateway fees absorbed by platform, promo funding rules) | **Approved** |
-| `OQ-006` | Product / Capacity | Storage Capacity & Bag Categories | `FR-5`, `FR-21`, `FR-28` | **High** | **Owner-Approved Decision** (4 categories: Small, Medium, Large, Oversized; configurable limits & location opt-in) | **Approved** |
-| `OQ-007` | Identity / Roles | Traveller and Host Account Relationship | `FR-1`, `FR-15` | **High** | **Owner-Approved Decision** (Unified Identity / Role Contexts) | **Approved** |
-| `OQ-008` | Localization / Finance | Currency Representation, Precision & Multi-Currency Horizon | `FR-6`, `FR-14` | **High** | **Owner-Approved Decision** (LKR only launch; ISO 4217 integer minor units; no global two-decimal assumption; multi-currency deferred) | **Approved** |
-| `OQ-009` | Policy / Finance | Customer Cancellation & Refund Policy Tiers | `FR-10`, `FR-34` | **High** | **Owner-Approved Decision** (Standard customer cancellation tiers approved; provider capabilities separate under OQ-013) | **Approved** |
-| `OQ-010` | Legal / Finance | Tax, Invoicing Architecture & Sri Lankan Compliance | `FR-36`, `FR-37`, `FR-38` | **Critical** | **Platform Capability Approved / Sri Lankan Legal Classification & Compliance are Launch Gate** | **Approved (Arch) / External Verification Gate (Legal/Tax)** |
-| `OQ-011` | Roles / Governance | Superadmin & Platform Support Role Separation | `FR-17`, `FR-37` | **Medium** | **Owner-Approved Decision** (Strict least-privilege; Support cannot execute financial/host approvals) | **Approved** |
-| `OQ-012` | Product / Trust | Address Privacy Baseline & Location Disclosure Details | `FR-4`, `FR-7` | **Medium** | **Approved Baseline (Approximate discovery, exact address post-booking) / Disclosure Details Proposed** | **Approved (Baseline) / Proposed (Jitter & Store Details)** |
-| `OQ-013` | Scope / Payments | Payment-Provider Refund Capabilities, Execution Method & Fees | `FR-10` | **High** | **External Verification Gate** (PayHere automated API vs portal, timing, fee treatment, reconciliation) | **External Verification Gate** |
-| `OQ-014` | Product / Custody | Custody & Check-In Evidence Policy | `FR-29` | **Medium** | **Owner-Approved Decision** (QR/PIN & bag count check mandatory; photo evidence optional by default & configurable mandatory per location) | **Approved** |
-| `OQ-015` | Product / Custody | Late Collection Fee Settlement & Custody Separation | `FR-32` | **High** | **Owner-Approved Decision** (In-app collection only for MVP; cash excluded; luggage custody decoupled from overdue payment) | **Approved** |
-| `OQ-016` | Product / Support | Customer Support Separation (`FR-12` & `FR-40`) | `FR-12`, `FR-40` | **Medium** | **Pending Decision** | **Yes** |
-| `OQ-017` | Roles / Host Staff | Host Staff Permission Granularity (`FR-42 Later`) | `FR-42`, `FR-44` | **Low** | **Pending Decision** | **Yes** |
-| `OQ-018` | Technical / Maps | Commercial Map Tile, Geocoding & Routing Provider | `FR-2`, `FR-3`, `FR-7` | **High** | **Pending Decision** | **Yes** |
-| `OQ-019` | Technical / Comms | Transactional Email Provider Selection | `FR-1`, `FR-11`, `FR-35` | **Medium** | **Pending Decision** | **Yes** |
-| `OQ-020` | Technical / Comms | SMS / Phone OTP Verification Requirement & Provider | `FR-1`, `FR-11` | **Medium** | **Pending Decision** | **Yes** |
-| `OQ-021` | Infrastructure | Redis / Upstash Activation Threshold | Infrastructure | **Low** | **Pending Decision** (Proposed: Deferred to Phase 1+) | **Yes** |
-| `OQ-022` | Requirements | Normalization of Duplicate FRS Requirement Numbers (`FR-2`–`FR-14`) | `FR-2`..`FR-14` | **Medium** | **Approved Normalization** (Resolved in Phase 0B) | **Approved** |
+| `OQ-001` | Technical / Security | Authentication Strategy | `FR-1`, `FR-15` | **Critical** | `RESOLVED_INTERNAL` (Fastify self-managed auth, Postgres, Argon2id) | **Approved** |
+| `OQ-002` | Legal / Operations | Host Identity & Business Verification Requirements | `FR-16`, `FR-17` | **High** | `RESOLVED_INTERNAL` (Two-tier configurable KYC schema & queue) | `OWNER_APPROVAL_REQUIRED`, `LEGAL_REVIEW_REQUIRED` |
+| `OQ-003` | Commercial / Regulatory | PayHere Marketplace Payment Model | `FR-6`, `FR-37` | **Critical** | `RESOLVED_INTERNAL` (Merchant-of-Record + Ledger Payout Batch baseline) | `BLOCKED`, `VENDOR_CONFIRMATION_REQUIRED` |
+| `OQ-004` | Product / Booking | Booking Modes, Configuration Hierarchy & Payment Timing | `FR-6`, `FR-26` | **High** | `RESOLVED_INTERNAL` (Both modes per location, 15m host SLA, 10m traveller pay) | **Approved** |
+| `OQ-005` | Product / Pricing | Platform Commission & Promotional Discounts | `FR-5`, `FR-23`, `FR-38` | **High** | `RESOLVED_INTERNAL` (15% initial commission, gateway fees absorbed, promo rules) | **Approved** |
+| `OQ-006` | Product / Capacity | Storage Capacity & Bag Categories | `FR-5`, `FR-21`, `FR-28` | **High** | `RESOLVED_INTERNAL` (4 categories: Small, Medium, Large, Oversized) | **Approved** |
+| `OQ-007` | Identity / Roles | Traveller and Host Account Relationship | `FR-1`, `FR-15` | **High** | `RESOLVED_INTERNAL` (Unified Identity / Role Contexts) | **Approved** |
+| `OQ-008` | Localization / Finance | Currency Representation, Precision & Multi-Currency Horizon | `FR-6`, `FR-14` | **High** | `RESOLVED_INTERNAL` (LKR launch, ISO 4217 integer minor units) / `DEFERRED` (Multi-currency) | **Approved** |
+| `OQ-009` | Policy / Finance | Customer Cancellation & Refund Policy Tiers | `FR-10`, `FR-34` | **High** | `RESOLVED_INTERNAL` (Standard cancellation tiers approved) | **Approved** |
+| `OQ-010` | Legal / Finance | Tax, Invoicing Architecture & Sri Lankan Compliance | `FR-36`, `FR-37`, `FR-38` | **Critical** | `RESOLVED_INTERNAL` (4-layer configurable tax & ledger foundation) | `BLOCKED`, `LEGAL_REVIEW_REQUIRED`, `TAX_REVIEW_REQUIRED` |
+| `OQ-011` | Roles / Governance | Superadmin & Platform Support Role Separation | `FR-17`, `FR-37` | **Medium** | `RESOLVED_INTERNAL` (Strict least-privilege server-side RBAC) | **Approved** |
+| `OQ-012` | Product / Trust | Address Privacy Baseline & Location Disclosure Details | `FR-4`, `FR-7` | **Medium** | `RESOLVED_INTERNAL` (Approximate discovery, exact address post-booking) | **Approved** (Baseline) / `OWNER_APPROVAL_REQUIRED` (Jitter & Storefront Details) |
+| `OQ-013` | Scope / Payments | Payment-Provider Refund Capabilities, Execution Method & Fees | `FR-10` | **High** | `RESOLVED_INTERNAL` (7-stage refund lifecycle state machine) | `VENDOR_CONFIRMATION_REQUIRED` |
+| `OQ-014` | Product / Custody | Custody & Check-In Evidence Policy | `FR-29` | **Medium** | `RESOLVED_INTERNAL` (QR primary + PIN fallback, bag count mandatory, photo configurable) | **Approved** |
+| `OQ-015` | Product / Custody | Late Collection Fee Settlement & Custody Separation | `FR-32` | **High** | `RESOLVED_INTERNAL` (In-app collection only, custody decoupled from overdue payment) | **Approved** |
+| `OQ-016` | Product / Support | Customer Support & Incident Separation (`FR-12` & `FR-40`) | `FR-12`, `FR-40`, `FR-41` | **Medium** | `RESOLVED_INTERNAL` (Public reviews vs Support Queue vs Superadmin Incident Queue) | **Internal Baseline Approved** |
+| `OQ-017` | Roles / Host Staff | Host Staff Permission Granularity (`FR-42 Later`) | `FR-42`, `FR-44` | **Low** | `RESOLVED_INTERNAL` (Fixed least-privilege `HOST_STAFF` baseline) / `DEFERRED` (Custom ACL) | **Internal Baseline Approved** |
+| `OQ-018` | Technical / Maps | Commercial Map Tile, Geocoding & Routing Provider | `FR-2`, `FR-3`, `FR-7` | **High** | `RESOLVED_INTERNAL` (MapLibre + MapTiler adapter & native directions deep links) | `VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED` (Prod API Keys) |
+| `OQ-019` | Technical / Comms | Transactional Email Provider Selection | `FR-1`, `FR-11`, `FR-35` | **Medium** | `RESOLVED_INTERNAL` (Zoho Mail SMTP `ZohoSmtpEmailAdapter` implemented) | `OWNER_APPROVAL_REQUIRED`, `VENDOR_CONFIRMATION_REQUIRED` (Live DNS & Credentials) |
+| `OQ-020` | Technical / Comms | SMS / Phone OTP Verification Requirement & Provider | `FR-1`, `FR-11` | **Medium** | `RESOLVED_INTERNAL` (Email verification authoritative for MVP) / `DEFERRED` (SMS OTP) | `DEFERRED`, `VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED` |
+| `OQ-021` | Infrastructure | Redis / Upstash Activation Threshold | Infrastructure | **Low** | `RESOLVED_INTERNAL` (PostgreSQL rate limits & row locks for MVP) / `DEFERRED` (Redis) | **Internal Baseline Approved** |
+| `OQ-022` | Requirements | Normalization of Duplicate FRS Requirement Numbers (`FR-2`–`FR-14`) | `FR-2`..`FR-14` | **Medium** | `RESOLVED_INTERNAL` (Resolved in Phase 0B) | **Approved** |
 
 ---
 
@@ -79,11 +91,9 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Legal / Operations
 - **Description:** `FR-16 Identity/Business Verification` states *"Submit required identity/business information"* and `FR-17 Host Approval` states *"Platform approves Host before listing goes live"*, without listing the exact documents required for individuals vs. registered businesses in Sri Lanka and future countries.
 - **Source:** `FR-16`, `FR-17`, Execution Prompt Section 2 & 6.1.
-- **Current Assumption:** The `host-verification` module will be data-driven by `country_code` and `host_entity_type` (`INDIVIDUAL` vs. `REGISTERED_BUSINESS`), allowing configurable document slots (e.g., NIC / Passport / Driving License for individuals; Business Registration Certificate + Director NIC + Proof of Premises for businesses) uploaded to private Cloudflare R2 storage.
+- **Internal Engineering Baseline (`RESOLVED_INTERNAL`):** The `host-verification` module is data-driven by `country_code` and `host_entity_type` (`INDIVIDUAL` vs. `REGISTERED_BUSINESS`), supporting configurable two-tier document slots (NIC / Passport / Trade License + Storefront Photos for individuals/sole proprietors; Business Registration Certificate + Director NIC + Proof of Premises + Storefront Photos for registered businesses) uploaded to private object storage and reviewed in `AD-002`.
 - **Impact:** Determines the exact form fields and document upload slots on the Host Verification screen (`FR-16`) and the Superadmin review checklist (`FR-17`).
-- **Proposed Resolution:** Owner to confirm the mandatory vs. optional document checklist for Sri Lanka (`LK`) individual and corporate hosts.
-- **Status:** Pending Approval
-- **Owner Approval Required:** **Yes**
+- **External Gate Status:** `OWNER_APPROVAL_REQUIRED`, `LEGAL_REVIEW_REQUIRED` — Product Owner and Sri Lankan legal/operations review required to sign off on the mandatory vs. optional document checklist before live host onboarding launch.
 
 ---
 
@@ -399,14 +409,13 @@ This register maintains a structured record of **explicit architectural assumpti
 ### `OQ-016` — Operational Support Workflow & Ticket Queue Separation
 - **Category:** Product / Support Operations
 - **Source Reference:** `FR -12 Leave Review`, `FR -12 Customer Support`, `FR-40 Support`, `FR-41 Incident Reporting`.
-- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
+- **Status:** `RESOLVED_INTERNAL` (Internal Baseline Adopted).
 - **Scope & Relationship to `OQ-011`:**
   - While `OQ-011` governs the high-level RBAC permission boundary (confirming Support Staff cannot execute financial actions or host approvals), `OQ-016` governs the operational ticketing separation and intake workflows.
-- **Approved Operational Separation:**
-  1. **General Support Queue (`AD-011` / `AD-012`):** Accessible to `SUPPORT` (`support.tickets.manage`, `users.read`, `bookings.read.all`) and `SUPERADMIN` for general platform inquiries and non-dispute booking assistance (`WF-039`, `WF-040`).
-  2. **Incident & Dispute Investigation Queue (`AD-013`):** Escalated queue restricted to `SUPERADMIN` (`admin.system.configure`, `refunds.manage`, `payments.manage`) for custody discrepancy, damage/tampering claims, overdue fee disputes (`OQ-015`), and abandoned luggage escalation (`OQ-005`).
-  3. **Host Partner Support (`FR-40`) & Incident Reporting (`FR-41`):** Host-side store operational issues (`HM-036`) routed directly to `AD-013`.
-  4. **Post-Collection Review vs. App Feedback (`FR-12`):** Public rating/review for the Host storefront (`TM-034`, `HD-012`, `AD-014`) separated from support ticketing.
+- **Approved Internal Baseline:**
+  1. **Post-Collection Ratings & Reviews (`FR-12 Leave Review`):** Public-facing feedback tied strictly to completed bookings (`COMPLETED` / `CHECKED_OUT`), separated from private operational support tickets.
+  2. **General Customer & Host Support Queue (`FR-12 Customer Support`, `FR-40 Support`, `AD-011`, `AD-012`):** Private operational support records accessible to `SUPPORT` and `SUPERADMIN`. Support staff may triage, document, communicate, and escalate, but cannot authorize refunds, execute payouts, approve hosts, or alter financial records.
+  3. **Safety, Custody, Damage, Tampering, Overdue & Financial Dispute Incident Queue (`FR-41 Incident Reporting`, `AD-013`):** Escalated incident queue where `SUPERADMIN` holds exclusive authority for final financial, refund, and custody adjudication.
 
 ---
 
@@ -414,8 +423,11 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Roles / Host Staff
 - **Description:** `FR-42 Staff Accounts` states *"Allow employees to handle check-in/out"* and is marked **`Later`**.
 - **Source:** `FR-42 Staff Accounts` (`Later`), `FR-44 Multiple Locations`.
-- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
-- **Approved Resolution:** `HOST_STAFF` is strictly scoped to operational check-in/out (`bookings.checkin.checkout`), location viewing (`locations.read.own`), and booking schedule inspection (`bookings.read.location`), with zero access to Host financials/payouts (`payouts.read.own`), location/pricing modification (`locations.create`, `locations.update.own`), or staff management (`host.staff.manage`). Enforced at the database RBAC, API middleware, Web (`HostDashboardPages.tsx`), and Mobile (`apps/mobile/app/(host)/`) layers.
+- **Status:** `RESOLVED_INTERNAL` (Fixed Operational Baseline) / `DEFERRED` (Per-Staff Custom ACL).
+- **Approved Internal Baseline:**
+  - `HOST_STAFF` has a fixed, least-privilege operational permission set for MVP: allowed to view assigned location operational details, view assigned location bookings, perform QR/PIN check-in and check-out verification, record bag counts and check-in/out evidence, and submit operational incident reports.
+  - Forbidden to `HOST_STAFF`: create/delete locations, change pricing, change payout bank details, view full host financial payouts/settlements, approve/reject host onboarding, manage staff accounts, or change host-wide commission/policy settings.
+  - Fine-grained per-staff custom permission toggles are `DEFERRED` (`FR-42` is marked `Later` in the FRS).
 
 ---
 
@@ -423,8 +435,12 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Technical / Maps
 - **Description:** `MapLibre` is approved as the client rendering engine (`FR-3`), which requires a commercial vector tile, geocoding (`FR-2`), and routing (`FR-7`) provider.
 - **Source:** Execution Prompt Section 4 (*"do not assume a specific production map provider"*).
-- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
-- **Approved Resolution:** **MapLibre GL + MapTiler Vector Tiles (OpenStreetMap)** selected for MVP web (`PW-002`) and mobile (`TM-012`) rendering, paired with native OS map deep links (`Google Maps` / `Apple Maps`) for turn-by-turn directions (`FR-7`) and a provider-agnostic PostGIS coordinate contract.
+- **Status:** `RESOLVED_INTERNAL` (Provider-Agnostic MapLibre Architecture) / `VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED` (Production Commercial API Keys & Billing).
+- **Approved Internal Baseline & External Gate:**
+  - Client map rendering is standardized on **MapLibre** behind a provider-agnostic map/geocoding configuration layer (`PW-002`, `TM-012`).
+  - **Map tiles & geocoding:** MapTiler (OpenStreetMap vector tiles) is the primary recommended provider for MapLibre compatibility and predictable pricing; Google Maps Platform / Mapbox remain swappable via provider adapter configuration if commercial POI density requires it.
+  - **Directions (`FR-7`):** Deep-link handoff to native Google Maps / Apple Maps / Waze URLs for turn-by-turn navigation after booking confirmation, avoiding costly embedded turn-by-turn routing APIs in MVP.
+  - **External Gate:** Commercial API key provisioning, billing account setup, and terms-of-service verification remain `VENDOR_CONFIRMATION_REQUIRED` and `OWNER_APPROVAL_REQUIRED` before production traffic.
 
 ---
 
@@ -432,8 +448,11 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Technical / Comms
 - **Description:** Selection of the transactional email delivery service for registration verification (`FR-1`), password recovery (`WF-003`), booking confirmations (`FR-7`, `FR-11`), host approvals (`FR-17`, `FR-35`), and payout notifications (`FR-37`).
 - **Source:** Execution Prompt Section 4 (*"do not assume a specific ... email provider"*).
-- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
-- **Approved Resolution:** Abstracted behind `EmailDeliveryAdapter` in `apps/api/src/modules/email/email.service.ts` supporting both `sendEmailVerificationEmail` and `sendPasswordResetEmail` with four runtime strategies (`resend` HTTPS adapter for production, `console` for local dev, `test` for deterministic automated test token capture, and `noop` fallback with explicit warning logs).
+- **Status:** `RESOLVED_INTERNAL` (Zoho Mail Adapter Implemented) / `OWNER_APPROVAL_REQUIRED`, `VENDOR_CONFIRMATION_REQUIRED` (Live Domain DNS & Mailbox Credentials).
+- **Approved Internal Baseline & External Gate:**
+  - **Zoho Mail** is integrated as the production transactional email provider for authentication emails (`EMAIL_PROVIDER=zoho`) via `ZohoSmtpEmailAdapter` (`apps/api/src/modules/email/email.service.ts`) and mobile-friendly HTML + plain-text templates (`apps/api/src/modules/email/email.templates.ts`).
+  - `ConsoleDevEmailAdapter` is used for local development (`EMAIL_PROVIDER=console`) and `DeterministicTestEmailAdapter` is used for automated tests (`EMAIL_PROVIDER=test`). `noop`, `console`, and `test` providers are strictly rejected when `NODE_ENV=production`.
+  - **External Gate:** Production DNS records (`SPF`, `DKIM`, `DMARC`), Zoho mailbox/sender verification, and live `ZOHO_SMTP_USER` / `ZOHO_SMTP_PASSWORD` secret provisioning in the deployment environment remain a pre-production operational gate (`OWNER_APPROVAL_REQUIRED`, `VENDOR_CONFIRMATION_REQUIRED`).
 
 ---
 
@@ -441,8 +460,11 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Technical / Comms
 - **Description:** Whether SMS OTP verification is required at signup/booking (`FR-1`) or if email verification suffices for MVP.
 - **Source:** Execution Prompt Section 4 (*"do not assume a specific ... SMS provider"*).
-- **Status:** **Deferred (`DEFERRED_POST_MVP` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
-- **Approved Resolution:** Self-service **Email Token Verification** (`POST /api/v1/auth/verify-email` and `POST /api/v1/auth/resend-verification`) is the mandatory and authoritative account activation mechanism for MVP (`PENDING_VERIFICATION` -> `ACTIVE`). Phone numbers are stored in `E.164` format (`users.phone`) for booking contact purposes, while live SMS/WhatsApp OTP dispatch is deferred to Post-MVP.
+- **Status:** `RESOLVED_INTERNAL` (Email Verification Baseline) / `DEFERRED`, `VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED` (SMS / WhatsApp OTP).
+- **Approved Internal Baseline & Deferral:**
+  - Self-service **Email Verification** (`POST /api/v1/auth/verify-email` and `POST /api/v1/auth/resend-verification`) is the mandatory and authoritative account verification mechanism for Phase 1B / MVP (`PENDING_VERIFICATION` -> `ACTIVE`).
+  - Phone number capture remains supported (`is_phone_verified = false` until verified).
+  - Automated SMS / WhatsApp OTP verification is `DEFERRED` until a Sri Lankan telecom/SMS aggregator (such as Dialog Enterprise SMS, Hutch/Mobitel, Twilio, or TextIt.lk) is commercially approved and sender ID registration is completed (`VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED`). No UI or documentation claims live SMS OTP verification is active in the current baseline.
 
 ---
 
@@ -450,8 +472,10 @@ This register maintains a structured record of **explicit architectural assumpti
 - **Category:** Infrastructure
 - **Description:** Approved stack states *"Redis/Upstash when justified by actual requirements."*
 - **Source:** Execution Prompt Section 4.
-- **Status:** **Resolved (`RESOLVED_INTERNAL` — See `docs/project-stabilization/03-product-decision-resolution.md`)**.
-- **Approved Resolution:** Multi-instance-safe rate limiting (`auth_rate_limits`) and token concurrency locks (`SELECT ... FOR UPDATE`) are implemented directly in PostgreSQL for MVP (`RateLimitService`), avoiding premature Redis infrastructure overhead until multi-region horizontal scale requires it.
+- **Status:** `RESOLVED_INTERNAL` (PostgreSQL Baseline) / `DEFERRED` (Redis / Upstash Infrastructure).
+- **Approved Internal Baseline:**
+  - PostgreSQL-backed rate limiting (`auth_rate_limits` with keyed `HMAC-SHA-256` identifiers), session management (`auth_sessions`), and transactional row locking (`SELECT ... FOR UPDATE`) are the approved baseline for MVP and single-region multi-instance deployment.
+  - Redis / Upstash remains `DEFERRED` until measured workload thresholds justify activation (e.g., sustained >100 req/sec on rate-limited endpoints, sub-5ms distributed ephemeral locks, or high-fanout realtime pub/sub).
 
 ---
 

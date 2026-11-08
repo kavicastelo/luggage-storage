@@ -12,10 +12,18 @@ import {
   DeterministicTestEmailAdapter,
   NoopEmailDeliveryAdapter,
   ConsoleDevEmailAdapter,
-  ResendHttpEmailAdapter
+  ResendHttpEmailAdapter,
+  ZohoSmtpEmailAdapter,
+  createAdapterForEnvironment
 } from "../src/modules/email/email.service.js";
-import { rateLimitService } from "../src/modules/auth/rate-limit.service.js";
+import {
+  buildVerificationEmailTemplate,
+  buildPasswordResetEmailTemplate,
+  resolvePublicEmailUrl
+} from "../src/modules/email/email.templates.js";
+import { rateLimitService, RATE_LIMIT_POLICIES } from "../src/modules/auth/rate-limit.service.js";
 import { isValidAccountStateTransition } from "../src/modules/auth/auth.service.js";
+import { REQUIRED_PUBLIC_TABLES, verifyMigratedSchema } from "../src/infrastructure/database/migrate.js";
 
 const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
@@ -242,46 +250,399 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
       const blockedBody = JSON.parse(blockedRes.body);
       expect(blockedBody.error.code).toBe("RATE_LIMITED");
 
-      // Verify auth_rate_limits table stores SHA-256 hash and never raw email
+      // Verify auth_rate_limits table stores keyed HMAC-SHA-256 hash (64-hex) and never raw email
       const rateLimitRows = await runtimePool.query(
         "SELECT key_hash, scope, points FROM auth_rate_limits WHERE scope = 'auth_login_email';"
       );
       expect(rateLimitRows.rows.length).toBeGreaterThanOrEqual(1);
+      const unsaltedHash = crypto
+        .createHash("sha256")
+        .update(`auth_login_email:${email.toLowerCase()}`)
+        .digest("hex");
       for (const row of rateLimitRows.rows) {
         expect(row.key_hash).toMatch(/^[a-f0-9]{64}$/);
         expect(row.key_hash).not.toContain(email);
+        expect(row.key_hash).not.toBe(unsaltedHash);
       }
+      expect(blockedRes.headers["retry-after"]).toBeDefined();
+      expect(Number(blockedRes.headers["retry-after"])).toBeGreaterThan(0);
+    });
+
+    it("should enforce authoritative RATE_LIMIT_POLICIES and keyed HMAC-SHA-256 with secret separation (AUD-004)", async () => {
+      expect(RATE_LIMIT_POLICIES.auth_login_ip).toEqual({
+        maxPoints: 20,
+        windowSeconds: 900
+      });
+      expect(RATE_LIMIT_POLICIES.auth_login_email).toEqual({
+        maxPoints: 5,
+        windowSeconds: 900
+      });
+      expect(RATE_LIMIT_POLICIES.auth_register_ip).toEqual({
+        maxPoints: 10,
+        windowSeconds: 900
+      });
+      expect(RATE_LIMIT_POLICIES.auth_register_email).toEqual({
+        maxPoints: 5,
+        windowSeconds: 3600
+      });
+      expect(RATE_LIMIT_POLICIES.auth_verify_resend_ip).toEqual({
+        maxPoints: 10,
+        windowSeconds: 900
+      });
+      expect(RATE_LIMIT_POLICIES.auth_verify_resend_email).toEqual({
+        maxPoints: 3,
+        windowSeconds: 900
+      });
+      expect(RATE_LIMIT_POLICIES.auth_recovery_ip).toEqual({
+        maxPoints: 10,
+        windowSeconds: 900
+      });
+      expect(RATE_LIMIT_POLICIES.auth_recovery_email).toEqual({
+        maxPoints: 3,
+        windowSeconds: 900
+      });
+
+      const hashA = rateLimitService.hashKey(
+        "auth_login_email",
+        "Traveller@Example.com",
+        "secret_key_alpha_with_at_least_32_characters_0001"
+      );
+      const hashB = rateLimitService.hashKey(
+        "auth_login_email",
+        "traveller@example.com",
+        "secret_key_beta_with_at_least_32_characters_00002"
+      );
+      const hashASameNormalized = rateLimitService.hashKey(
+        "auth_login_email",
+        "  traveller@example.com  ",
+        "secret_key_alpha_with_at_least_32_characters_0001"
+      );
+
+      expect(hashA).toMatch(/^[a-f0-9]{64}$/);
+      expect(hashB).toMatch(/^[a-f0-9]{64}$/);
+      expect(hashA).toBe(hashASameNormalized);
+      expect(hashA).not.toBe(hashB);
+    });
+
+    it("should enforce resend-verification rate limit at 3 requests per 15m per email and include Retry-After header (AUD-004)", async () => {
+      const unique = `${Date.now()}_resend_rl`;
+      const email = `resend_rl_${unique}@example.com`;
+
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/register",
+        payload: {
+          email,
+          password: "VerifyPassword123!",
+          displayName: "Resend Rate Limit User"
+        }
+      });
+
+      for (let i = 0; i < 3; i++) {
+        const okRes = await app.inject({
+          method: "POST",
+          url: "/api/v1/auth/resend-verification",
+          payload: { email }
+        });
+        expect(okRes.statusCode).toBe(200);
+      }
+
+      const blockedRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/resend-verification",
+        payload: { email }
+      });
+      expect(blockedRes.statusCode).toBe(429);
+      expect(blockedRes.headers["retry-after"]).toBeDefined();
+      expect(Number(blockedRes.headers["retry-after"])).toBeGreaterThan(0);
     });
   });
 
   // ==========================================================================
-  // 3. Database TLS, CORS & Email Adapter Security (REM-B02, REM-B05, REM-B06)
+  // 3. Database TLS, CORS & Zoho Mail Adapter Security (AUD-002, AUD-003)
   // ==========================================================================
-  describe("3. Production TLS, CORS & Email Adapter Controls (REM-B02, REM-B05, REM-B06)", () => {
-    it("should reject DATABASE_SSL_REJECT_UNAUTHORIZED=false and CORS_ORIGIN='*' in production", () => {
-      const insecureProdConfig = EnvSchema.safeParse({
-        NODE_ENV: "production",
-        JWT_SECRET: "prod_jwt_secret_key_with_at_least_32_characters_99999",
-        COOKIE_SECRET: "prod_cookie_secret_key_with_at_least_32_characters_99999",
-        DATABASE_SSL: "true",
-        DATABASE_SSL_REJECT_UNAUTHORIZED: "false",
+  describe("3. Production TLS, CORS & Zoho Mail Adapter Controls (AUD-002, AUD-003)", () => {
+    const validProdBase = {
+      NODE_ENV: "production",
+      JWT_SECRET: "prod_jwt_secret_key_with_at_least_32_characters_99999",
+      COOKIE_SECRET: "prod_cookie_secret_key_with_at_least_32_characters_99999",
+      RATE_LIMIT_HASH_SECRET: "prod_rate_limit_hmac_secret_with_at_least_32_chars_99",
+      DATABASE_SSL: "true",
+      DATABASE_SSL_REJECT_UNAUTHORIZED: "true",
+      CORS_ORIGIN: "https://app.luggagestorage.lk,https://admin.luggagestorage.lk",
+      EMAIL_PROVIDER: "zoho",
+      ZOHO_SMTP_HOST: "smtp.zoho.com",
+      ZOHO_SMTP_PORT: "465",
+      ZOHO_SMTP_SECURE: "true",
+      ZOHO_SMTP_USER: "no-reply@luggagestorage.lk",
+      ZOHO_SMTP_PASSWORD: "zoho_app_specific_password_placeholder",
+      EMAIL_FROM_ADDRESS: "no-reply@luggagestorage.lk",
+      EMAIL_FROM_NAME: "Global Luggage Storage Marketplace"
+    };
+
+    it("should reject DATABASE_SSL=false, DATABASE_SSL_REJECT_UNAUTHORIZED=false, and CORS_ORIGIN='*' in production (AUD-003)", () => {
+      const noSslProd = EnvSchema.safeParse({
+        ...validProdBase,
+        DATABASE_SSL: "false"
+      });
+      expect(noSslProd.success).toBe(false);
+
+      const insecureRejectUnauthorizedProd = EnvSchema.safeParse({
+        ...validProdBase,
+        DATABASE_SSL_REJECT_UNAUTHORIZED: "false"
+      });
+      expect(insecureRejectUnauthorizedProd.success).toBe(false);
+
+      const wildcardCorsProd = EnvSchema.safeParse({
+        ...validProdBase,
         CORS_ORIGIN: "*"
       });
-      expect(insecureProdConfig.success).toBe(false);
+      expect(wildcardCorsProd.success).toBe(false);
 
-      const validProdConfig = EnvSchema.safeParse({
-        NODE_ENV: "production",
-        JWT_SECRET: "prod_jwt_secret_key_with_at_least_32_characters_99999",
-        COOKIE_SECRET: "prod_cookie_secret_key_with_at_least_32_characters_99999",
-        DATABASE_SSL: "true",
-        DATABASE_SSL_REJECT_UNAUTHORIZED: "true",
-        CORS_ORIGIN: "https://app.luggagestorage.lk,https://admin.luggagestorage.lk"
-      });
+      const validProdConfig = EnvSchema.safeParse(validProdBase);
       expect(validProdConfig.success).toBe(true);
       if (validProdConfig.success) {
         const sslConfig = buildDatabaseSslConfig(validProdConfig.data);
         expect(sslConfig).toEqual({ rejectUnauthorized: true });
       }
+
+      const customCaProdConfig = EnvSchema.safeParse({
+        ...validProdBase,
+        DATABASE_SSL_CA: "-----BEGIN CERTIFICATE-----\\nMIIB...\\n-----END CERTIFICATE-----"
+      });
+      expect(customCaProdConfig.success).toBe(true);
+      if (customCaProdConfig.success) {
+        const sslWithCa = buildDatabaseSslConfig(customCaProdConfig.data);
+        expect(sslWithCa).toEqual({
+          rejectUnauthorized: true,
+          ca: "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----"
+        });
+      }
+    });
+
+    it("should reject noop, console, or test email providers in production and require Zoho SMTP credentials (AUD-002)", () => {
+      for (const forbiddenProvider of ["noop", "console", "test"] as const) {
+        const parsed = EnvSchema.safeParse({
+          ...validProdBase,
+          EMAIL_PROVIDER: forbiddenProvider
+        });
+        expect(parsed.success).toBe(false);
+
+        expect(() =>
+          createAdapterForEnvironment(forbiddenProvider, "production")
+        ).toThrow(/Invalid production email provider/);
+      }
+
+      const missingZohoSecret = EnvSchema.safeParse({
+        ...validProdBase,
+        ZOHO_SMTP_PASSWORD: ""
+      });
+      expect(missingZohoSecret.success).toBe(false);
+
+      const port465Insecure = EnvSchema.safeParse({
+        ...validProdBase,
+        ZOHO_SMTP_PORT: "465",
+        ZOHO_SMTP_SECURE: "false"
+      });
+      expect(port465Insecure.success).toBe(false);
+    });
+
+    it("should deliver verification and password reset emails via ZohoSmtpEmailAdapter and handle SMTP errors without leaking secrets (AUD-002)", async () => {
+      const sentMailCalls: Array<Record<string, unknown>> = [];
+
+      const zohoOk = new ZohoSmtpEmailAdapter({
+        host: "smtp.zoho.com",
+        port: 465,
+        secure: true,
+        user: "no-reply@luggagestorage.lk",
+        password: "super_secret_zoho_app_password_123",
+        fromAddress: "no-reply@luggagestorage.lk",
+        fromName: "Global Luggage Storage Marketplace",
+        publicBaseUrl: "https://app.luggagestorage.lk",
+        transporter: {
+          sendMail: async (mailOptions) => {
+            sentMailCalls.push(mailOptions as unknown as Record<string, unknown>);
+            return {
+              messageId: "<zoho-msg-001@luggagestorage.lk>",
+              accepted: [String(mailOptions.to)],
+              rejected: []
+            };
+          }
+        }
+      });
+
+      expect(zohoOk.getConfigurationSummary().hasCredentials).toBe(true);
+
+      const verifyRes = await zohoOk.sendEmailVerificationEmail({
+        to: "traveller@example.com",
+        displayName: "Nimal Perera",
+        verificationToken: "a".repeat(64),
+        verificationUrl: "/auth/verify-email?token=" + "a".repeat(64)
+      });
+      expect(verifyRes.delivered).toBe(true);
+      expect(verifyRes.provider).toBe("zoho");
+      expect(verifyRes.messageId).toBe("<zoho-msg-001@luggagestorage.lk>");
+      expect(sentMailCalls.length).toBe(1);
+      expect(String(sentMailCalls[0].html)).toContain("https://app.luggagestorage.lk/auth/verify-email?token=");
+      expect(String(sentMailCalls[0].text)).toContain("https://app.luggagestorage.lk/auth/verify-email?token=");
+
+      const resetRes = await zohoOk.sendPasswordResetEmail({
+        to: "traveller@example.com",
+        displayName: "Nimal Perera",
+        resetToken: "b".repeat(64),
+        resetUrl: "/auth/reset-password?token=" + "b".repeat(64)
+      });
+      expect(resetRes.delivered).toBe(true);
+      expect(resetRes.provider).toBe("zoho");
+      expect(sentMailCalls.length).toBe(2);
+      expect(String(sentMailCalls[1].html)).toContain("60 minutes");
+      expect(String(sentMailCalls[1].text)).toContain("60 minutes");
+
+      // Simulate SMTP authentication failure and ensure password is never leaked
+      const secretPass = "ultra_confidential_zoho_smtp_pass_999";
+      const zohoAuthFail = new ZohoSmtpEmailAdapter({
+        host: "smtp.zoho.com",
+        port: 465,
+        secure: true,
+        user: "no-reply@luggagestorage.lk",
+        password: secretPass,
+        fromAddress: "no-reply@luggagestorage.lk",
+        fromName: "Global Luggage Storage Marketplace",
+        transporter: {
+          sendMail: async () => {
+            const err = new Error(`Invalid login for ${secretPass}`) as Error & { code?: string };
+            err.code = "EAUTH";
+            throw err;
+          }
+        }
+      });
+
+      const failedSend = await zohoAuthFail.sendEmailVerificationEmail({
+        to: "traveller@example.com",
+        displayName: "Traveller",
+        verificationToken: "c".repeat(64),
+        verificationUrl: "/auth/verify-email?token=" + "c".repeat(64)
+      });
+      expect(failedSend.delivered).toBe(false);
+      expect(failedSend.error).toContain("ZOHO_SMTP_AUTH_FAILED");
+      expect(failedSend.error).not.toContain(secretPass);
+
+      // Simulate rejected recipient
+      const zohoRejected = new ZohoSmtpEmailAdapter({
+        host: "smtp.zoho.com",
+        port: 465,
+        secure: true,
+        user: "no-reply@luggagestorage.lk",
+        password: "valid_password",
+        fromAddress: "no-reply@luggagestorage.lk",
+        fromName: "Global Luggage Storage Marketplace",
+        transporter: {
+          sendMail: async () => ({
+            messageId: "<rejected>",
+            accepted: [],
+            rejected: ["bounce@example.com"]
+          })
+        }
+      });
+
+      const rejectedRes = await zohoRejected.sendPasswordResetEmail({
+        to: "bounce@example.com",
+        displayName: "Bounce User",
+        resetToken: "d".repeat(64),
+        resetUrl: "/auth/reset-password?token=" + "d".repeat(64)
+      });
+      expect(rejectedRes.delivered).toBe(false);
+      expect(rejectedRes.error).toContain("ZOHO_SMTP_RECIPIENT_REJECTED");
+    });
+
+    it("should preserve existing unused verification and reset tokens when email delivery fails on resend or recovery (AUD-002)", async () => {
+      const unique = `${Date.now()}_preserve_tok`;
+      const email = `preserve_${unique}@example.com`;
+      const password = "PreserveTokenPass123!";
+
+      // 1. Register user (initial verification email succeeds)
+      const regRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/register",
+        payload: { email, password, displayName: "Token Preservation User" }
+      });
+      expect(regRes.statusCode).toBe(201);
+      const originalVerifyToken =
+        testEmailAdapter.getLastVerificationEmailFor(email)!.verificationToken;
+
+      // 2. Simulate SMTP failure during resend-verification
+      testEmailAdapter.setSimulatedFailure("ZOHO_SMTP_SEND_FAILED:ETIMEDOUT");
+      const resendFailRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/resend-verification",
+        payload: { email }
+      });
+      expect(resendFailRes.statusCode).toBe(200);
+
+      // 3. Original verification token must STILL be valid and activate the account!
+      testEmailAdapter.setSimulatedFailure(null);
+      const verifyWithOriginalRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/verify-email",
+        payload: { token: originalVerifyToken }
+      });
+      expect(verifyWithOriginalRes.statusCode).toBe(200);
+      expect(JSON.parse(verifyWithOriginalRes.body).data.user.status).toBe("ACTIVE");
+
+      // 4. Request initial password reset (delivery succeeds)
+      const resetReq1 = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/forgot-password",
+        payload: { email }
+      });
+      expect(resetReq1.statusCode).toBe(200);
+      const originalResetToken = testEmailAdapter.getLastEmail()!.resetToken;
+
+      // 5. Simulate SMTP failure on second forgot-password request
+      testEmailAdapter.setSimulatedFailure("ZOHO_SMTP_SEND_FAILED:ETIMEDOUT");
+      const resetReq2Fail = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/forgot-password",
+        payload: { email }
+      });
+      expect(resetReq2Fail.statusCode).toBe(200);
+
+      // 6. Original reset token must STILL be valid and reset the password!
+      testEmailAdapter.setSimulatedFailure(null);
+      const newPassword = "RecoveredAfterSmtpOutage999!";
+      const executeResetRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/auth/reset-password",
+        payload: {
+          token: originalResetToken,
+          newPassword,
+          confirmPassword: newPassword
+        }
+      });
+      expect(executeResetRes.statusCode).toBe(200);
+    });
+
+    it("should render mobile-friendly HTML and plain-text email templates with HTML escaping (AUD-002)", () => {
+      const verificationTpl = buildVerificationEmailTemplate({
+        displayName: '<script>alert("xss")</script>',
+        verificationUrl: "/auth/verify-email?token=tok_123",
+        publicBaseUrl: "https://app.luggagestorage.lk"
+      });
+      expect(verificationTpl.html).not.toContain("<script>");
+      expect(verificationTpl.html).toContain("&lt;script&gt;");
+      expect(verificationTpl.html).toContain("https://app.luggagestorage.lk/auth/verify-email?token=tok_123");
+      expect(verificationTpl.text).toContain("https://app.luggagestorage.lk/auth/verify-email?token=tok_123");
+
+      const resetTpl = buildPasswordResetEmailTemplate({
+        displayName: "Host Partner",
+        resetUrl: "/auth/reset-password?token=rst_456",
+        publicBaseUrl: "https://app.luggagestorage.lk"
+      });
+      expect(resetTpl.html).toContain("https://app.luggagestorage.lk/reset-password?token=rst_456");
+      expect(resetTpl.text).toContain("https://app.luggagestorage.lk/reset-password?token=rst_456");
+      expect(resolvePublicEmailUrl("https://custom.domain.lk/verify?token=abc", "https://app.luggagestorage.lk")).toBe(
+        "https://custom.domain.lk/verify?token=abc"
+      );
     });
 
     it("should strictly validate allowed CORS origins in production", () => {
@@ -462,6 +823,90 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
         expect(snapshot.prevId).toBe(previousSnapshotId);
         previousSnapshotId = snapshot.id;
       }
+    });
+
+    it("should deterministically verify all required PostgreSQL tables and PostGIS extension (AUD-001)", async () => {
+      const client = await migratorPool.connect();
+      try {
+        await verifyMigratedSchema(client);
+        expect(REQUIRED_PUBLIC_TABLES.length).toBe(13);
+      } finally {
+        client.release();
+      }
+    });
+
+    it("should maintain 100% column and index parity between live PostgreSQL schema and stabilization reports (AUD-006)", async () => {
+      const evtColsRes = await runtimePool.query<{ column_name: string }>(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'email_verification_tokens'
+        ORDER BY ordinal_position ASC;
+      `);
+      const evtCols = evtColsRes.rows.map((r) => r.column_name);
+      expect(evtCols).toEqual([
+        "id",
+        "user_id",
+        "token_hash",
+        "expires_at",
+        "used_at",
+        "created_at"
+      ]);
+      expect(evtCols).not.toContain("requested_ip");
+      expect(evtCols).not.toContain("user_agent");
+
+      const rlColsRes = await runtimePool.query<{ column_name: string }>(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'auth_rate_limits'
+        ORDER BY ordinal_position ASC;
+      `);
+      const rlCols = rlColsRes.rows.map((r) => r.column_name);
+      expect(rlCols).toEqual([
+        "key_hash",
+        "scope",
+        "points",
+        "window_start",
+        "expires_at",
+        "updated_at"
+      ]);
+      expect(rlCols).not.toContain("window_started_at");
+
+      const evtIdxRes = await runtimePool.query<{ indexname: string }>(`
+        SELECT indexname
+        FROM pg_indexes
+        WHERE schemaname = 'public' AND tablename = 'email_verification_tokens';
+      `);
+      const evtIdxs = evtIdxRes.rows.map((r) => r.indexname);
+      expect(evtIdxs).toContain("email_verification_tokens_pkey");
+      expect(evtIdxs).toContain("email_verification_tokens_token_hash_unique");
+      expect(evtIdxs).toContain("email_verification_tokens_user_expires_idx");
+
+      const rlIdxRes = await runtimePool.query<{ indexname: string }>(`
+        SELECT indexname
+        FROM pg_indexes
+        WHERE schemaname = 'public' AND tablename = 'auth_rate_limits';
+      `);
+      const rlIdxs = rlIdxRes.rows.map((r) => r.indexname);
+      expect(rlIdxs).toContain("auth_rate_limits_pkey");
+      expect(rlIdxs).toContain("auth_rate_limits_expires_at_idx");
+      expect(rlIdxs).toContain("auth_rate_limits_scope_idx");
+
+      const secReportPath = path.resolve(
+        __dirname,
+        "../../../docs/project-stabilization/04-security-remediation-report.md"
+      );
+      const dbReportPath = path.resolve(
+        __dirname,
+        "../../../docs/project-stabilization/05-database-and-migration-report.md"
+      );
+      const secReport = fs.readFileSync(secReportPath, "utf8");
+      const dbReport = fs.readFileSync(dbReportPath, "utf8");
+
+      expect(secReport).not.toContain("requested_ip");
+      expect(dbReport).not.toContain("requested_ip");
+      expect(dbReport).not.toContain("window_started_at");
+      expect(dbReport).toContain("window_start");
+      expect(dbReport).toContain("auth_rate_limits_expires_at_idx");
     });
   });
 });

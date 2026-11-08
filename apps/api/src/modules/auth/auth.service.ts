@@ -19,6 +19,7 @@ import { sessionService } from "./session.service.js";
 import { auditService, SecurityEventType } from "../audit/audit.service.js";
 import { emailService } from "../email/email.service.js";
 import { rateLimitService } from "./rate-limit.service.js";
+import { logger } from "../../infrastructure/logging/logger.js";
 
 export interface ClientConnectionInfo {
   ip?: string;
@@ -133,27 +134,53 @@ export class AuthService {
           tx
         });
 
-        await auditService.recordEvent({
-          eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_SENT,
-          userId: newUser.id,
-          clientInfo,
-          metadata: {
-            email: normalized,
-            expiresAt: verificationExpiresAt.toISOString()
-          },
-          tx
-        });
-
         return newUser;
       });
 
-      // Dispatch verification email via EmailService adapter boundary
-      await emailService.sendEmailVerificationEmail({
+      // Dispatch verification email via EmailService adapter boundary and inspect delivery outcome (AUD-002)
+      const deliveryResult = await emailService.sendEmailVerificationEmail({
         to: createdUser.email,
         displayName: createdUser.displayName,
         verificationToken: rawVerificationToken,
         verificationUrl: `/verify-email?token=${rawVerificationToken}`
       });
+
+      if (deliveryResult.delivered) {
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_SENT,
+          userId: createdUser.id,
+          clientInfo,
+          metadata: {
+            email: normalized,
+            provider: deliveryResult.provider,
+            messageId: deliveryResult.messageId,
+            delivered: true,
+            expiresAt: verificationExpiresAt.toISOString()
+          }
+        });
+      } else {
+        logger.warn(
+          {
+            userId: createdUser.id,
+            provider: deliveryResult.provider,
+            deliveryError: deliveryResult.error
+          },
+          "[AuthService] Initial verification email delivery failed; account remains PENDING_VERIFICATION for resend recovery"
+        );
+        await auditService.recordEvent({
+          eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_FAILED,
+          userId: createdUser.id,
+          clientInfo,
+          metadata: {
+            email: normalized,
+            provider: deliveryResult.provider,
+            reason: "INITIAL_EMAIL_DELIVERY_FAILED",
+            deliveryError: deliveryResult.error,
+            delivered: false,
+            expiresAt: verificationExpiresAt.toISOString()
+          }
+        });
+      }
 
       return {
         id: createdUser.id,
@@ -622,6 +649,39 @@ export class AuthService {
       .digest("hex");
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
+    // Dispatch replacement email BEFORE invalidating any existing unused token (AUD-002 Section 3.5)
+    const deliveryResult = await emailService.sendEmailVerificationEmail({
+      to: user.email,
+      displayName: user.displayName,
+      verificationToken: rawVerificationToken,
+      verificationUrl: `/verify-email?token=${rawVerificationToken}`
+    });
+
+    if (!deliveryResult.delivered) {
+      logger.warn(
+        {
+          userId: user.id,
+          provider: deliveryResult.provider,
+          deliveryError: deliveryResult.error
+        },
+        "[AuthService] Verification resend email delivery failed; preserving existing unused verification token"
+      );
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_RESENT,
+        userId: user.id,
+        clientInfo,
+        metadata: {
+          delivered: false,
+          provider: deliveryResult.provider,
+          deliveryError: deliveryResult.error,
+          reason: "RESEND_DELIVERY_FAILED_EXISTING_TOKEN_PRESERVED"
+        }
+      });
+
+      return genericResponse;
+    }
+
     await db.transaction(async (tx) => {
       await tx.execute(
         sql`UPDATE email_verification_tokens
@@ -641,17 +701,13 @@ export class AuthService {
         userId: user.id,
         clientInfo,
         metadata: {
+          delivered: true,
+          provider: deliveryResult.provider,
+          messageId: deliveryResult.messageId,
           expiresAt: expiresAt.toISOString()
         },
         tx
       });
-    });
-
-    await emailService.sendEmailVerificationEmail({
-      to: user.email,
-      displayName: user.displayName,
-      verificationToken: rawVerificationToken,
-      verificationUrl: `/verify-email?token=${rawVerificationToken}`
     });
 
     return genericResponse;

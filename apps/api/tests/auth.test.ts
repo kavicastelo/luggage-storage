@@ -11,6 +11,7 @@ import {
   NoopEmailDeliveryAdapter
 } from "../src/modules/email/email.service.js";
 import { passwordService } from "../src/modules/auth/password.service.js";
+import { rateLimitService } from "../src/modules/auth/rate-limit.service.js";
 
 const { Pool } = pg;
 
@@ -45,6 +46,10 @@ describe("WP-03: Registration and Authentication Engine", () => {
       connectionString: env.DATABASE_URL,
       max: 2
     });
+  });
+
+  beforeEach(async () => {
+    await rateLimitService.clearAll();
   });
 
   afterAll(async () => {
@@ -1811,11 +1816,11 @@ describe("WP-03: Registration and Authentication Engine", () => {
         expect(resetRes.statusCode).toBe(400);
       });
 
-      it("should enforce rate limiting on password reset requests", async () => {
+      it("should enforce rate limiting on password reset requests (3 requests per 15m per email)", async () => {
         const user = await createTestUser("rate_limiting");
 
-        // Fire 5 requests (allowed)
-        for (let i = 0; i < 5; i++) {
+        // Fire 3 requests (allowed per authoritative policy: 3 / 15m per email)
+        for (let i = 0; i < 3; i++) {
           const res = await app.inject({
             method: "POST",
             url: "/api/v1/auth/forgot-password",
@@ -1824,13 +1829,15 @@ describe("WP-03: Registration and Authentication Engine", () => {
           expect(res.statusCode).toBe(200);
         }
 
-        // 6th request must trigger rate limit (429)
+        // 4th request must trigger rate limit (429) with Retry-After header
         const rateLimitedRes = await app.inject({
           method: "POST",
           url: "/api/v1/auth/forgot-password",
           payload: { email: user.email }
         });
         expect(rateLimitedRes.statusCode).toBe(429);
+        expect(rateLimitedRes.headers["retry-after"]).toBeDefined();
+        expect(Number(rateLimitedRes.headers["retry-after"])).toBeGreaterThan(0);
         const body = JSON.parse(rateLimitedRes.body);
         expect(body.error.code).toBe("RATE_LIMITED");
       });

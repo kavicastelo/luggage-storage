@@ -7,6 +7,9 @@ export function errorHandler(error: FastifyError | AppError, request: FastifyReq
 
   if (error instanceof AppError) {
     request.log.warn({ err: error, correlationId }, `AppError [${error.code}]: ${error.message}`);
+    if (error.retryAfterSeconds !== undefined) {
+      reply.header("Retry-After", String(error.retryAfterSeconds));
+    }
     return reply.status(error.statusCode).send(
       createErrorResponse(error.code, error.message, error.details, correlationId)
     );

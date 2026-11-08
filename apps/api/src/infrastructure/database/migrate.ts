@@ -12,6 +12,49 @@ const __dirname = path.dirname(__filename);
 
 const MIGRATION_ADVISORY_LOCK_ID = 7461938502847;
 
+export const REQUIRED_PUBLIC_TABLES = [
+  "__drizzle_migrations",
+  "users",
+  "traveller_profiles",
+  "host_profiles",
+  "roles",
+  "permissions",
+  "user_roles",
+  "role_permissions",
+  "auth_sessions",
+  "password_reset_tokens",
+  "security_audit_events",
+  "email_verification_tokens",
+  "auth_rate_limits"
+] as const;
+
+export async function verifyMigratedSchema(client: pg.PoolClient): Promise<void> {
+  const extRes = await client.query<{ extname: string }>(
+    `SELECT extname FROM pg_extension WHERE extname = 'postgis';`
+  );
+  if (extRes.rows.length === 0) {
+    throw new Error(
+      "[Migration Engine] Required PostgreSQL extension 'postgis' is not installed"
+    );
+  }
+
+  const tablesRes = await client.query<{ table_name: string }>(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = 'public'
+       AND table_name = ANY($1::text[]);`,
+    [REQUIRED_PUBLIC_TABLES]
+  );
+
+  const existingTables = new Set(tablesRes.rows.map((r) => r.table_name));
+  const missingTables = REQUIRED_PUBLIC_TABLES.filter((t) => !existingTables.has(t));
+  if (missingTables.length > 0) {
+    throw new Error(
+      `[Migration Engine] Schema verification failed; missing tables: ${missingTables.join(", ")}`
+    );
+  }
+}
+
 export async function runMigrations(customConnectionString?: string): Promise<number> {
   const connectionString =
     customConnectionString ||
@@ -83,6 +126,12 @@ export async function runMigrations(customConnectionString?: string): Promise<nu
     } else {
       logger.info({ appliedCount }, "[Migration Engine] Successfully applied migration(s)");
     }
+
+    await verifyMigratedSchema(client);
+    logger.info(
+      { verifiedTables: REQUIRED_PUBLIC_TABLES.length },
+      "[Migration Engine] Verified required schema tables and PostGIS extension"
+    );
 
     return appliedCount;
   } finally {

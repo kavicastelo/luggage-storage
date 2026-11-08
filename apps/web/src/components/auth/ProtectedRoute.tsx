@@ -2,6 +2,7 @@ import React from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuthStore } from "../../store/useAuthStore";
 import { Loader2 } from "lucide-react";
+import { isDemoPreviewActive } from "../../config/demo-preview";
 
 export interface ProtectedRouteProps {
   requiredPermission?: string;
@@ -37,8 +38,11 @@ export function ProtectedRoute({
     );
   }
 
-  const searchParams = new URLSearchParams(location.search);
-  const isDemoPreviewOptIn = allowDemoPreview && searchParams.get("preview") === "demo";
+  const isDemoPreviewOptIn = isDemoPreviewActive({
+    allowDemoPreview,
+    search: location.search,
+    isAuthenticated
+  });
 
   if (!isAuthenticated) {
     if (isDemoPreviewOptIn) {
@@ -49,10 +53,10 @@ export function ProtectedRoute({
             className="rounded-xl bg-amber-50 border border-amber-300 px-4 py-2.5 text-xs text-amber-900 flex items-center justify-between"
           >
             <span className="font-semibold">
-              DEMO PREVIEW MODE (Explicit Opt-In Sandbox) — Unauthenticated UX inspection only. Live API mutations require authentication.
+              DEMO SIMULATION MODE (Explicit Opt-In Sandbox) — Unauthenticated UX inspection only. Simulated actions are not persisted; live API mutations require authentication.
             </span>
             <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-amber-200/70 text-amber-950">
-              ?preview=demo
+              VITE_ENABLE_DEMO_PREVIEW • ?preview=demo
             </span>
           </div>
           <Outlet />

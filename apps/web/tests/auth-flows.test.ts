@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { authApi } from "../src/services/auth-api";
 import { clearAccessToken } from "../src/lib/api-client";
+import {
+  isDemoPreviewConfigEnabled,
+  isDemoPreviewActive,
+  evaluateRouteAuthorization
+} from "../src/config/demo-preview";
 
 describe("Web Auth API Flows & Endpoint Integration", () => {
   beforeEach(() => {
@@ -242,6 +247,163 @@ describe("Web Auth API Flows & Endpoint Integration", () => {
     });
     expect(res.total).toBe(1);
     expect(res.events[0].eventType).toBe("AUTH_LOGIN_SUCCESS");
+  });
+
+  describe("Demo Preview Security Boundaries & Role Enforcement (AUD-007)", () => {
+    it("should disable demo preview by default in production unless VITE_ENABLE_DEMO_PREVIEW=true", () => {
+      expect(isDemoPreviewConfigEnabled({ PROD: true })).toBe(false);
+      expect(isDemoPreviewConfigEnabled({ MODE: "production" })).toBe(false);
+      expect(
+        isDemoPreviewActive({
+          allowDemoPreview: true,
+          search: "?preview=demo",
+          isAuthenticated: false,
+          envInput: { PROD: true }
+        })
+      ).toBe(false);
+
+      // Explicitly enabled in production
+      expect(
+        isDemoPreviewConfigEnabled({
+          PROD: true,
+          VITE_ENABLE_DEMO_PREVIEW: "true"
+        })
+      ).toBe(true);
+    });
+
+    it("should support explicit demo preview opt-in in non-production and block when VITE_ENABLE_DEMO_PREVIEW=false", () => {
+      expect(
+        isDemoPreviewActive({
+          allowDemoPreview: true,
+          search: "?preview=demo",
+          isAuthenticated: false,
+          envInput: { PROD: false, VITE_ENABLE_DEMO_PREVIEW: "true" }
+        })
+      ).toBe(true);
+
+      // Without ?preview=demo query param, demo preview is inactive
+      expect(
+        isDemoPreviewActive({
+          allowDemoPreview: true,
+          search: "",
+          isAuthenticated: false,
+          envInput: { PROD: false, VITE_ENABLE_DEMO_PREVIEW: "true" }
+        })
+      ).toBe(false);
+
+      // When allowDemoPreview=false on route, demo preview is inactive
+      expect(
+        isDemoPreviewActive({
+          allowDemoPreview: false,
+          search: "?preview=demo",
+          isAuthenticated: false,
+          envInput: { PROD: false, VITE_ENABLE_DEMO_PREVIEW: "true" }
+        })
+      ).toBe(false);
+
+      // When explicitly disabled via VITE_ENABLE_DEMO_PREVIEW=false
+      expect(
+        isDemoPreviewActive({
+          allowDemoPreview: true,
+          search: "?preview=demo",
+          isAuthenticated: false,
+          envInput: { PROD: false, VITE_ENABLE_DEMO_PREVIEW: "false" }
+        })
+      ).toBe(false);
+
+      // Authenticated users never use unauthenticated demo preview bypass
+      expect(
+        isDemoPreviewActive({
+          allowDemoPreview: true,
+          search: "?preview=demo",
+          isAuthenticated: true,
+          envInput: { PROD: false, VITE_ENABLE_DEMO_PREVIEW: "true" }
+        })
+      ).toBe(false);
+    });
+
+    it("should strictly enforce authenticated role and permission boundaries across TRAVELLER, HOST_STAFF, HOST_OWNER, SUPPORT, and SUPERADMIN", () => {
+      const hostRouteRoles = ["HOST_OWNER", "HOST_STAFF", "SUPERADMIN"];
+      const adminRouteRoles = ["SUPERADMIN", "SUPPORT"];
+
+      // TRAVELLER: denied on /host and /admin
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["TRAVELLER"],
+          requiredRoles: hostRouteRoles
+        })
+      ).toEqual({ allowed: false, reason: "FORBIDDEN_ROLE" });
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["TRAVELLER"],
+          requiredRoles: adminRouteRoles
+        })
+      ).toEqual({ allowed: false, reason: "FORBIDDEN_ROLE" });
+
+      // HOST_STAFF: allowed on /host, denied on /admin
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["TRAVELLER", "HOST_STAFF"],
+          requiredRoles: hostRouteRoles
+        })
+      ).toEqual({ allowed: true });
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["TRAVELLER", "HOST_STAFF"],
+          requiredRoles: adminRouteRoles
+        })
+      ).toEqual({ allowed: false, reason: "FORBIDDEN_ROLE" });
+
+      // HOST_OWNER: allowed on /host, denied on /admin
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["TRAVELLER", "HOST_OWNER"],
+          requiredRoles: hostRouteRoles
+        })
+      ).toEqual({ allowed: true });
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["TRAVELLER", "HOST_OWNER"],
+          requiredRoles: adminRouteRoles
+        })
+      ).toEqual({ allowed: false, reason: "FORBIDDEN_ROLE" });
+
+      // SUPPORT: allowed on /admin shell, denied on SUPERADMIN-only admin.audit.read
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["TRAVELLER", "SUPPORT"],
+          userPermissions: ["admin.user.read", "support.ticket.read"],
+          requiredRoles: adminRouteRoles
+        })
+      ).toEqual({ allowed: true });
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["TRAVELLER", "SUPPORT"],
+          userPermissions: ["admin.user.read", "support.ticket.read"],
+          requiredRoles: adminRouteRoles,
+          requiredPermission: "admin.audit.read"
+        })
+      ).toEqual({ allowed: false, reason: "FORBIDDEN_PERMISSION" });
+
+      // SUPERADMIN: allowed on /host, /admin, and admin.audit.read
+      expect(
+        evaluateRouteAuthorization({
+          isAuthenticated: true,
+          userRoles: ["SUPERADMIN"],
+          userPermissions: ["admin.user.read", "admin.audit.read", "admin.platform.manage"],
+          requiredRoles: adminRouteRoles,
+          requiredPermission: "admin.audit.read"
+        })
+      ).toEqual({ allowed: true });
+    });
   });
 });
 

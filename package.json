@@ -14,6 +14,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "db:migrate": "pnpm --filter @luggage-storage/api db:migrate",
     "verify": "turbo run lint typecheck test build",
     "clean": "turbo run clean"
   },

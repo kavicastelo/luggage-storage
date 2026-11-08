@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { FastifyInstance } from "fastify";
 import pg from "pg";
 import { buildApp } from "../src/app.js";
@@ -9,6 +9,7 @@ import {
   SecurityEventType
 } from "../src/modules/audit/audit.service.js";
 import { db } from "../src/infrastructure/database/drizzle.js";
+import { rateLimitService } from "../src/modules/auth/rate-limit.service.js";
 
 const { Pool } = pg;
 
@@ -44,6 +45,10 @@ describe("WP-12: Auditability & Operational Security Test Suite", () => {
       connectionString: env.MIGRATION_DATABASE_URL,
       max: 5
     });
+  });
+
+  beforeEach(async () => {
+    await rateLimitService.clearAll();
   });
 
   afterAll(async () => {

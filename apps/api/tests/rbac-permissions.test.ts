@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { FastifyInstance } from "fastify";
 import pg from "pg";
 import { buildApp } from "../src/app.js";
 import { env } from "../src/config/env.js";
 import { rbacService } from "../src/modules/auth/rbac.service.js";
+import { rateLimitService } from "../src/modules/auth/rate-limit.service.js";
 
 const { Pool } = pg;
 
@@ -24,6 +25,10 @@ describe("WP-07: RBAC and Permission Architecture", () => {
       connectionString: env.DATABASE_URL,
       max: 2
     });
+  });
+
+  beforeEach(async () => {
+    await rateLimitService.clearAll();
   });
 
   afterAll(async () => {
