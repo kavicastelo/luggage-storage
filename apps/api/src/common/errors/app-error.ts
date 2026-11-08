@@ -18,6 +18,10 @@ export class AppError extends Error {
     return new AppError("BAD_REQUEST", message, 400, details);
   }
 
+  static validation(message = "Validation failed", details?: ApiErrorDetail[]): AppError {
+    return new AppError("VALIDATION_ERROR", message, 400, details);
+  }
+
   static notFound(message: string): AppError {
     return new AppError("NOT_FOUND", message, 404);
   }
@@ -36,5 +40,9 @@ export class AppError extends Error {
 
   static internal(message = "Internal server error"): AppError {
     return new AppError("INTERNAL_SERVER_ERROR", message, 500);
+  }
+
+  static rateLimited(message = "Too many requests"): AppError {
+    return new AppError("RATE_LIMITED", message, 429);
   }
 }
