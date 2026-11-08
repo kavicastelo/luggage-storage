@@ -15,7 +15,7 @@ This guide provides an authoritative roadmap to the project's documentation stru
 | **Where is the authoritative FRS?** | [docs/product/source/luggage-storage-frs.pdf](file:///d:/luggage-storage/luggage-storage/docs/product/source/luggage-storage-frs.pdf)<br>[docs/product/functional-requirements.md](file:///d:/luggage-storage/luggage-storage/docs/product/functional-requirements.md) | Original Functional Requirements Specification PDF and normalized functional requirements catalogue. |
 | **Where are approved architecture decisions?** | [docs/architecture/decisions/](file:///d:/luggage-storage/luggage-storage/docs/architecture/decisions/)<br>[docs/architecture/system-architecture.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/system-architecture.md)<br>[docs/architecture/data/](file:///d:/luggage-storage/luggage-storage/docs/architecture/data/) | Accepted ADR-001 through ADR-010, modular monolith architecture, and conceptual/logical ERDs. |
 | **Where is the current phase specification?** | [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md) | The authoritative execution specification for Phase 1B (Identity, Authentication & Access Control). |
-| **Where are acceptance criteria?** | Phase 1A-R: [docs/governance/phase-1a-r-product-owner-acceptance.md](file:///d:/luggage-storage/luggage-storage/docs/governance/phase-1a-r-product-owner-acceptance.md)<br>Phase 1B: [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md#12-acceptance-criteria) | Phase 1A-R final signed acceptance register (RC-01 to RC-19) and Phase 1B acceptance criteria (AC-1B-01 to AC-1B-22). |
+| **Where are acceptance criteria?** | Phase 1A-R: [docs/governance/phase-1a-r-product-owner-acceptance.md](file:///d:/luggage-storage/luggage-storage/docs/governance/phase-1a-r-product-owner-acceptance.md)<br>Phase 1B: [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md#20-phase-1b-acceptance-criteria) | Phase 1A-R final signed acceptance register (RC-01 to RC-19) and Phase 1B authoritative acceptance criteria (B1 to B24). |
 | **Where is historical evidence?** | [docs/engineering/](file:///d:/luggage-storage/luggage-storage/docs/engineering/)<br>[docs/governance/](file:///d:/luggage-storage/luggage-storage/docs/governance/)<br>[docs/security/](file:///d:/luggage-storage/luggage-storage/docs/security/) | Reports and audit trails for Phase 0A, 0B, 0C, 1A, and 1A-R (including C1–C4 verification logs). |
 | **Which documents must an implementation agent read before starting work?** | See [Section 2: Mandatory Agent Reading Order](#2-mandatory-agent-reading-order) below. | Explicit 6-document pre-implementation reading list. |
 
@@ -96,9 +96,23 @@ To maintain high signal-to-noise ratio and prevent uncontrolled documentation sp
 - [data/data-integrity-and-indexing.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/data/data-integrity-and-indexing.md) — Indexing and foreign key rules.
 - [domain/domain-boundaries.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/domain/domain-boundaries.md) — Bounded context definitions.
 - [domain/permissions-and-access-matrix.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/domain/permissions-and-access-matrix.md) — Central RBAC permissions matrix.
+- [phase-1b-identity-design.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/phase-1b-identity-design.md) — Phase 1B identity architecture design document.
+- **Identity & Security Architecture Suite (`docs/architecture/identity/`):**
+  - [identity/identity-domain-model.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/identity-domain-model.md) — Unified identity domain model, personas, and normalization.
+  - [identity/authentication-architecture.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/authentication-architecture.md) — Registration, login, and Argon2id parameters.
+  - [identity/session-lifecycle.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/session-lifecycle.md) — Session management, token rotation, and reuse detection.
+  - [identity/authorization-and-rbac.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/authorization-and-rbac.md) — RBAC, 19 permissions, role hierarchy, and boundaries.
+  - [identity/account-lifecycle.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/account-lifecycle.md) — Account state machine, admin operations, and session invalidation.
+  - [identity/password-and-recovery-security.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/password-and-recovery-security.md) — Password policies, recovery tokens, and email boundary (OQ-019).
+  - [identity/web-authentication-security.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/web-authentication-security.md) — React SPA security, in-memory tokens, and HTTP-only cookies.
+  - [identity/mobile-authentication-security.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/mobile-authentication-security.md) — Expo mobile security and hardware SecureStore isolation.
+  - [identity/security-event-catalogue.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/security-event-catalogue.md) — 24 canonical security audit events, immutability, and sanitization.
+  - [identity/identity-threat-model.md](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/identity-threat-model.md) — 15-category STRIDE security threat model.
 
-### 5.3 Active Execution Specifications (`docs/engineering/`)
+### 5.3 Active Execution Specifications & Reports (`docs/engineering/`)
 - [phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md) — Active Phase 1B specification (Identity, Authentication & Access Control).
+- [phase-1b-execution-tracker.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-execution-tracker.md) — Phase 1B Work Package execution register and status tracker.
+- [phase-1b-implementation-report.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-implementation-report.md) — Canonical Phase 1B implementation report covering all 26 specification topics.
 
 ### 5.4 Governance & Acceptance Records (`docs/governance/`)
 - [phase-0c-product-owner-acceptance.md](file:///d:/luggage-storage/luggage-storage/docs/governance/phase-0c-product-owner-acceptance.md) — Phase 0C-D Product Owner acceptance.

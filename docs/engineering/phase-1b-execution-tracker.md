@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01 THROUGH WP-12 COMPLETE — WP-13 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01 THROUGH WP-13 COMPLETE — WP-14 UNBLOCKED)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -25,8 +25,8 @@
 | **WP-10** | **API Contract and Endpoint Design** | **COMPLETE** | [packages/contracts/src/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/)<br>[packages/contracts/tests/](file:///d:/luggage-storage/luggage-storage/packages/contracts/tests/) | Verified: **WP-10 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp10-implementation-report.md)) |
 | **WP-11** | **Auth Security Testing Suite** | **COMPLETE** | [apps/api/tests/security-regression-suite.test.ts](file:///d:/luggage-storage/luggage-storage/apps/api/tests/security-regression-suite.test.ts) | Verified: **WP-11 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp11-security-testing-report.md)) |
 | **WP-12** | **Auditability & Operational Security** | **COMPLETE** | [apps/api/src/modules/audit/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/audit/)<br>[packages/contracts/src/audit/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/audit/) | Verified: **WP-12 COMPLETE — READY FOR NEXT WORK PACKAGE** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp12-implementation-report.md)) |
-| **WP-13** | **Security Architecture Documentation** | **READY FOR IMPLEMENTATION** | Formal threat model and security evaluation | **UNBLOCKED** — Gated by WP-12 |
-| **WP-14** | Engineering Quality & Gate Verification | PENDING | Turborepo uncached verification & CI green | Final acceptance |
+| **WP-13** | **Security Architecture Documentation** | **COMPLETE** | [docs/architecture/identity/](file:///d:/luggage-storage/luggage-storage/docs/architecture/identity/)<br>[docs/engineering/phase-1b-implementation-report.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-implementation-report.md) | Verified: **WP-13 COMPLETE — READY FOR WP-14** |
+| **WP-14** | **Engineering Quality & Gate Verification** | **READY FOR EXECUTION** | Turborepo uncached verification & CI green | **UNBLOCKED** — Gated by WP-13 |
 
 ---
 
@@ -325,3 +325,24 @@
   - Monorepo: 299/299 tests pass across 28 test suites (Contracts: 59, Mobile: 27, Web: 33, API: 180).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 50.638s with 0 lint warnings and 0 errors.
 - **Verification Verdict:** **`WP-12 COMPLETE — READY FOR NEXT WORK PACKAGE`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp12-implementation-report.md)).
+
+### WP-13: Security Architecture Documentation
+- **Deliverables:**
+  - Complete Security Architecture Suite (10 documents under `docs/architecture/identity/`):
+    1. `identity-domain-model.md`: Unified user model, dual email normalization, persona decoupling.
+    2. `authentication-architecture.md`: Argon2id parameters ($m=64\text{MB}, t=3, p=4$), timing attack equalization (`verifyDummy`).
+    3. `session-lifecycle.md`: 15-min JWT, 256-bit refresh token, SHA-256 verifier hash, single-use rotation, reuse detection, `FOR UPDATE` lock.
+    4. `authorization-and-rbac.md`: 19 permissions, 5 roles, Fastify pre-handlers, real-time DB permission checks, DML revocation from `luggage_user`.
+    5. `account-lifecycle.md`: 4-state machine, admin operations, atomic session invalidation on suspension/deactivation.
+    6. `password-and-recovery-security.md`: Password policy, sibling session revocation, enumeration resistance, single-use tokens, email adapter boundary (OQ-019).
+    7. `web-authentication-security.md`: React 18 SPA, in-memory access token, HTTP-only `SameSite=Strict` cookie, singleton refresh mutex, route guards.
+    8. `mobile-authentication-security.md`: Expo React Native, hardware-backed `expo-secure-store` with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`, JSON refresh transport.
+    9. `security-event-catalogue.md`: 24 canonical security audit events, trigger immutability (`trg_prevent_audit_tampering`), deep metadata sanitization.
+    10. `identity-threat-model.md`: Exhaustive STRIDE threat model covering all 15 mandatory threat categories from Section 17.
+  - Canonical Implementation Report: `docs/engineering/phase-1b-implementation-report.md` covering all 26 topics from Section 21 of the Phase 1B Specification.
+  - Governance updates: `docs/README.md` (corrected criteria count to B1-B24, linked new architecture suite) and `docs/engineering/phase-1b-execution-tracker.md`.
+- **Quality & Verification Status:**
+  - 100% grounded in existing codebase, migrations, schemas, and test suites. Zero invented mechanisms.
+  - 299/299 tests pass monorepo-wide.
+  - Zero application source code or migration modifications (strictly documentation and governance).
+- **Verification Verdict:** **`WP-13 COMPLETE — READY FOR WP-14`** ([Full Implementation Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-implementation-report.md)).
