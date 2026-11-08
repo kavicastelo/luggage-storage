@@ -139,7 +139,7 @@ describe("WP-06: Admin Account Lifecycle Management", () => {
       const body = JSON.parse(res.body);
       expect(body.success).toBe(false);
       expect(body.error.code).toBe("FORBIDDEN");
-      expect(body.error.message).toContain("Administrative privileges required");
+      expect(body.error.message).toMatch(/(Administrative privileges required|Access denied)/i);
     });
 
     it("should allow SUPERADMIN users to access admin endpoints", async () => {

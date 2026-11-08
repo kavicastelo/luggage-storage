@@ -14,6 +14,7 @@ import { healthRoutes } from "./modules/health/health.routes.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { sessionService } from "./modules/auth/session.service.js";
+import { rbacService } from "./modules/auth/rbac.service.js";
 
 export function buildApp(): FastifyInstance {
   const app = fastify({
@@ -94,6 +95,48 @@ export function buildApp(): FastifyInstance {
     if (!isAdmin) {
       throw AppError.forbidden("Administrative privileges required");
     }
+  });
+
+  // Permission-based authorization decorator factory (single required permission)
+  app.decorate("requirePermission", (permission: string) => {
+    return async (request: FastifyRequest, _reply: FastifyReply) => {
+      if (!request.user || !request.user.sub) {
+        throw AppError.unauthorized("Authentication required");
+      }
+
+      const hasPerm = await rbacService.hasPermission(request.user.sub, permission);
+      if (!hasPerm) {
+        throw AppError.forbidden(`Access denied: missing required permission: ${permission}`);
+      }
+    };
+  });
+
+  // Permission-based authorization decorator factory (any of the required permissions)
+  app.decorate("requireAnyPermission", (permissions: string[]) => {
+    return async (request: FastifyRequest, _reply: FastifyReply) => {
+      if (!request.user || !request.user.sub) {
+        throw AppError.unauthorized("Authentication required");
+      }
+
+      const hasPerm = await rbacService.hasAnyPermission(request.user.sub, permissions);
+      if (!hasPerm) {
+        throw AppError.forbidden("Access denied: insufficient permissions");
+      }
+    };
+  });
+
+  // Permission-based authorization decorator factory (all of the required permissions)
+  app.decorate("requireAllPermissions", (permissions: string[]) => {
+    return async (request: FastifyRequest, _reply: FastifyReply) => {
+      if (!request.user || !request.user.sub) {
+        throw AppError.unauthorized("Authentication required");
+      }
+
+      const hasPerm = await rbacService.hasAllPermissions(request.user.sub, permissions);
+      if (!hasPerm) {
+        throw AppError.forbidden("Access denied: insufficient permissions");
+      }
+    };
   });
 
   // Error Handler

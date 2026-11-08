@@ -27,5 +27,14 @@ declare module "fastify" {
       allowedRoles: string[]
     ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireAdmin: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requirePermission: (
+      permission: string
+    ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireAnyPermission: (
+      permissions: string[]
+    ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireAllPermissions: (
+      permissions: string[]
+    ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }

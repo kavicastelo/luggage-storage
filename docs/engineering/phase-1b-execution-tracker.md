@@ -2,7 +2,7 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Phase:** Phase 1B — Identity, Authentication & Access Control  
-**Status:** **IN PROGRESS (WP-01 THROUGH WP-06 COMPLETE — WP-07 AUTHORIZED)**  
+**Status:** **IN PROGRESS (WP-01 THROUGH WP-07 COMPLETE — WP-08 READY FOR IMPLEMENTATION)**  
 **Authorized Start Date:** 2026-11-07  
 **Governing Specification:** [docs/engineering/phase-1b-specification.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)  
 **Entry-Gate Approval:** [docs/engineering/phase-1b-entry-gate-audit.md](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-entry-gate-audit.md)  
@@ -19,8 +19,8 @@
 | **WP-04** | **Session Management and Logout** | **COMPLETE** | [apps/api/src/modules/auth/session.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/session.service.ts)<br>[apps/api/src/modules/auth/token.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/token.service.ts)<br>[apps/api/src/modules/auth/auth.routes.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts) | Verified: **WP-04 COMPLETE — READY FOR WP-05** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp04-implementation-report.md)) |
 | **WP-05** | **Password Change and Recovery** | **COMPLETE** | [apps/api/src/modules/auth/password.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/password.service.ts)<br>[apps/api/src/modules/email/email.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/email/email.service.ts)<br>[apps/api/src/modules/auth/auth.routes.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/auth.routes.ts) | Verified: **WP-05 COMPLETE — READY FOR WP-06** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp05-implementation-report.md)) |
 | **WP-06** | **Admin Account Lifecycle & Security States** | **COMPLETE** | [apps/api/src/modules/admin/](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/admin/)<br>[packages/contracts/src/admin/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/admin/) | Verified: **WP-06 COMPLETE — READY FOR WP-07** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp06-implementation-report.md)) |
-| **WP-07** | **RBAC and Permission Architecture** | **READY FOR IMPLEMENTATION** | Fastify authorization hooks & role enforcement | **UNBLOCKED** — Gated by WP-06 |
-| **WP-08** | Web Authentication Integration | PENDING | React auth context, session cookies, store sync | Gated by WP-07 |
+| **WP-07** | **RBAC and Permission Architecture** | **COMPLETE** | [apps/api/src/modules/auth/rbac.service.ts](file:///d:/luggage-storage/luggage-storage/apps/api/src/modules/auth/rbac.service.ts)<br>[packages/contracts/src/rbac/](file:///d:/luggage-storage/luggage-storage/packages/contracts/src/rbac/) | Verified: **WP-07 COMPLETE — READY FOR WP-08** ([Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp07-implementation-report.md)) |
+| **WP-08** | Web Authentication Integration | **READY FOR IMPLEMENTATION** | React auth context, session cookies, store sync | **UNBLOCKED** — Gated by WP-07 |
 | **WP-09** | Mobile Authentication Integration | PENDING | Expo SecureStore token storage & interceptors | Gated by WP-07 |
 | **WP-10** | API Contract and Endpoint Design | PENDING | Shared Zod schemas in `packages/contracts` | Parallel with WP-03–07 |
 | **WP-11** | Auth Security Testing Suite | PENDING | Comprehensive Vitest suite for auth & RBAC | Continuous |
@@ -167,3 +167,32 @@
   - Monorepo: 131/131 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 118).
   - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 35.3s with 0 lint warnings and 0 errors.
 - **Verification Verdict:** **`WP-06 COMPLETE — READY FOR WP-07`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp06-implementation-report.md)).
+
+### WP-07: RBAC and Permission Architecture
+- **Deliverables:**
+  - Permissions and RBAC migration: `apps/api/src/infrastructure/database/migrations/0004_permissions_and_rbac.sql`
+  - Shared contracts: `packages/contracts/src/rbac/index.ts`
+  - RBAC domain service: `apps/api/src/modules/auth/rbac.service.ts`
+  - Fastify decorators & types: `apps/api/src/app.ts`, `apps/api/src/types/fastify.d.ts`
+  - Admin endpoints update & role management: `apps/api/src/modules/admin/admin.routes.ts`
+  - Comprehensive integration test suite: `apps/api/tests/rbac-permissions.test.ts` (21/21 tests pass)
+- **Endpoints Implemented / Secured:**
+  - `GET /api/v1/admin/roles` (alias: `GET /admin/roles`, guarded by `admin.role.read`)
+  - `GET /api/v1/admin/permissions` (alias: `GET /admin/permissions`, guarded by `admin.permission.read`)
+  - `GET /api/v1/admin/users/:userId/permissions` (alias: `GET /admin/users/:userId/permissions`, guarded by `admin.role.read`)
+  - `POST /api/v1/admin/users/:userId/roles` (alias: `POST /admin/users/:userId/roles`, guarded by `admin.role.assign`)
+  - `DELETE /api/v1/admin/users/:userId/roles/:roleCode` (alias: `DELETE /admin/users/:userId/roles/:roleCode`, guarded by `admin.role.revoke`)
+  - Migrated administrative user routes to permission guards: `admin.user.read`, `admin.user.suspend`, `admin.user.reinstate`, `admin.user.deactivate`, `admin.user.reactivate`, `admin.user.verify_email`.
+- **Key Architectural & Security Controls:**
+  - **Permission Catalogue & Dynamic Mappings:** 54 canonical system permissions across 8 functional domains seeded in PostgreSQL with mappings to system roles (`SUPERADMIN`, `SUPPORT`, `HOST_OWNER`, `HOST_STAFF`, `TRAVELLER`).
+  - **SEC-05 Database Privilege Hardening:** Direct DML on `user_roles` and `role_permissions` strictly revoked from runtime role `luggage_user`. Role assignment and revocation encapsulated in PostgreSQL `SECURITY DEFINER` functions (`public.assign_user_role` and `public.revoke_user_role`).
+  - **Zero Stale Permission Window (OQ-021 Decision):** Real-time SQL evaluation joining active user roles to permissions with `users.status = 'ACTIVE'` condition. Revoking a role or suspending an account immediately revokes access without cache delays or Redis dependencies.
+  - **Fastify Authorization Guards:** Declarative `app.requirePermission`, `app.requireAnyPermission`, and `app.requireAllPermissions` decorators returning standardized 403 Forbidden envelopes.
+  - **Self-Action & Minimum Role Defenses:** Administrators cannot assign or revoke their own roles; users must retain at least one role.
+  - **Support / Superadmin Privilege Separation:** Support staff are prohibited from assigning or revoking administrative roles (`SUPERADMIN`, `SUPPORT`).
+  - **Immutable Security Audit Logging:** Role additions and revocations recorded in append-only `security_audit_events` with `AUTH_ROLE_ASSIGNED` and `AUTH_ROLE_REVOKED`.
+- **Quality Gate Results:**
+  - API package: 139/139 Vitest tests pass across 6 test files (21 RBAC tests + 27 admin tests + 53 auth tests + 31 identity DB tests + 7 live DB/health tests).
+  - Monorepo: 152/152 tests pass (Contracts: 8, Web: 3, Mobile: 2, API: 139).
+  - Uncached Turborepo quality gate (`turbo run lint typecheck test build --force`): 16/16 tasks pass uncached in 38.2s with 0 lint warnings and 0 errors.
+- **Verification Verdict:** **`WP-07 COMPLETE — READY FOR WP-08`** ([Full Technical Report](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-wp07-implementation-report.md)).
