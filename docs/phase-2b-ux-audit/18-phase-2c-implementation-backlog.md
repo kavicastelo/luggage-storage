@@ -590,6 +590,7 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-021`: Host Mobile Navigation Shell: 5-Tab Router
+- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
 - **Priority:** **P0** | **Implementation Level:** Level 2 (Functional Frontend)
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/`)
 - **User Persona:** Storage partner counter staff
@@ -614,6 +615,7 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-022`: Hardware Camera Scanner with Haptics & PIN Fallback (`HM-021`)
+- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/scanner.tsx`)
 - **User Persona:** Storage counter staff checking in customer
@@ -639,6 +641,7 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-023`: Step-by-Step Counter Intake & Seal Tagging Wizard (`HM-013`, `HM-014`, `HM-022`)
+- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/intake.tsx`)
 - **User Persona:** Counter staff handling customer bags
@@ -664,6 +667,7 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-024`: Host Active Vault Monitor & Overdue Alerts (`HM-006`, `HM-011`, `HM-026`)
+- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
 - **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/vault.tsx`)
 - **User Persona:** Counter staff managing stored luggage
@@ -688,6 +692,7 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-025`: Host Mobile Earnings & Payout Ledger (`HM-025`, `HM-026`)
+- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
 - **Priority:** **P2** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/earnings.tsx`)
 - **User Persona:** Storage partner owner checking income on mobile

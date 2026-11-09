@@ -1,7 +1,9 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { Stack, useRouter } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { useAuthStore } from "../../src/store/useAuthStore";
+import { MobileIcon } from "../../src/components/MobileIcon";
+import { mobileColors } from "../../src/lib/theme";
 
 export default function HostLayout() {
   const router = useRouter();
@@ -46,10 +48,111 @@ export default function HostLayout() {
           </TouchableOpacity>
         </View>
       )}
-      <Stack>
-        <Stack.Screen name="index" options={{ title: "Host Operations Hub" }} />
-        <Stack.Screen name="scanner" options={{ title: "QR / PIN Handover Scanner" }} />
-      </Stack>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: mobileColors.terracotta[500],
+          tabBarInactiveTintColor: mobileColors.sand[600],
+          tabBarStyle: {
+            backgroundColor: mobileColors.navy[900],
+            borderTopColor: mobileColors.navy[800],
+            height: 62,
+            paddingBottom: 8,
+            paddingTop: 6
+          },
+          tabBarLabelStyle: {
+            fontSize: 11,
+            fontWeight: "600"
+          }
+        }}
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "Live Desk",
+            tabBarLabel: "Live Desk",
+            tabBarIcon: ({ color }) => (
+              <MobileIcon
+                name="clock"
+                size={20}
+                color={color ? String(color) : mobileColors.sand[600]}
+              />
+            )
+          }}
+        />
+        <Tabs.Screen
+          name="requests"
+          options={{
+            title: "Requests",
+            tabBarLabel: "Requests",
+            tabBarIcon: ({ color }) => (
+              <MobileIcon
+                name="bell"
+                size={20}
+                color={color ? String(color) : mobileColors.sand[600]}
+              />
+            )
+          }}
+        />
+        <Tabs.Screen
+          name="vault"
+          options={{
+            title: "Vault",
+            tabBarLabel: "Vault",
+            tabBarIcon: ({ color }) => (
+              <MobileIcon
+                name="layers"
+                size={20}
+                color={color ? String(color) : mobileColors.sand[600]}
+              />
+            )
+          }}
+        />
+        <Tabs.Screen
+          name="earnings"
+          options={{
+            title: "Earnings",
+            tabBarLabel: "Earnings",
+            tabBarIcon: ({ color }) => (
+              <MobileIcon
+                name="wallet"
+                size={20}
+                color={color ? String(color) : mobileColors.sand[600]}
+              />
+            )
+          }}
+        />
+        <Tabs.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            tabBarLabel: "Settings",
+            tabBarIcon: ({ color }) => (
+              <MobileIcon
+                name="user"
+                size={20}
+                color={color ? String(color) : mobileColors.sand[600]}
+              />
+            )
+          }}
+        />
+
+        {/* Workflow sub-routes hidden from bottom tab bar */}
+        <Tabs.Screen
+          name="scanner"
+          options={{
+            href: null,
+            title: "Handover Scanner"
+          }}
+        />
+        <Tabs.Screen
+          name="intake"
+          options={{
+            href: null,
+            title: "Guided Intake"
+          }}
+        />
+      </Tabs>
     </View>
   );
 }
