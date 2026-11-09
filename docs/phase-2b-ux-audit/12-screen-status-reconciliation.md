@@ -47,6 +47,22 @@ A central mandate of this audit is resolving the conflicting screen counts in ex
 
 ---
 
+#### 1.2 Canonical Definition of What Constitutes a Screen
+
+To prevent inconsistent counting across documentation, a "Screen" within this project is strictly defined as follows:
+
+1. **Inclusion Criteria (What Counts as a Screen):**
+   - **Distinct User Viewport & Intent:** A dedicated visual destination rendered to serve a primary user objective within a documented user journey.
+   - **Discrete State & Navigation Target:** An independent route destination on web (e.g. `/search`, `/locations/:slug`, `/checkout/:id`, `/portal/bookings`) or an independent navigation stack/tab target in mobile.
+   - **Dedicated Workflow Modal:** A modal dialog that completely captures user interaction for a separate sub-workflow and has an assigned registry ID (e.g. `TM-014` Filter Modal, `HD-008` Booking Details Modal).
+
+2. **Exclusion Criteria (What Does NOT Count as a Separate Screen):**
+   - **UI Sub-components:** Reusable buttons, cards, list items, headers, footers, or bottom sheets that exist only as parts of a parent screen.
+   - **Transient Micro-Feedback:** Notification toasts, validation tooltips, or loading spinners.
+   - **Developer Switcher Cards:** The individual cards rendered inside the developer testing hubs (`app/(traveller)/index.tsx` and `app/(host)/index.tsx`) do NOT count as separate screens; they are merely launcher controls that preview the registered screens.
+
+---
+
 ### 2. Reconciliation of the "100% QA_VERIFIED" Status
 
 `phase-2-screen-implementation-tracker.md` historically claimed:
@@ -66,16 +82,42 @@ This audit demonstrates that this status was deeply misleading. The tracker conf
 
 ---
 
-### 3. Corrected Canonical Status Model
+### 3. Canonical Eight-Dimensional Status Model
 
-To restore absolute integrity to the engineering and product registries, the monolithic `QA_VERIFIED` label must be replaced with the seven independent dimensional statuses:
+To restore absolute integrity across all engineering and product documentation, the monolithic `QA_VERIFIED` label is replaced with the **authoritative Eight-Dimensional Status Model**. Every dimension operates independently:
 
-| Implementation Dimension | Corrected Canonical Status | Justification & Verification Evidence |
-|---|:---:|---|
-| **Design Specification (`Spec`)** | **`APPROVED` (113/113)** | Product requirements, user roles, and workflows are fully documented. |
-| **UI Presentation (`UI`)** | **`UI_SIMULATION` (110/113)**<br>**`IMPLEMENTED` (3/113)** | Screens are visually rendered but require complete redesign to remove developer badges, nested cards, and outdated palettes. |
-| **Frontend Interaction (`Interaction`)** | **`PARTIALLY_IMPLEMENTED` (101/113)**<br>**`VERIFIED` (12/113)** | Identity and RBAC screens operate live. Marketplace screens operate on local React state. Map and camera controls are placeholders. |
-| **API Integration (`API`)** | **`LIVE_PHASE_1B` (12/113)**<br>**`DEFERRED_PHASE_3` (98/113)**<br>**`N/A` (3/113)** | Fastify endpoints exist strictly for Identity, Sessions, RBAC, and Security Audit. Marketplace domain endpoints are deferred. |
-| **Backend Business Logic (`Backend`)** | **`LIVE_PHASE_1B` (12/113)**<br>**`DEFERRED_PHASE_3` (98/113)**<br>**`N/A` (3/113)** | Booking state machine, PayHere gateway, capacity locking, and payout batching engines are not implemented in `apps/api`. |
-| **Database Persistence (`DB`)** | **`LIVE_PHASE_1B` (12/113)**<br>**`DEFERRED_PHASE_3` (98/113)**<br>**`N/A` (3/113)** | Identity and audit tables exist (`0000`–`0005`). No marketplace tables (`bookings`, `storage_locations`, `luggage_items`) exist. |
-| **Quality Assurance (`QA`)** | **`TEST_VERIFIED_SIMULATION`** | Automated unit tests pass against preview state; end-to-end UX is unverified. |
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                        EIGHT INDEPENDENT STATUS DIMENSIONS                             │
+├───────────────┬────────────────────────────────────────────────────────────────────────┤
+│ Dimension     │ Permitted Enumeration Values                                           │
+├───────────────┼────────────────────────────────────────────────────────────────────────┤
+│ Specification │ SPEC_NOT_FOUND | SPEC_PARTIAL | SPEC_DEFINED | SPEC_APPROVED            │
+│ UI Status     │ NOT_IMPLEMENTED | STRUCTURE_ONLY | UI_SIMULATION | FUNCTIONAL_UI |     │
+│               │ VERIFIED_UI                                                            │
+│ Interaction   │ NOT_IMPLEMENTED | STATIC | LOCAL_STATE_ONLY | FUNCTIONAL_INTERACTION |  │
+│               │ VERIFIED_INTERACTION                                                   │
+│ API Integ     │ NOT_AVAILABLE | NOT_CONNECTED | PARTIALLY_CONNECTED | CONNECTED |       │
+│               │ VERIFIED_INTEGRATION                                                   │
+│ Backend Logic │ NOT_IMPLEMENTED | PARTIALLY_IMPLEMENTED | IMPLEMENTED |                │
+│               │ VERIFIED_BACKEND                                                       │
+│ Database      │ NOT_REQUIRED | NOT_IMPLEMENTED | PARTIALLY_IMPLEMENTED | IMPLEMENTED |   │
+│               │ VERIFIED_PERSISTENCE                                                   │
+│ End-to-End    │ NOT_TESTED | BLOCKED | FAILED | PARTIALLY_VERIFIED | VERIFIED          │
+│ Evidence      │ NONE | SOURCE_ONLY | SCREENSHOT_CAPTURED | AUTOMATED_TESTED |          │
+│               │ DEVICE_VERIFIED                                                        │
+└───────────────┴────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 3.1 Dimension Definitions & Exact Current Baseline Counts (All 113 Marketplace Screens)
+
+| Dimension | Permitted Status Values & Definitions | Baseline Count (113 Active Screens) |
+|---|---|---|
+| **1. Specification (`Spec`)** | • `SPEC_NOT_FOUND`: No requirement exists.<br>• `SPEC_PARTIAL`: Incomplete user stories.<br>• `SPEC_DEFINED`: Documented in UX Registry & Workflow matrices.<br>• `SPEC_APPROVED`: Formally signed off by Product Owner. | • `SPEC_DEFINED`: **113 (100%)**<br>• `SPEC_APPROVED`: **0 (0%)** (Pending `16-product-decisions-required.md` sign-off) |
+| **2. Visual/UI Status (`UI`)** | • `NOT_IMPLEMENTED`: No UI code exists.<br>• `STRUCTURE_ONLY`: Empty container/card.<br>• `UI_SIMULATION`: Prototype card/table with mock data & leaked tags.<br>• `FUNCTIONAL_UI`: Clean production-styled view without dev tags.<br>• `VERIFIED_UI`: Visually audited on all target viewports. | • `FUNCTIONAL_UI`: **3 (2.7%)** (`PW-007, 008, 010`)<br>• `UI_SIMULATION`: **109 (96.5%)**<br>• `STRUCTURE_ONLY`: **1 (0.9%)** (`AD-013`) |
+| **3. Interaction (`Interaction`)** | • `NOT_IMPLEMENTED`: No event handlers.<br>• `STATIC`: Read-only text.<br>• `LOCAL_STATE_ONLY`: React `useState` only, resets on reload.<br>• `FUNCTIONAL_INTERACTION`: Full optimistic state & navigation.<br>• `VERIFIED_INTERACTION`: End-to-end verified on device. | • `FUNCTIONAL_INTERACTION`: **3 (2.7%)** (`PW-006, 008`, `AD-017`)<br>• `LOCAL_STATE_ONLY`: **103 (91.2%)**<br>• `STATIC`: **6 (5.3%)**<br>• `NOT_IMPLEMENTED`: **1 (0.9%)** (`AD-013`) |
+| **4. API Integration (`API`)** | • `NOT_AVAILABLE`: No backend API exists or is needed.<br>• `NOT_CONNECTED`: API exists but screen uses local mock data.<br>• `PARTIALLY_CONNECTED`: Live session auth; domain data mocked.<br>• `CONNECTED`: Live HTTP/WS to all required endpoints.<br>• `VERIFIED_INTEGRATION`: Contract-tested with error handling. | • `CONNECTED`: **2 (1.8%)** (`AD-017`, `PW-006`)<br>• `PARTIALLY_CONNECTED`: **10 (8.8%)**<br>• `NOT_CONNECTED`: **98 (86.7%)**<br>• `NOT_AVAILABLE`: **3 (2.7%)** (Static) |
+| **5. Backend Logic (`Backend`)** | • `NOT_IMPLEMENTED`: No controller or service in `apps/api`.<br>• `PARTIALLY_IMPLEMENTED`: Stubs or unverified logic.<br>• `IMPLEMENTED`: Full Fastify service and business logic.<br>• `VERIFIED_BACKEND`: Unit & integration tested with DB rollback. | • `IMPLEMENTED`: **12 (10.6%)** (Identity, RBAC, Sessions, Security Audit)<br>• `NOT_IMPLEMENTED`: **98 (86.7%)** (Booking/custody domain)<br>• `NOT_REQUIRED`: **3 (2.7%)** (Static) |
+| **6. Database Persistence (`DB`)** | • `NOT_REQUIRED`: Static content, no DB needed.<br>• `NOT_IMPLEMENTED`: Target database tables do not exist.<br>• `PARTIALLY_IMPLEMENTED`: Tables exist without relational integrity.<br>• `IMPLEMENTED`: Production Drizzle schema with audit triggers.<br>• `VERIFIED_PERSISTENCE`: Transaction rollback tested. | • `IMPLEMENTED`: **12 (10.6%)** (PostgreSQL migrations `0000`–`0005`)<br>• `NOT_IMPLEMENTED`: **98 (86.7%)** (No booking/vault tables)<br>• `NOT_REQUIRED`: **3 (2.7%)** (Static) |
+| **7. End-to-End Status (`E2E`)** | • `NOT_TESTED`: No automated or manual verification.<br>• `BLOCKED`: Missing dependency blocks test execution.<br>• `FAILED`: Automated or manual test failed.<br>• `PARTIALLY_VERIFIED`: Partial journey verified (mock tests pass).<br>• `VERIFIED`: Complete user journey verified against live DB. | • `PARTIALLY_VERIFIED`: **109 (96.5%)**<br>• `VERIFIED`: **3 (2.7%)** (`PW-007, 008, 010`)<br>• `BLOCKED`: **1 (0.9%)** (`AD-013`) |
+| **8. Evidence Level (`Evidence`)** | • `NONE`: No evidence available.<br>• `SOURCE_ONLY`: Source code verified on disk.<br>• `SCREENSHOT_CAPTURED`: Genuine PNG captured on running server.<br>• `AUTOMATED_TESTED`: Vitest test passing in CI.<br>• `DEVICE_VERIFIED`: Physically verified on real iOS/Android. | • `SCREENSHOT_CAPTURED`: **113 (100%)**<br>• `AUTOMATED_TESTED`: **113 (100%)**<br>• `DEVICE_VERIFIED`: **0 (0%)** (Physical mobile unverified) |

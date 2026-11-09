@@ -1,372 +1,911 @@
-# Phase 2C — Implementation Backlog & Engineering Task Catalog
-## Document 18: Implementation Backlog with Acceptance Criteria
+# Phase 2C.0 — Implementation Backlog & Engineering Task Catalog
+## Document 18: Canonical Implementation Backlog
 
 **Project:** Global Luggage Storage Marketplace (`https://github.com/kavicastelo/luggage-storage`)  
 **Document ID:** `DOC-UX-P2C-018`  
-**Phase:** Phase 2C — Product Experience Re-Architecture  
-**Baseline Git Commit:** `cca134f4a0f909a907f6395f9647a025ac39d71a`  
+**Phase:** Phase 2C.0 — Baseline Reconciliation  
+**Current HEAD Commit:** `17d5afa` / `57b1c39`  
+**Source Code Baseline:** `cca134f`  
 **Date:** November 9, 2026  
 **Auditor / Author:** Principal Product Architect & Lead Technical Program Manager  
 
 ---
 
-### 1. Backlog Phasing & Sprint Architecture
+### 1. Backlog Phasing, Priority Model & Implementation Levels
 
-Phase 2C is organized into five structured two-week engineering sprints to ensure a seamless, non-breaking progression from shared tokens to production surface overhauls:
+The Phase 2C implementation backlog decomposes the product re-architecture into **34 independently implementable and testable engineering tasks** organized across seven specialized workstreams.
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                        PHASE 2C FIVE-SPRINT EXECUTION ROADMAP                          │
-├──────────┬─────────────────────────────────────────────────────────────┬───────────────┤
-│ Sprint   │ Focus Area & Deliverables                                   │ Core Tasks    │
-├──────────┼─────────────────────────────────────────────────────────────┼───────────────┤
-│ Sprint 1 │ Shared CWCP Tokens, Mascot WebP Pipeline, Code Suppression  │ TSK-001 - 003 │
-│ Sprint 2 │ Public Web Discovery, Interactive MapLibre & Checkout Flow │ TSK-004 - 007 │
-│ Sprint 3 │ Mobile Architecture Restructure (Tabs & Navigation Stacks)  │ TSK-008 - 010 │
-│ Sprint 4 │ Host Web Counter Desk & Mobile Hardware Scanner Integration │ TSK-011 - 014 │
-│ Sprint 5 │ Superadmin Disputes Hub, Verification Queue, QA Gates       │ TSK-015 - 020 │
-└──────────┴─────────────────────────────────────────────────────────────┴───────────────┘
-```
+#### 1.1 Priority Definitions
+- **P0 (Critical Blocker):** Blocks core usability, customer/partner trust, physical safety, or an essential user journey.
+- **P1 (Primary Journey):** Required to complete a primary user journey end-to-end.
+- **P2 (Operational / Usability Improvement):** Significant usability, operational efficiency, or financial transparency enhancement.
+- **P3 (Refinement / Polish):** Aesthetic polish, micro-interactions, or secondary configuration.
 
----
+#### 1.2 Three Implementation Levels Defined
+Each task explicitly declares its functional depth:
+- **Level 1 (Experience Redesign):** Visual hierarchy, layout, typography, CWCP tokens, responsive behavior, accessibility, forms, empty/error states.
+- **Level 2 (Functional Frontend):** Form validation, client routing, state management, cache invalidation, API-connected actions where backend exists, documented simulation harness where backend is deferred.
+- **Level 3 (Operational Integration):** Live backend APIs, PostgreSQL persistence, Stripe webhooks, physical hardware sensor execution, end-to-end multi-role journeys.
 
-### 2. Prioritized Task Catalog & Acceptance Criteria
+#### 1.3 Critical Dependency Rule
+If a task requires backend functionality that does not exist in the current codebase (e.g. booking persistence, payment charging), the task is **strictly restricted to Level 1 and Level 2 documented simulations**. Coding agents must **never invent undocumented API contracts or schemas**.
 
 ---
 
-#### Task `TSK-2C-001`: Shared CWCP Design Tokens & Tailwind Configuration
-- **Priority:** **P0** (Sprint 1 Block)
-- **Target Surfaces:** Cross-Platform (`packages/ui` / `packages/contracts`, `apps/web`, `apps/mobile`)
-- **Current Behavior:** Colors are scattered across components with hardcoded Tailwind slate/indigo/purple classes. No unified brand color definition exists.
-- **Expected Behavior:** Shared design tokens package exports authoritative CWCP tokens: Primary Navy (`#0A192F`), Brand Terracotta (`#E86F2C`), Warm Sand (`#FAF8F5`), and semantic status colors. Consumed by `tailwind.config.js` in `apps/web` and Nativewind in `apps/mobile`.
-- **Dependencies:** None.
+### 2. Workstream 1: Shared Design Foundation (`WS-1-FOUNDATION`)
+
+---
+
+#### Task `TSK-2C-001`: Shared CWCP Tokens & Accessible Palette
+- **Priority:** **P0** | **Implementation Level:** Level 1 (Experience Redesign)
+- **Target Application:** Cross-Platform (`packages/contracts/src/tokens.ts`, `apps/web`, `apps/mobile`)
+- **User Persona:** All users (Travellers, Hosts, Superadmins)
+- **User Problem:** Inconsistent, low-contrast colors across screens create visual discordance and fail accessibility checks.
+- **Business Value:** Establishes unified brand identity, trust, and WCAG 2.2 AA compliance.
+- **Current Behavior:** Hardcoded arbitrary Tailwind slate/indigo/purple classes scattered throughout components.
+- **Expected Behavior:** Single source of truth exports Navy (`#0A192F`), Accessible Terracotta (`#C85316`), Sand (`#FAF8F5`), and semantic status tokens.
+- **Scope:** Define tokens in `packages/contracts/src/tokens.ts`; configure `tailwind.config.js` in `web` and `mobile`.
+- **Exclusions:** Redesigning individual screens.
+- **Product Requirement References:** `PRD-SYS-001`, `FR-SYS-002`
+- **Source-Code References:** `packages/contracts/src/`, `apps/web/tailwind.config.js`
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** `DEC-009` (Accessible Terracotta re-tune).
 - **Acceptance Criteria:**
-  1. `packages/contracts/src/tokens.ts` (or `@luggage-storage/ui`) defines typed token constants for colors, font families, font sizes, line heights, border radii, and spatial units.
-  2. `apps/web/tailwind.config.js` extends theme using the shared tokens.
-  3. `apps/mobile/tailwind.config.js` (or Nativewind theme) imports identical color definitions.
-  4. Zero hardcoded arbitrary hex codes (e.g. `#1e293b`) remain in shared layout components.
-- **Test Requirements:** Automated unit test in `packages/contracts/test/tokens.test.ts` verifying all token values and contrast ratios $\ge 4.5:1$.
+  1. Contrast ratio between primary button text (`#FFFFFF`) and Terracotta (`#C85316`) is $\ge 4.5:1$ (WCAG AA).
+  2. Contrast ratio between Navy text (`#0A192F`) and Sand background (`#FAF8F5`) is $\ge 16:1$ (WCAG AAA).
+  3. Tokens imported cleanly by both web and mobile Tailwind configs.
+- **Automated Test Requirements:** Unit test in contracts verifying contrast calculations and token exports.
+- **Manual QA Requirements:** Verify theme token rendering on desktop and mobile viewports.
+- **Screenshot Requirements:** Render token swatches test page.
+- **Definition of Done:** Tokens exported, configured in all apps, unit tests passing.
 
 ---
 
-#### Task `TSK-2C-002`: Automated Mascot WebP Derivative Pipeline
-- **Priority:** **P1** (Sprint 1)
-- **Target Surfaces:** Asset Infrastructure (`apps/web/public/assets/mascot/`, `Assets/`)
-- **Current Behavior:** 20 original uncompressed PNG files consume 29.54 MB (~1.5 MB each), causing severe mobile page load latency and high bandwidth consumption.
-- **Expected Behavior:** Automated build script reads original PNGs and outputs high-quality compressed WebP derivatives into `apps/web/public/assets/mascot/webp/` at $80\%$ quality. Original PNGs remain 100% preserved and untouched.
-- **Dependencies:** None.
+#### Task `TSK-2C-002`: Automated Mascot WebP Derivative Pipeline & Picture Components
+- **Priority:** **P1** | **Implementation Level:** Level 1 (Experience Redesign)
+- **Target Application:** Asset Infrastructure (`scripts/`, `apps/web/public/assets/mascot/`, `Assets/`)
+- **User Persona:** Travellers on mobile data connections
+- **User Problem:** 20 uncompressed PNGs consume 29.54 MB, causing severe page load lag and high cellular data costs.
+- **Business Value:** Reduces asset payload by $>90\%$, accelerating page loads and conversion rates.
+- **Current Behavior:** Full-resolution PNGs (~1.5 MB each) are fetched directly over network.
+- **Expected Behavior:** Automated build script reads original PNGs and generates lightweight WebP derivatives ($<2.5$ MB total). Original PNGs remain 100% byte-identical.
+- **Scope:** Create `scripts/optimize-mascot-assets.mjs` using `sharp`; update `MascotIllustration` to render `<picture>` with `<source type="image/webp">` and PNG fallback.
+- **Exclusions:** Modifying, deleting, or renaming original PNGs in `Assets/`.
+- **Product Requirement References:** `NFR-PERF-003`
+- **Source-Code References:** `apps/web/src/components/ui/MascotIllustration.tsx`
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** None.
 - **Acceptance Criteria:**
-  1. Build script `scripts/optimize-mascot-assets.mjs` executes cleanly via `pnpm run assets:optimize`.
-  2. All 20 original PNG files in `Assets/` and `apps/web/public/assets/mascot/` retain their exact original filenames, timestamps, and bytes.
-  3. Total WebP asset payload is $\le 2.5$ MB (a $>90\%$ payload reduction).
-  4. `MascotIllustration` component renders responsive `<picture>` tags with `<source type="image/webp">` and PNG fallback.
-- **Test Requirements:** CI test verifying that WebP derivative files exist for all 20 mascot variants and that original PNG checksums are unmodified.
+  1. All 20 original PNG files retain exact original checksums and timestamps.
+  2. Total size of generated WebP directory is $\le 2.5$ MB.
+  3. `MascotIllustration` renders WebP in modern browsers and PNG in legacy environments.
+- **Automated Test Requirements:** CI test verifying checksum preservation of original PNGs and WebP file existence.
+- **Manual QA Requirements:** Inspect Network tab in Chrome DevTools to confirm WebP format transfer.
+- **Screenshot Requirements:** None.
+- **Definition of Done:** Script executable via `pnpm run assets:optimize`, CI test green.
 
 ---
 
 #### Task `TSK-2C-003`: Universal Customer-Facing Tracking Code Suppression & Developer Drawer
-- **Priority:** **P0** (Sprint 1 Block)
-- **Target Surfaces:** All Surfaces (`apps/web`, `apps/mobile`)
-- **Current Behavior:** End-user screens prominently render developer badges (`PW-001`, `HD-008`, `AD-013`, `WF-xxx`), simulation banners, and mock status controls.
-- **Expected Behavior:** Zero internal tracking codes or workflow IDs are visible in normal UI. All diagnostic controls are encapsulated in a hidden Developer Drawer accessible only via `Ctrl+Shift+D` or `?debug=true` in non-production builds.
-- **Dependencies:** `TSK-2C-001`.
+- **Priority:** **P0** | **Implementation Level:** Level 2 (Functional Frontend)
+- **Target Application:** Cross-Platform (`apps/web`, `apps/mobile`)
+- **User Persona:** Travellers and Hosts
+- **User Problem:** Seeing codes like `PW-001`, `HD-008`, `WF-xxx`, and simulation banners confuses users and destroys product credibility.
+- **Business Value:** Professional production presentation.
+- **Current Behavior:** Internal screen IDs and workflow numbers are hardcoded in rendered headers, badges, and buttons.
+- **Expected Behavior:** Zero internal tracking codes visible in customer DOM. Diagnostic controls relocated to a hidden Developer Debug Drawer (`Ctrl+Shift+D` or `?debug=true` in DEV only).
+- **Scope:** Clean all template text across 113 screens; implement `DeveloperDrawer` component.
+- **Exclusions:** Removing screen IDs from internal documentation or test suites.
+- **Product Requirement References:** `PRD-UX-004`
+- **Source-Code References:** `apps/web/src/pages/`, `apps/mobile/app/`
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** None.
 - **Acceptance Criteria:**
-  1. No occurrence of `PW-xxx`, `HD-xxx`, `AD-xxx`, `TM-xxx`, `HM-xxx`, or `WF-xxx` appears in rendered DOM text nodes or visible labels during standard browsing.
-  2. Developer Drawer component created and conditionally mounted only when `import.meta.env.DEV === true`.
-  3. Navbar links to internal `/health` or debug pages removed from consumer navigation headers.
-  4. Footer sitemap list removed from public consumer pages (`PW-001` through `PW-005`).
-- **Test Requirements:** Automated DOM regression test searching for regex `/\b(PW|HD|AD|TM|HM)-\d{3}\b/` in production render output, asserting 0 matches.
+  1. Regex search for `\b(PW|HD|AD|TM|HM)-\d{3}\b|\bWF-\d{3}\b` in rendered production HTML yields 0 matches.
+  2. Developer Drawer accessible only when `import.meta.env.DEV === true`.
+  3. Navbar link to internal `/health` removed from consumer navigation headers.
+- **Automated Test Requirements:** Automated test scanning all rendered routes for forbidden tokens.
+- **Manual QA Requirements:** Verify absence of codes across all 113 screens.
+- **Screenshot Requirements:** Capture clean headers across all surfaces.
+- **Definition of Done:** Zero code leakage in DOM, drawer functional in DEV.
 
 ---
 
-#### Task `TSK-2C-004`: Public Web Landing & Search Hub Overhaul (`PW-001`, `PW-002`)
-- **Priority:** **P0** (Sprint 2)
-- **Target Surfaces:** Public Web (`apps/web/src/pages/LandingPage.tsx`, `SearchPage.tsx`)
-- **Current Behavior:** Landing hero is basic with dark gradient card and `PW-001` badge. Search page displays cards with internal journey tags and a dark text box simulating a map.
-- **Expected Behavior:** Inviting, travel-centric landing page with destination imagery, date/time/bag search bar, social proof, verified partner badges, and contextual welcome from Kiri.
-- **Dependencies:** `TSK-2C-001`, `TSK-2C-003`.
-- **Acceptance Criteria:**
-  1. Clean, responsive hero section with clear value proposition and primary CTA button (`Find Storage Now`).
-  2. Search bar accepts destination city, drop-off date/time, collection date/time, and bag count.
-  3. Trust metrics section displaying verified luggage stats (e.g. "Over 50,000 bags stored safely").
-  4. Fully responsive on mobile ($390\text{px}$) and desktop ($1280\text{px}$).
-- **Test Requirements:** Vitest component test in `PublicWebScreens.test.tsx` verifying search parameter propagation to `/search`.
+### 3. Workstream 2: Public Traveller Web (`WS-2-PUBLIC-WEB`)
 
 ---
 
-#### Task `TSK-2C-005`: Interactive MapLibre GL Integration on Web Search (`PW-002`)
-- **Priority:** **P0** (Sprint 2)
-- **Target Surfaces:** Public Web (`apps/web/src/components/map/LocationMap.tsx`)
-- **Current Behavior:** Search page renders a non-interactive dark div containing static text: `"Interactive MapLibre Map (Lat: 6.9344, Lng: 79.8512)"`.
-- **Expected Behavior:** High-performance, interactive MapLibre GL map rendering OpenStreetMap tiles, customizable partner marker pins with price pills (e.g. `LKR 250`), clustering, and synchronized hover highlighting between listing card and map pin.
-- **Dependencies:** `TSK-2C-004`.
+#### Task `TSK-2C-004`: Public Web Landing Page Overhaul & Factual Copy (`PW-001`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Public Web (`apps/web/src/pages/LandingPage.tsx`)
+- **User Persona:** Traveller looking for safe bag storage
+- **User Problem:** Current landing page feels basic, dark, and lacks an intuitive search widget.
+- **Business Value:** Primary conversion funnel entry; drives customer acquisition.
+- **Current Behavior:** Card with `PW-001` badge and basic gradient.
+- **Expected Behavior:** High-converting hospitality layout with destination search bar (city, dates, bag counter), verified partner highlights, factual trust indicators, and welcoming Kiri mascot illustration.
+- **Scope:** Redesign `LandingPage.tsx` using CWCP tokens; connect search widget to `/search` route.
+- **Exclusions:** Live backend search API (uses client routing with query parameters).
+- **Product Requirement References:** `FR-003`, `WF-030`
+- **Source-Code References:** `apps/web/src/pages/LandingPage.tsx`
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** `DEC-008` (Mascot boundary), `DEC-010` (Trust badge taxonomy).
 - **Acceptance Criteria:**
-  1. MapLibre GL map mounts successfully without WebGL errors.
-  2. Partner pins render at correct geographic coordinates.
-  3. Clicking a pin opens an interactive popup showing partner photo, rating, and "Book" button.
-  4. Clean fallback message displayed if WebGL is disabled or unsupported.
-- **Test Requirements:** Unit test verifying map container initialization and marker array data binding.
+  1. Search widget navigates to `/search?city=colombo&bags=2&...`.
+  2. No fabricated claims (e.g. "Over 50,000 bags stored safely" prohibited).
+  3. Fully responsive at 390px (mobile) and 1280px (desktop).
+- **Automated Test Requirements:** Component test verifying search form submission.
+- **Manual QA Requirements:** Test form input validation and responsive stacking.
+- **Screenshot Requirements:** Desktop ($1280\times 900$) and mobile ($390\times 844$) captures.
+- **Definition of Done:** Redesigned view live on `:5173/`, tests green, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-006`: Location Details, Transparent Pricing & Checkout Redesign (`PW-003`–`PW-005`)
-- **Priority:** **P0** (Sprint 2)
-- **Target Surfaces:** Public Web (`LocationDetailsPage.tsx`, `BookingCheckoutPage.tsx`, `BookingConfirmationPage.tsx`)
-- **Current Behavior:** Dense policy text paragraphs, simulation warning notices, and buttons labeled `Proceed to Payment (PW-005)`.
-- **Expected Behavior:** Streamlined, high-trust booking flow: photo gallery, amenity badges (CCTV, 24/7), clear price itemization, instant form validation, and clean printable confirmation pass with SVG QR code.
-- **Dependencies:** `TSK-2C-001`, `TSK-2C-003`.
+#### Task `TSK-2C-005`: Split-Screen Search & Discovery with Interactive MapLibre (`PW-002`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Public Web (`apps/web/src/pages/SearchPage.tsx`, `LocationMap.tsx`)
+- **User Persona:** Traveller finding convenient location near transit
+- **User Problem:** Search screen renders a dark div with static text simulating a map.
+- **Business Value:** Core discovery experience; enables visual location comparison.
+- **Current Behavior:** Simulated text box: `"POSTGIS + MAPLIBRE PREVIEW"`.
+- **Expected Behavior:** Split-screen layout (desktop) with interactive MapLibre map on right and listing cards on left. Cards show storefront photos, verified partner badges, station distance, and daily pricing pills.
+- **Scope:** Integrate `maplibre-gl` with OpenStreetMap raster tiles; render custom marker pins with price pills; synchronize pin click with listing card scroll.
+- **Exclusions:** Live PostGIS backend queries (uses mock location array).
+- **Product Requirement References:** `FR-004`, `WF-003`
+- **Source-Code References:** `apps/web/src/pages/SearchPage.tsx`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-010` (Trust badge taxonomy).
 - **Acceptance Criteria:**
-  1. Location details page features photo gallery and structured operating hours table.
-  2. Checkout displays transparent fee breakdown: Storage Fee + Luggage Guarantee + Taxes = Total.
-  3. Confirmation screen displays booking reference in monospace font, QR code, partner address, and counter arrival instructions.
-  4. Zero developer status tags or phase numbers rendered.
-- **Test Requirements:** Vitest user journey test executing full booking checkout and asserting correct price calculations.
+  1. MapLibre map mounts cleanly without WebGL errors.
+  2. Clicking map pin scrolls to and highlights corresponding location card.
+  3. Fallback message rendered if WebGL is unsupported.
+- **Automated Test Requirements:** Vitest test verifying map component mount.
+- **Manual QA Requirements:** Pan/zoom map, click markers, verify mobile view toggle (List vs Map).
+- **Screenshot Requirements:** Desktop and mobile captures of search view.
+- **Definition of Done:** Interactive map functional on `:5173/search`, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-007`: Traveller Portal & Self-Service Booking Hub (`PW-011`)
-- **Priority:** **P1** (Sprint 2)
-- **Target Surfaces:** Public Web (`apps/web/src/pages/TravellerPortalPage.tsx`)
-- **Current Behavior:** Basic table displaying mock bookings with raw status strings and an unstyled refund stepper.
-- **Expected Behavior:** User-friendly self-service hub with status tabs (`Active`, `Upcoming`, `Completed`, `Cancelled`), 1-tap view pass button, directions link, extension request modal, and transparent cancellation flow.
-- **Dependencies:** `TSK-2C-006`.
+#### Task `TSK-2C-006`: Partner Location Details & Storage Security Gallery (`PW-003`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Public Web (`apps/web/src/pages/LocationDetailsPage.tsx`)
+- **User Persona:** Traveller evaluating partner security
+- **User Problem:** Generic cards with dense text and no structured security checklist.
+- **Business Value:** Convinces hesitant travellers their luggage is physically secure.
+- **Current Behavior:** Basic card layout with static text.
+- **Expected Behavior:** High-trust view: photo gallery, structured operating hours, security checklist (CCTV, dedicated vault, insurance terms), verified reviews, and sticky booking sidebar with live price calculation.
+- **Scope:** Layout redesign with CWCP tokens; interactive photo lightbox; sticky sidebar.
+- **Exclusions:** Live review submission backend (deferred).
+- **Product Requirement References:** `FR-004`, `FR-050`, `WF-004`
+- **Source-Code References:** `apps/web/src/pages/LocationDetailsPage.tsx`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-010`.
 - **Acceptance Criteria:**
-  1. Active bookings show live custody status with countdown timer.
-  2. 1-tap button to display full-screen custody pass with QR code.
-  3. Cancellation modal provides clear explanation of refund policy and estimated refund amount.
-- **Test Requirements:** Component test verifying tab switching and cancellation modal triggers.
+  1. Photo gallery supports thumbnail navigation.
+  2. Operating hours display open/closed status for today.
+  3. Primary CTA button (`Book Now`) routes to `/checkout/:id`.
+- **Automated Test Requirements:** Component test verifying price calculation in sticky bar.
+- **Manual QA Requirements:** Test responsive layout at 390px and 1280px.
+- **Screenshot Requirements:** Desktop capture of location profile.
+- **Definition of Done:** Redesigned view live on `:5173/locations/:slug`, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-008`: Mobile Navigation Restructuring (Tabs & Navigation Stacks)
-- **Priority:** **P0** (Sprint 3 Block)
-- **Target Surfaces:** Mobile Applications (`apps/mobile/app/(traveller)/`, `app/(host)/`)
-- **Current Behavior:** Entire application operates as a monolithic developer screen-switcher hub rendering 39 traveller cards and 31 host cards.
-- **Expected Behavior:** Standard mobile application architecture using Expo Router:
-  - Traveller Mobile: Bottom tab bar (`Explore`, `My Storage`, `Saved`, `Help`, `Profile`) + native stack navigation.
-  - Host Mobile: Bottom tab bar (`Live Desk`, `Requests`, `Vault`, `Earnings`, `Settings`) + modal stacks.
-- **Dependencies:** `TSK-2C-001`.
+#### Task `TSK-2C-007`: Transparent Pricing & Step-by-Step Checkout Flow (`PW-004`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Public Web (`apps/web/src/pages/BookingCheckoutPage.tsx`)
+- **User Persona:** Traveller completing booking
+- **User Problem:** Dense policy paragraphs and unvalidated form fields.
+- **Business Value:** Minimizes checkout abandonment; prevents payment surprises.
+- **Current Behavior:** Card with simulation warning notice and button labeled `Proceed to Payment (PW-005)`.
+- **Expected Behavior:** Clean checkout: bag size selector, drop-off/pick-up time selectors, transparent fee breakdown (Storage + Guarantee + Tax = Total), cancellation terms summary, and form validation.
+- **Scope:** Form validation with Zod; price itemization component; clear terms toggle.
+- **Exclusions:** Live credit card charging (uses simulated checkout completion).
+- **Product Requirement References:** `FR-005`–`FR-014`, `WF-005`, `WF-006`
+- **Source-Code References:** `apps/web/src/pages/BookingCheckoutPage.tsx`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-002` (Overdue terms disclosure).
 - **Acceptance Criteria:**
-  1. Bottom tab bar renders smoothly on iOS and Android viewports with active icons.
-  2. Tapping tabs navigates between primary views without page reloads.
-  3. Header stack provides native back buttons and titles on nested screens.
-  4. Monolithic card switcher removed from standard user entry path.
-- **Test Requirements:** Automated navigation test in `apps/mobile/test/Navigation.test.tsx` verifying tab route switching.
+  1. Form prevents advancing if required dates or bag counts are missing.
+  2. Itemized price updates dynamically as bag count changes.
+  3. Mascot Kiri strictly excluded from checkout form.
+- **Automated Test Requirements:** Form validation and calculation unit tests.
+- **Manual QA Requirements:** Test validation error displays and price calculations.
+- **Screenshot Requirements:** Desktop and mobile captures.
+- **Definition of Done:** Checkout functional on `:5173/checkout/:id`, tests green.
 
 ---
 
-#### Task `TSK-2C-009`: Native Mobile Map & Discovery Experience (`TM-011`, `TM-012`)
-- **Priority:** **P0** (Sprint 3)
-- **Target Surfaces:** Traveller Mobile (`apps/mobile/app/(traveller)/explore.tsx`)
-- **Current Behavior:** Exploration screen renders a basic text list with developer action buttons.
-- **Expected Behavior:** Interactive map with fluid pan/zoom, GPS "near me" location button, custom partner map pins, and an interactive draggable bottom sheet listing partner details.
-- **Dependencies:** `TSK-2C-008`.
+#### Task `TSK-2C-008`: Booking Confirmation & Printable Digital Custody Pass (`PW-005`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Public Web (`apps/web/src/pages/BookingConfirmationPage.tsx`)
+- **User Persona:** Traveller arriving at storage partner counter
+- **User Problem:** Screen exposes developer debug state buttons (`State: GATEWAY`, etc.).
+- **Business Value:** Provides unambiguous proof of storage custody.
+- **Current Behavior:** State switcher buttons exposed in user interface.
+- **Expected Behavior:** High-contrast ticket pass: booking reference in monospace font, high-density SVG QR code, 6-digit PIN (`482 910`), partner arrival instructions, and "Print / Save PDF" action.
+- **Scope:** Digital pass ticket styling; print stylesheet (`@media print`); debug state switcher moved to developer drawer.
+- **Exclusions:** Apple/Google Wallet buttons (`DEC-004`).
+- **Product Requirement References:** `FR-015`–`FR-018`, `WF-007`
+- **Source-Code References:** `apps/web/src/pages/BookingConfirmationPage.tsx`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-004`, `DEC-005`.
 - **Acceptance Criteria:**
-  1. Map renders with custom style matching CWCP palette.
-  2. Bottom sheet smoothly slides up/down between collapsed, half, and expanded states.
-  3. Tapping a location card highlights the corresponding pin on the map.
-- **Test Requirements:** Component test verifying map gesture handlers and bottom sheet snap states.
+  1. Zero developer state buttons rendered in user view.
+  2. Booking reference formatted as `#LS-2026-XXXX` in monospace font.
+  3. Print stylesheet renders clean pass without web navbar or footer.
+- **Automated Test Requirements:** Component test verifying pass rendering.
+- **Manual QA Requirements:** Test print preview in browser.
+- **Screenshot Requirements:** Desktop capture of confirmation view.
+- **Definition of Done:** Pass rendered cleanly on `:5173/booking/confirm`, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-010`: Mobile Digital Custody Pass & Active Storage Timer (`TM-024`, `TM-030`)
-- **Priority:** **P0** (Sprint 3)
-- **Target Surfaces:** Traveller Mobile (`apps/mobile/app/(traveller)/pass.tsx`)
-- **Current Behavior:** Card with static QR placeholder and simulated debug buttons.
-- **Expected Behavior:** High-contrast ticket-style digital pass: high-density QR code, 6-digit monospace PIN (`482 910`), partner hotline dial button, walking directions link, and live active countdown timer with color progression.
-- **Dependencies:** `TSK-2C-008`.
+#### Task `TSK-2C-009`: Host Acquisition Landing & Real Earnings Estimator (`PW-006`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Public Web (`apps/web/src/pages/BecomeAHostLandingPage.tsx`)
+- **User Persona:** Prospective storage partner (hotel, cafe, shop owner)
+- **User Problem:** Generic layout with static estimates.
+- **Business Value:** Drives partner supply acquisition.
+- **Current Behavior:** Card with interactive slider and CTA leading to register.
+- **Expected Behavior:** Engaging partner landing page with realistic earnings slider (based on square footage and city tier), 3-step partner onboarding overview, security guarantee explanation, and registration CTA.
+- **Scope:** CWCP token styling; earnings calculation formula; link to `/register`.
+- **Exclusions:** None (Phase 1B `/register` is live).
+- **Product Requirement References:** `FR-045`, `WF-017`
+- **Source-Code References:** `apps/web/src/pages/BecomeAHostLandingPage.tsx`
+- **API/Backend Dependencies:** Phase 1B Auth `/register`.
+- **Required Decisions:** None.
 - **Acceptance Criteria:**
-  1. Pass card styled with perforated ticket edges and high-contrast typography.
-  2. Timer updates every second; transitions from Green to Amber ($<30$ min) to Red (overdue).
-  3. QR code and PIN remain visible when device network connectivity is toggled off (offline caching).
-- **Test Requirements:** Timer test verifying correct remaining time formatting and state transitions.
+  1. Slider updates estimated monthly earnings in LKR dynamically.
+  2. Clicking "Start Hosting" navigates to live registration page with `role=host`.
+- **Automated Test Requirements:** Component test verifying slider calculation.
+- **Manual QA Requirements:** Verify responsive layout and slider drag gestures.
+- **Screenshot Requirements:** Desktop capture of become-a-host page.
+- **Definition of Done:** Page live on `:5173/become-a-host`, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-011`: Host Mobile Camera Scanner & Quick Intake Wizard (`HM-021`, `HM-013`, `HM-022`)
-- **Priority:** **P0** (Sprint 4)
-- **Target Surfaces:** Host Mobile (`apps/mobile/app/(host)/scanner.tsx`)
-- **Current Behavior:** Screen simulates camera scanning by pre-filling the string `482910` into a text box.
-- **Expected Behavior:** Functional `expo-camera` scanner with animated laser line viewfinder, torch toggle, and immediate haptic vibration on QR/barcode read. Numeric keypad PIN entry provided as instant secondary tab.
-- **Dependencies:** `TSK-2C-008`.
+#### Task `TSK-2C-010`: Traveller Self-Service Portal & Active Storage Hub (`PW-011`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Public Web (`apps/web/src/pages/TravellerPortalPage.tsx`)
+- **User Persona:** Traveller managing existing bookings
+- **User Problem:** Prototype renders unstyled mock table and raw refund stepper.
+- **Business Value:** Reduces customer support load through self-service management.
+- **Current Behavior:** Raw table rows with simulated cancel action.
+- **Expected Behavior:** Tabbed booking management hub (`Active`, `Upcoming`, `Completed`, `Cancelled`); live custody countdown timer; 1-tap pass display; cancellation modal explaining refund terms.
+- **Scope:** Tab navigation; active countdown timer; cancellation modal.
+- **Exclusions:** Live database mutation for cancellation (uses local state simulation).
+- **Product Requirement References:** `FR-019`–`FR-023`, `WF-010`, `WF-014`
+- **Source-Code References:** `apps/web/src/pages/TravellerPortalPage.tsx`
+- **API/Backend Dependencies:** Phase 1B Auth session; domain data simulated.
+- **Required Decisions:** `DEC-003` (Refund policy).
 - **Acceptance Criteria:**
-  1. Camera permissions cleanly requested with descriptive explanation.
-  2. Viewfinder displays targeting reticle; torch toggle button functions.
-  3. Successful scan triggers haptic feedback and navigates to Intake Wizard (`HM-013`).
-  4. PIN tab allows quick manual 6-digit PIN entry when camera is unavailable.
-- **Test Requirements:** Component test verifying barcode scan callback handler and manual PIN fallback form.
+  1. Active bookings show remaining time countdown.
+  2. Cancellation modal calculates estimated refund based on cancellation window.
+- **Automated Test Requirements:** Component test verifying tab switching and cancel modal.
+- **Manual QA Requirements:** Test cancellation flow and countdown timer.
+- **Screenshot Requirements:** Desktop capture of traveller portal.
+- **Definition of Done:** Portal live on `:5173/portal/bookings`, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-012`: Host Web Dashboard Navigation & Overview Refactor (`HD-001`–`HD-006`)
-- **Priority:** **P1** (Sprint 4)
-- **Target Surfaces:** Host Web (`apps/web/src/pages/host/`)
-- **Current Behavior:** Hardcoded `HD-xxx` prefixes on all sidebar links; body displays a 14-card sitemap grid.
-- **Expected Behavior:** Clean collapsible navy sidebar with standard business labels; overview dashboard displaying operational KPIs (Current Bags, Available Capacity, Today's Check-ins, Pending Earnings).
-- **Dependencies:** `TSK-2C-001`, `TSK-2C-003`.
-- **Acceptance Criteria:**
-  1. Sidebar navigation contains zero developer screen IDs.
-  2. Overview dashboard displays real-time capacity progress bar.
-  3. Space manager allows 1-click toggling of storage space availability.
-- **Test Requirements:** Vitest component test in `HostDashboardScreens.test.tsx` verifying KPI card rendering.
+### 4. Workstream 3: Traveller Mobile Application (`WS-3-TRAVELLER-MOB`)
 
 ---
 
-#### Task `TSK-2C-013`: Host Live Counter Desk & Booking Ledger (`HD-007`–`HD-009`)
-- **Priority:** **P0** (Sprint 4)
-- **Target Surfaces:** Host Web (`HostOperationsDeskPage.tsx`, `HostBookingsLedgerPage.tsx`)
-- **Current Behavior:** Table row buttons labeled `Investigate (HD-008)`; simulated counter desk.
-- **Expected Behavior:** High-velocity counter kiosk mode: instant customer search by booking reference, name, or PIN; 1-click check-in; bag seal number logging; live overdue alert banners.
-- **Dependencies:** `TSK-2C-012`.
+#### Task `TSK-2C-011`: Mobile Navigation Restructure: 5-Tab Shell & Stack Router
+- **Priority:** **P0** | **Implementation Level:** Level 2 (Functional Frontend)
+- **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/`)
+- **User Persona:** Mobile traveller
+- **User Problem:** App is built as a developer card-grid switcher (`app/(traveller)/index.tsx`) rather than a real mobile app.
+- **Business Value:** Foundational mobile usability; aligns with standard iOS/Android ergonomics.
+- **Current Behavior:** Monolithic switcher hub rendering 39 cards with query-parameter switching.
+- **Expected Behavior:** Expo Router bottom tab bar (`Explore`, `My Storage`, `Saved`, `Help`, `Profile`) with native header navigation stack.
+- **Scope:** Implement `_layout.tsx` with bottom tabs; route key screens to tab destinations.
+- **Exclusions:** Native device compilation (verified in Expo Web runtime).
+- **Product Requirement References:** `PRD-MOB-001`, `WF-001`
+- **Source-Code References:** `apps/mobile/app/(traveller)/`
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** None.
 - **Acceptance Criteria:**
-  1. Counter search returns matching booking in $<100$ms.
-  2. Check-in flow records intake timestamp and seal numbers.
-  3. Overdue bags highlighted with prominent red badges and action buttons.
-- **Test Requirements:** Component test verifying customer search filtering and check-in event triggering.
+  1. Bottom tab bar renders with Lucide icons on mobile viewport.
+  2. Tapping tabs navigates between views without full reloads.
+  3. Header stack provides native back button on detail views.
+- **Automated Test Requirements:** Navigation routing unit tests in `apps/mobile/test/`.
+- **Manual QA Requirements:** Test tab switching and back button gestures.
+- **Screenshot Requirements:** Mobile capture of tab bar layout.
+- **Definition of Done:** Tab bar functional in `apps/mobile`, tests green.
 
 ---
 
-#### Task `TSK-2C-014`: Host Finance, Revenue Split & Payouts Center (`HD-010`, `HD-011`)
-- **Priority:** **P1** (Sprint 4)
-- **Target Surfaces:** Host Web (`HostFinancePage.tsx`, `HostPayoutSettingsPage.tsx`)
-- **Current Behavior:** Hardcoded simulation cards and static revenue split numbers.
-- **Expected Behavior:** Financial ledger displaying gross booking revenue, 15% platform commission deduction, net payout balance, payout history with bank reference, and downloadable CSV statement.
-- **Dependencies:** `TSK-2C-012`.
+#### Task `TSK-2C-012`: Mobile Discovery Hub with Interactive Map & Bottom Sheet (`TM-011`, `TM-012`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/explore.tsx`)
+- **User Persona:** Mobile traveller seeking nearby storage
+- **User Problem:** Exploration screen renders a basic text list with developer action buttons.
+- **Business Value:** Core mobile discovery experience.
+- **Current Behavior:** Card with buttons labeled `Details (TM-015)` and `Book (TM-017)`.
+- **Expected Behavior:** Native map view with pan/zoom gestures, custom partner pins with price callouts, and an interactive draggable bottom sheet listing partner cards.
+- **Scope:** Map component integration; bottom sheet component with snap points.
+- **Exclusions:** Physical GPS hardware location (uses Colombo mock center).
+- **Product Requirement References:** `FR-007`, `WF-007`
+- **Source-Code References:** `apps/mobile/app/(traveller)/explore.tsx`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-010`.
 - **Acceptance Criteria:**
-  1. Clear 85/15 revenue split calculation visualized via breakdown bar.
-  2. Payout settings form with bank account verification and IFSC/SWIFT validation.
-  3. CSV export generates valid downloadable spreadsheet file.
-- **Test Requirements:** Unit test verifying financial split mathematical accuracy and CSV format generation.
+  1. Bottom sheet slides between collapsed, half, and expanded states.
+  2. Tapping card highlights pin on map.
+  3. Zero developer tracking codes visible.
+- **Automated Test Requirements:** Component test verifying bottom sheet state transitions.
+- **Manual QA Requirements:** Drag bottom sheet, verify map touch interactions.
+- **Screenshot Requirements:** Mobile capture of map and bottom sheet.
+- **Definition of Done:** Explore view live on `:8081/(traveller)/explore`, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-015`: Superadmin Disputes & Incidents Workbench (`AD-013`)
-- **Priority:** **P0** (Sprint 5)
-- **Target Surfaces:** Superadmin Web (`apps/web/src/pages/admin/AdminIncidentsPage.tsx`)
-- **Current Behavior:** Static placeholder card displaying rule `OQ-015` with mascot Kiri shrugging. Zero functional dispute tools.
-- **Expected Behavior:** Production dispute adjudication workbench: split-pane layout showing customer claim, host response, bag condition photos, custody timeline, liability determination tools, and refund authorization controls. **Zero mascot images.**
-- **Dependencies:** `TSK-2C-001`, `TSK-2C-003`.
+#### Task `TSK-2C-013`: Mobile Bag Selection, Capacity & Booking Checkout (`TM-017`–`TM-019`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/checkout.tsx`)
+- **User Persona:** Mobile traveller booking storage on the go
+- **User Problem:** Fragmented cards with unvalidated inputs.
+- **Business Value:** Streamlined mobile conversion funnel.
+- **Current Behavior:** Three separate simulated cards in developer switcher.
+- **Expected Behavior:** Unified mobile booking flow: step indicator (Dates $\to$ Bags $\to$ Payment), bag category counters with dimensions, transparent price summary, and validated form.
+- **Scope:** Multi-step wizard component; bag counter component; checkout summary.
+- **Exclusions:** Live Stripe charging (simulated completion).
+- **Product Requirement References:** `FR-017`, `FR-018`, `WF-017`, `WF-018`
+- **Source-Code References:** `apps/mobile/app/(traveller)/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** None.
 - **Acceptance Criteria:**
-  1. Mascot Kiri completely removed from this screen.
-  2. Split-pane interface displaying claim details, baggage photos, and custody audit log.
-  3. Superadmin can approve partial/full refund or reject claim with mandatory written rationale.
-- **Test Requirements:** Vitest test in `SuperadminScreens.test.tsx` verifying dispute workflow actions and absence of mascot elements.
+  1. Bag count controls ($+ / -$) update totals in real time.
+  2. Advancing between steps validates required inputs.
+- **Automated Test Requirements:** Unit test for step transitions and totals.
+- **Manual QA Requirements:** Step through wizard on mobile viewport.
+- **Screenshot Requirements:** Mobile captures of bag counter and checkout summary.
+- **Definition of Done:** Checkout flow functional on `:8081`, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-016`: Superadmin KYC Host Onboarding & Verification Queue (`AD-002`, `AD-003`)
-- **Priority:** **P1** (Sprint 5)
-- **Target Surfaces:** Superadmin Web (`AdminHostReviewPage.tsx`, `AdminHostDirectoryPage.tsx`)
-- **Current Behavior:** Static cards listing mock hosts with basic approve/reject buttons.
-- **Expected Behavior:** Document inspection drawer for reviewing business licenses, front desk photographs, and identity documents. Approve/reject actions with canned compliance rejection reasons.
-- **Dependencies:** `TSK-2C-001`.
+#### Task `TSK-2C-014`: Mobile Digital Custody Ticket & Offline Caching (`TM-024`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/pass.tsx`)
+- **User Persona:** Traveller at storage counter without mobile data
+- **User Problem:** Simulated card with static placeholder QR and debug controls.
+- **Business Value:** Guaranteed counter check-in even when travelling internationally without roaming.
+- **Current Behavior:** Card with placeholder text and debug buttons.
+- **Expected Behavior:** High-contrast ticket pass: large SVG QR code, monospace PIN (`482 910`), partner address with walking directions button, 1-tap call host hotline, and offline caching via AsyncStorage.
+- **Scope:** Pass layout; QR generation; offline state persistence in AsyncStorage.
+- **Exclusions:** Apple/Google Wallet buttons (`DEC-004`).
+- **Product Requirement References:** `FR-024`, `WF-009`
+- **Source-Code References:** `apps/mobile/app/(traveller)/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-004`, `DEC-005`.
 - **Acceptance Criteria:**
-  1. Document drawer provides full-resolution image zoom and inspection.
-  2. Rejecting an application requires selecting at least one compliance reason code.
-  3. Approved hosts automatically receive "Verified Partner" status.
-- **Test Requirements:** Component test verifying document inspection drawer triggers and approval flow.
+  1. Pass renders full QR code and PIN even when browser offline mode is toggled.
+  2. Hotline button links to `tel:+94112345678`.
+  3. No developer debug state controls visible.
+- **Automated Test Requirements:** Component test verifying AsyncStorage hydration.
+- **Manual QA Requirements:** Toggle browser offline mode and reload pass.
+- **Screenshot Requirements:** Mobile capture of custody ticket.
+- **Definition of Done:** Pass view live on `:8081`, offline cached, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-017`: Superadmin Financial Escrow, Refunds & System Settings (`AD-006`–`AD-008`, `AD-018`)
-- **Priority:** **P1** (Sprint 5)
-- **Target Surfaces:** Superadmin Web (`AdminEscrowPage.tsx`, `AdminRefundsPage.tsx`, `AdminPayoutsPage.tsx`)
-- **Current Behavior:** Simulated tables with hardcoded values and static progress bars.
-- **Expected Behavior:** Live ledger tables with sticky headers, pagination, transaction filtering, batch refund processing, and platform fee configuration controls.
-- **Dependencies:** `TSK-2C-001`.
+#### Task `TSK-2C-015`: Live Active Custody Countdown Timer & Extension Modal (`TM-030`, `TM-031`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/active-storage.tsx`)
+- **User Persona:** Traveller exploring city while bags are stored
+- **User Problem:** Static text saying storage is active with no visual urgency indicators.
+- **Business Value:** Prevents unintended late pickups and overdue fee disputes.
+- **Current Behavior:** Card with simulated timer text.
+- **Expected Behavior:** Prominent countdown circular timer; progressive color shifts (Green $\to$ Amber at 30 min $\to$ Red when overdue); 1-tap "Extend Storage" modal with hourly pricing breakdown.
+- **Scope:** Animated countdown timer component; extension modal.
+- **Exclusions:** Backend database mutation for extension (simulated state).
+- **Product Requirement References:** `FR-030`, `WF-011`
+- **Source-Code References:** `apps/mobile/app/(traveller)/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-002` (Overdue rates).
 - **Acceptance Criteria:**
-  1. Escrow ledger displays total locked funds across active bookings.
-  2. Batch refund processing modal with confirmation summary.
-  3. System fee configuration form with audit log tracking.
-- **Test Requirements:** Component test verifying table filtering and batch refund state updates.
+  1. Timer decrements accurately by 1 second.
+  2. Color shifts to Amber when $<30$ minutes remain.
+  3. Extension modal allows selecting $+1$, $+2$, or $+4$ hours.
+- **Automated Test Requirements:** Timer logic and color transition unit tests.
+- **Manual QA Requirements:** Verify timer countdown and modal triggers.
+- **Screenshot Requirements:** Mobile capture of active storage timer.
+- **Definition of Done:** Active storage view live on `:8081`, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-018`: Accessibility (WCAG 2.2 AA) & Responsive Touch Target Remediation
-- **Priority:** **P0** (Sprint 5)
-- **Target Surfaces:** All Surfaces (`apps/web`, `apps/mobile`)
-- **Current Behavior:** Sub-44px touch targets on mobile filter chips; low-contrast text on dark cards ($<3:1$).
-- **Expected Behavior:** 100% compliance with WCAG 2.2 Level AA: minimum $44\times 44$px touch bounding boxes, contrast ratio $\ge 4.5:1$ for normal text, and complete keyboard focus indicators.
-- **Dependencies:** All previous tasks.
+### 5. Workstream 4: Host Web Dashboard (`WS-4-HOST-WEB`)
+
+---
+
+#### Task `TSK-2C-016`: Host Dashboard Navigation Shell & Human Sidebar
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Web Dashboard (`apps/web/src/pages/host/`)
+- **User Persona:** Storage partner manager
+- **User Problem:** Every menu item displays developer screen IDs (`HD-001`, `HD-002`, etc.).
+- **Business Value:** Professional B2B partner experience.
+- **Current Behavior:** Sidebar displays `HD-xxx` codes; body is a 14-card sitemap grid.
+- **Expected Behavior:** Clean collapsible navy sidebar with business labels (`Overview`, `Live Counter`, `Listings`, `Bookings`, `Operating Hours`, `Earnings`, `Reviews`, `Profile`); overview displays real operational KPIs.
+- **Scope:** Refactor `HostLayout.tsx` and `HostOverviewPage.tsx` with CWCP tokens.
+- **Exclusions:** None.
+- **Product Requirement References:** `PRD-HOST-001`
+- **Source-Code References:** `apps/web/src/pages/host/`
+- **API/Backend Dependencies:** Phase 1B Auth session.
+- **Required Decisions:** None.
 - **Acceptance Criteria:**
-  1. Zero axe-core critical or serious accessibility violations across all 113 screens.
+  1. Zero `HD-xxx` codes in sidebar navigation.
+  2. KPI cards display Current Bags in Storage, Today's Check-ins, and Pending Earnings.
+- **Automated Test Requirements:** Component test verifying sidebar navigation routes.
+- **Manual QA Requirements:** Test sidebar collapse/expand on desktop viewports.
+- **Screenshot Requirements:** Desktop capture of host overview dashboard.
+- **Definition of Done:** Host dashboard live on `:5173/host/dashboard`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-017`: Host Live Operations Desk & Rapid Intake/Release Kiosk (`HD-009`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Web Dashboard (`apps/web/src/pages/host/HostOperationsDeskPage.tsx`)
+- **User Persona:** Storage partner counter staff
+- **User Problem:** Counter desk operates as a static simulation with slow controls.
+- **Business Value:** Enables high-velocity luggage intake/release during peak check-in rushes.
+- **Current Behavior:** Static cards with simulated PIN input.
+- **Expected Behavior:** High-velocity counter kiosk mode: instant search by booking reference, PIN, or customer name; 1-click check-in confirmation; seal tag input; overdue bag alert banners.
+- **Scope:** Kiosk mode layout; instant search filter; seal tag logging form.
+- **Exclusions:** Hardware barcode scanner integration on web (uses keyboard/numeric input).
+- **Product Requirement References:** `FR-009`, `WF-013`
+- **Source-Code References:** `apps/web/src/pages/host/HostOperationsDeskPage.tsx`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-001`, `DEC-007`.
+- **Acceptance Criteria:**
+  1. Search filters mock booking list in $<100$ms.
+  2. Check-in action logs intake timestamp and advances status to `ACTIVE_STORAGE`.
+  3. Overdue bags display prominent red warning banners with late fee calculation.
+- **Automated Test Requirements:** Component test verifying search and check-in actions.
+- **Manual QA Requirements:** Test counter check-in and release workflows.
+- **Screenshot Requirements:** Desktop capture of operations desk.
+- **Definition of Done:** Operations desk functional on `:5173/host/operations`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-018`: Storage Capacity Management & Space Editor (`HD-002`–`HD-005`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Web Dashboard (`HostListingsPage.tsx`, `HostSpaceEditorPage.tsx`, `HostOperatingHoursPage.tsx`)
+- **User Persona:** Storage partner manager
+- **User Problem:** Basic cards with no visual capacity utilization indicators.
+- **Business Value:** Prevents partner overbooking and protects luggage room limits.
+- **Current Behavior:** Simulated text fields.
+- **Expected Behavior:** Space capacity manager with visual progress bar (`14 / 25 Bags Used`); operating hours weekly scheduler with holiday closure toggles; instant pause/resume listing toggle.
+- **Scope:** Capacity progress bar; weekly hours schedule editor; pause listing toggle.
+- **Exclusions:** Backend database persistence (uses local state simulation).
+- **Product Requirement References:** `FR-046`–`FR-048`, `WF-018`
+- **Source-Code References:** `apps/web/src/pages/host/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** None.
+- **Acceptance Criteria:**
+  1. Capacity bar color shifts from Green ($<75\%$) to Amber ($75\text{--}90\%$) to Red ($>90\%$).
+  2. Toggling "Pause Bookings" immediately updates status pill badge.
+- **Automated Test Requirements:** Component test for schedule editor and capacity bar.
+- **Manual QA Requirements:** Test weekly hours configuration.
+- **Screenshot Requirements:** Desktop capture of capacity and hours editors.
+- **Definition of Done:** Views live on `:5173/host/...`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-019`: Host Bookings Ledger & Investigation Modal (`HD-007`, `HD-008`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Web Dashboard (`HostBookingsLedgerPage.tsx`, `HostBookingDetailsPage.tsx`)
+- **User Persona:** Storage partner manager
+- **User Problem:** Row action buttons explicitly labeled `Investigate (HD-008)`.
+- **Business Value:** Operational ledger auditing and dispute verification.
+- **Current Behavior:** Table row buttons display internal screen IDs.
+- **Expected Behavior:** High-density operational data table with sticky headers, date range filter, status badges, and clean slide-over drawer showing customer details, baggage count, custody timeline, and contact actions.
+- **Scope:** Dense table component with pagination; slide-over drawer component.
+- **Exclusions:** None.
+- **Product Requirement References:** `FR-022`, `WF-010`
+- **Source-Code References:** `apps/web/src/pages/host/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** None.
+- **Acceptance Criteria:**
+  1. Buttons labeled `View Details` instead of `Investigate (HD-008)`.
+  2. Slide-over drawer opens smoothly without layout shift.
+- **Automated Test Requirements:** Component test verifying table filtering and drawer open/close.
+- **Manual QA Requirements:** Test table pagination and drawer inspection.
+- **Screenshot Requirements:** Desktop capture of bookings ledger and drawer.
+- **Definition of Done:** Ledger live on `:5173/host/bookings`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-020`: Host Revenue Breakdown & Payout Settings (`HD-010`, `HD-011`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Web Dashboard (`HostFinancePage.tsx`, `HostPayoutSettingsPage.tsx`)
+- **User Persona:** Storage partner business owner
+- **User Problem:** Static cards with hardcoded simulation split numbers.
+- **Business Value:** Complete financial transparency builds long-term partner loyalty.
+- **Current Behavior:** Basic cards with static numbers.
+- **Expected Behavior:** Financial ledger displaying gross booking earnings, 15% platform commission breakdown, net payout balance, next payout date, bank account settings form with IFSC/SWIFT validation, and CSV export.
+- **Scope:** Financial breakdown bar component; bank settings form; CSV export helper.
+- **Exclusions:** Real bank payout transfers (simulated ledger).
+- **Product Requirement References:** `FR-028`, `WF-015`
+- **Source-Code References:** `apps/web/src/pages/host/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-006` (Payout schedule).
+- **Acceptance Criteria:**
+  1. Clear 85/15 revenue split calculation visualized.
+  2. CSV export generates valid downloadable file.
+- **Automated Test Requirements:** Unit test for revenue split mathematical accuracy.
+- **Manual QA Requirements:** Download CSV statement and verify columns.
+- **Screenshot Requirements:** Desktop capture of finance dashboard.
+- **Definition of Done:** Finance views live on `:5173/host/finance`, screenshots verified.
+
+---
+
+### 6. Workstream 5: Host Mobile Application (`WS-5-HOST-MOB`)
+
+---
+
+#### Task `TSK-2C-021`: Host Mobile Navigation Shell: 5-Tab Router
+- **Priority:** **P0** | **Implementation Level:** Level 2 (Functional Frontend)
+- **Target Application:** Host Mobile (`apps/mobile/app/(host)/`)
+- **User Persona:** Storage partner counter staff
+- **User Problem:** Built as a developer card-grid switcher (`app/(host)/index.tsx`).
+- **Business Value:** Essential mobile usability for counter staff holding a phone.
+- **Current Behavior:** Monolithic switcher hub rendering 31 cards.
+- **Expected Behavior:** Expo Router bottom tab bar (`Live Desk`, `Requests`, `Vault`, `Earnings`, `Settings`) with modal navigation stacks.
+- **Scope:** Implement `_layout.tsx` for host tabs; route key screens to tab destinations.
+- **Exclusions:** Physical device build.
+- **Product Requirement References:** `PRD-MOB-002`
+- **Source-Code References:** `apps/mobile/app/(host)/`
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** None.
+- **Acceptance Criteria:**
+  1. Bottom tab bar renders cleanly on mobile viewport.
+  2. Tapping tabs navigates between views without reload.
+- **Automated Test Requirements:** Navigation routing unit tests in `apps/mobile/test/`.
+- **Manual QA Requirements:** Test tab switching on mobile viewport.
+- **Screenshot Requirements:** Mobile capture of host tab bar layout.
+- **Definition of Done:** Host tab bar functional in `apps/mobile`, tests green.
+
+---
+
+#### Task `TSK-2C-022`: Hardware Camera Scanner with Haptics & PIN Fallback (`HM-021`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Mobile (`apps/mobile/app/(host)/scanner.tsx`)
+- **User Persona:** Storage counter staff checking in customer
+- **User Problem:** Camera screen falls back to pre-filling the string `482910` in a text box.
+- **Business Value:** Core operational feature for rapid bag intake and checkout.
+- **Current Behavior:** Simulated text box with pre-filled string.
+- **Expected Behavior:** `expo-camera` barcode/QR scanner with animated laser reticle, torch toggle, and instant haptic vibration on read. Numeric keypad PIN entry provided as instant secondary tab.
+- **Scope:** Integrate `expo-camera`; add permission request modal; implement numeric PIN fallback.
+- **Exclusions:** Physical device verification (verified in Expo Web with mock scan simulator).
+- **Product Requirement References:** `FR-021`, `WF-012`
+- **Source-Code References:** `apps/mobile/app/(host)/scanner.tsx`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-005` (HMAC QR validation).
+- **Acceptance Criteria:**
+  1. Viewfinder renders animated reticle and torch button.
+  2. PIN tab allows quick 6-digit numeric input with instant submit.
+  3. Successful scan navigates to Intake Wizard (`HM-013`).
+- **Automated Test Requirements:** Component test verifying barcode scan callback and PIN form.
+- **Manual QA Requirements:** Test PIN fallback and permission prompts.
+- **Screenshot Requirements:** Mobile capture of scanner reticle and PIN tab.
+- **Definition of Done:** Scanner view live on `:8081/(host)/scanner`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-023`: Step-by-Step Counter Intake & Seal Tagging Wizard (`HM-013`, `HM-014`, `HM-022`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Mobile (`apps/mobile/app/(host)/intake.tsx`)
+- **User Persona:** Counter staff handling customer bags
+- **User Problem:** Fragmented simulated cards requiring multiple manual navigations.
+- **Business Value:** Enforces physical custody protocols, preventing lost or damaged bag claims.
+- **Current Behavior:** Separate simulated cards in developer switcher.
+- **Expected Behavior:** Guided 3-step intake wizard: (1) Verify bag count $\to$ (2) Attach and log numbered security seal (`#SL-XXXXX`) $\to$ (3) Optional photo capture $\to$ (4) Custody activation confirmation.
+- **Scope:** Intake wizard component; seal number input with barcode trigger; photo upload stub.
+- **Exclusions:** Mandatory photo enforcement on undamaged bags (`DEC-001`).
+- **Product Requirement References:** `FR-013`, `FR-014`, `FR-022`, `WF-012`
+- **Source-Code References:** `apps/mobile/app/(host)/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-001`, `DEC-007`.
+- **Acceptance Criteria:**
+  1. Step 2 requires valid seal number input before advancing.
+  2. Step 3 includes 1-tap bypass: *"No visible damage / Host verified"*.
+  3. Confirmation triggers custody state update to `ACTIVE_STORAGE`.
+- **Automated Test Requirements:** Unit test verifying intake step progression.
+- **Manual QA Requirements:** Step through wizard on mobile viewport.
+- **Screenshot Requirements:** Mobile captures of intake wizard steps.
+- **Definition of Done:** Intake wizard functional on `:8081`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-024`: Host Active Vault Monitor & Overdue Alerts (`HM-006`, `HM-011`, `HM-026`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Mobile (`apps/mobile/app/(host)/vault.tsx`)
+- **User Persona:** Counter staff managing stored luggage
+- **User Problem:** No real-time visibility into bags currently in the backroom vault.
+- **Business Value:** Prevents forgotten luggage and identifies overdue items immediately.
+- **Current Behavior:** Static simulated cards.
+- **Expected Behavior:** Visual vault inventory: list of active bags sorted by collection time, prominent red badge for overdue bags, and 1-tap pickup release button.
+- **Scope:** Vault inventory list component; overdue calculation badge; release modal.
+- **Exclusions:** Backend database persistence.
+- **Product Requirement References:** `FR-011`, `FR-023`, `WF-013`
+- **Source-Code References:** `apps/mobile/app/(host)/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-002` (Overdue payment collection).
+- **Acceptance Criteria:**
+  1. Overdue bags display accrued late fee and red alert pill.
+  2. Clicking "Release" opens pickup verification dialog.
+- **Automated Test Requirements:** Component test verifying overdue sorting.
+- **Manual QA Requirements:** Test release confirmation dialog.
+- **Screenshot Requirements:** Mobile capture of vault monitor.
+- **Definition of Done:** Vault view live on `:8081`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-025`: Host Mobile Earnings & Payout Ledger (`HM-025`, `HM-026`)
+- **Priority:** **P2** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Host Mobile (`apps/mobile/app/(host)/earnings.tsx`)
+- **User Persona:** Storage partner owner checking income on mobile
+- **User Problem:** Basic simulation cards with hardcoded numbers.
+- **Business Value:** Mobile financial visibility for busy business owners.
+- **Current Behavior:** Static simulation cards.
+- **Expected Behavior:** Mobile earnings card: Today's Revenue, This Week's Revenue, Pending Payout, and collapsible transaction history list.
+- **Scope:** Mobile earnings dashboard layout with CWCP tokens.
+- **Exclusions:** Real banking integration.
+- **Product Requirement References:** `FR-025`, `FR-026`
+- **Source-Code References:** `apps/mobile/app/(host)/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-006`.
+- **Acceptance Criteria:**
+  1. Clear separation of Gross Revenue vs Net Payout.
+  2. Collapsible transaction history showing date, reference, and net earnings.
+- **Automated Test Requirements:** Unit test for revenue calculations.
+- **Manual QA Requirements:** Verify mobile responsive layout.
+- **Screenshot Requirements:** Mobile capture of host earnings view.
+- **Definition of Done:** Earnings view live on `:8081`, screenshots verified.
+
+---
+
+### 7. Workstream 6: Superadmin Web Dashboard (`WS-6-SUPERADMIN`)
+
+---
+
+#### Task `TSK-2C-026`: Superadmin Command Overview & Live KPI Grid (`AD-001`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Superadmin Web (`apps/web/src/pages/admin/AdminOverviewPage.tsx`)
+- **User Persona:** Platform executive / operations director
+- **User Problem:** Screen is an 18-card sitemap grid rather than a management command center.
+- **Business Value:** Global marketplace health monitoring.
+- **Current Behavior:** Card grid displaying screen IDs.
+- **Expected Behavior:** Executive operations dashboard: Live Bags in Storage, 24h GMV, Active Host Count, Overdue Alerts, and Disputed Orders requiring action.
+- **Scope:** KPI metric card grid; quick action triage drawer; live security audit trigger.
+- **Exclusions:** Live backend aggregations (uses mock metrics combined with live audit data).
+- **Product Requirement References:** `PRD-ADM-001`, `FR-035`
+- **Source-Code References:** `apps/web/src/pages/admin/AdminOverviewPage.tsx`
+- **API/Backend Dependencies:** Live Fastify `/security/audit/events`.
+- **Required Decisions:** None.
+- **Acceptance Criteria:**
+  1. Zero developer card grid selectors rendered in main view.
+  2. Overdue/Dispute alert banner routes directly to incident workbench.
+- **Automated Test Requirements:** Component test verifying KPI card rendering.
+- **Manual QA Requirements:** Inspect desktop layout at 1280px.
+- **Screenshot Requirements:** Desktop capture of admin command center.
+- **Definition of Done:** Command center live on `:5173/admin`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-027`: KYC Host Onboarding & Document Inspection Drawer (`AD-002`, `AD-003`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Superadmin Web (`AdminHostReviewPage.tsx`, `AdminHostDirectoryPage.tsx`)
+- **User Persona:** Platform compliance officer
+- **User Problem:** Static cards with basic approve/reject buttons and no document viewing capability.
+- **Business Value:** Protects marketplace safety by vetting physical partner premises.
+- **Current Behavior:** Cards listing mock hosts with basic buttons.
+- **Expected Behavior:** Verification workbench: inspection drawer for business registration, storefront photo, and government ID; quick approve/reject actions with mandatory rejection reason code.
+- **Scope:** Document inspection drawer component with image zoom; rejection modal.
+- **Exclusions:** Backend database mutation (simulated review queue).
+- **Product Requirement References:** `FR-036`, `FR-045`, `WF-017`
+- **Source-Code References:** `apps/web/src/pages/admin/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-010` (Trust badge taxonomy).
+- **Acceptance Criteria:**
+  1. Clicking applicant opens slide-over drawer with full-resolution photos.
+  2. Rejection requires selecting at least one compliance reason code.
+  3. Approved host automatically assigned "Verified Partner" badge.
+- **Automated Test Requirements:** Component test verifying review actions and validation.
+- **Manual QA Requirements:** Test document zoom and rejection modal.
+- **Screenshot Requirements:** Desktop capture of KYC review workbench.
+- **Definition of Done:** Review queue live on `:5173/admin/hosts/review`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-028`: Disputes & Incident Adjudication Workbench — Zero Mascot (`AD-013`)
+- **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Superadmin Web (`apps/web/src/pages/admin/AdminIncidentsPage.tsx`)
+- **User Persona:** Customer support lead / dispute adjudicator
+- **User Problem:** Currently an empty placeholder card showing mascot Kiri shrugging with zero dispute tools.
+- **Business Value:** Critical trust and legal compliance; resolves customer baggage loss claims.
+- **Current Behavior:** Static placeholder card quoting rule `OQ-015`.
+- **Expected Behavior:** High-seriousness dispute adjudication workbench: split-pane layout showing customer claim, host statement, uploaded baggage damage photos, custody timestamp audit trail, and refund/settlement authorization controls. **Zero mascot illustrations permitted.**
+- **Scope:** Build complete incident adjudication workbench; remove mascot illustration; implement claim settlement actions.
+- **Exclusions:** Live Stripe refund issuance (simulated refund execution).
+- **Product Requirement References:** `FR-037`, `WF-016`
+- **Source-Code References:** `apps/web/src/pages/admin/AdminIncidentsPage.tsx`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-008` (Mascot boundary policy).
+- **Acceptance Criteria:**
+  1. Mascot Kiri is **100% removed** from this screen.
+  2. Split-pane layout displays claim evidence, photos, and custody timestamps.
+  3. Adjudicator can authorize full refund, partial settlement, or deny claim with written rationale.
+- **Automated Test Requirements:** Vitest test verifying dispute actions and asserting 0 mascot DOM nodes.
+- **Manual QA Requirements:** Test claim approval and denial flows.
+- **Screenshot Requirements:** Desktop capture of incident adjudication workbench.
+- **Definition of Done:** Workbench functional on `:5173/admin/incidents`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-029`: Financial Escrow & Batch Refund Authorizations (`AD-006`, `AD-007`)
+- **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
+- **Target Application:** Superadmin Web (`AdminEscrowPage.tsx`, `AdminRefundsPage.tsx`)
+- **User Persona:** Platform finance director
+- **User Problem:** Hardcoded simulation cards with static progress bars.
+- **Business Value:** Safeguards platform escrow balances and prevents unauthorized fund leakage.
+- **Current Behavior:** Static cards and simulation bars.
+- **Expected Behavior:** Live ledger tables: active escrow funds locked in active storage, batch refund approval queue with 1-click authorization, and refund audit log.
+- **Scope:** Sticky header table; batch selection checkboxes; refund confirmation modal.
+- **Exclusions:** Real banking API execution (simulated batch processing).
+- **Product Requirement References:** `FR-038`, `FR-039`
+- **Source-Code References:** `apps/web/src/pages/admin/`
+- **API/Backend Dependencies:** Documented simulation harness.
+- **Required Decisions:** `DEC-003` (Gateway fee policy).
+- **Acceptance Criteria:**
+  1. Escrow ledger calculates total funds currently in custody.
+  2. Batch refund action calculates net refund total and logs approval.
+- **Automated Test Requirements:** Component test for batch selection and refund action.
+- **Manual QA Requirements:** Test batch selection and modal confirmation.
+- **Screenshot Requirements:** Desktop capture of escrow and refunds ledger.
+- **Definition of Done:** Escrow views live on `:5173/admin/finance/...`, screenshots verified.
+
+---
+
+#### Task `TSK-2C-030`: System Configuration, Fee Rates & Security Audit Feed (`AD-009`, `AD-017`, `AD-018`)
+- **Priority:** **P1** | **Implementation Level:** Level 2 + Level 3
+- **Target Application:** Superadmin Web (`AdminFeeConfigPage.tsx`, `AdminAuditLogPage.tsx`, `AdminSystemSettingsPage.tsx`)
+- **User Persona:** Platform security administrator
+- **User Problem:** Configuration forms operate on local state; audit table needs enhanced filters.
+- **Business Value:** Core platform governance and security compliance.
+- **Current Behavior:** `AD-017` queries live Fastify audit API; fee config is static.
+- **Expected Behavior:** Dynamic platform fee configuration form (platform commission %, guarantee fee, currency exchange markup); live PostgreSQL security audit log table with event type filtering and JSON metadata viewer.
+- **Scope:** Enhance `AdminAuditLogPage.tsx` with metadata drawer; fee config form with validation.
+- **Exclusions:** None (`AD-017` operates against live Fastify backend).
+- **Product Requirement References:** `FR-040`, `FR-041`, `WF-020`
+- **Source-Code References:** `apps/web/src/pages/admin/`
+- **API/Backend Dependencies:** Live Fastify `/security/audit/events`.
+- **Required Decisions:** None.
+- **Acceptance Criteria:**
+  1. Audit table renders live events from PostgreSQL with pagination.
+  2. Clicking event opens JSON metadata inspection drawer.
+  3. Fee config form validates numerical percentages ($0\text{--}100\%$).
+- **Automated Test Requirements:** Vitest test verifying audit API integration and JSON viewer.
+- **Manual QA Requirements:** Trigger audit events and inspect live table update.
+- **Screenshot Requirements:** Desktop capture of live audit log view.
+- **Definition of Done:** Audit views live on `:5173/admin/audit`, screenshots verified.
+
+---
+
+### 8. Workstream 7: Cross-Platform Integration & QA (`WS-7-INTEG-QA`)
+
+---
+
+#### Task `TSK-2C-031`: Cross-Platform WCAG 2.2 AA Accessibility & Touch Target Audit
+- **Priority:** **P0** | **Implementation Level:** Level 1 (Experience Redesign)
+- **Target Application:** Cross-Platform (`apps/web`, `apps/mobile`)
+- **User Persona:** All users, including assistive device users
+- **User Problem:** Small touch targets ($<44$px) on mobile filter chips; low-contrast text on dark cards ($<3:1$).
+- **Business Value:** Legal compliance (ADA / European Accessibility Act) and superior ergonomics.
+- **Current Behavior:** Multiple contrast and touch target violations across prototype screens.
+- **Expected Behavior:** 100% compliance with WCAG 2.2 Level AA: minimum $44\times 44$px touch targets, contrast ratio $\ge 4.5:1$ for normal text, and visible focus rings.
+- **Scope:** Audit and adjust all interactive controls across web and mobile.
+- **Exclusions:** None.
+- **Product Requirement References:** `NFR-A11Y-001`
+- **Source-Code References:** Global CSS, component button styles.
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** `DEC-009`.
+- **Acceptance Criteria:**
+  1. Zero critical or serious `axe-core` accessibility violations across all routes.
   2. All mobile buttons, chips, and links measure $\ge 44\times 44$px.
-  3. Keyboard tab navigation functions with high-contrast terracotta focus rings.
-- **Test Requirements:** Automated axe-core accessibility audit script running against all routes.
+  3. Visible 2px Terracotta focus ring on keyboard navigation.
+- **Automated Test Requirements:** Automated `axe-core` CLI scan script.
+- **Manual QA Requirements:** Keyboard-only tab navigation through checkout flow.
+- **Screenshot Requirements:** Focus ring evidence captures.
+- **Definition of Done:** Axe scan reports 0 critical violations, keyboard navigable.
 
 ---
 
-#### Task `TSK-2C-019`: End-to-End Vitest Component & Contract Test Expansion
-- **Priority:** **P0** (Sprint 5)
-- **Target Surfaces:** Automated Testing (`test/` directories across `web`, `mobile`, `contracts`)
-- **Current Behavior:** 185 tests verify static data schemas and basic render output.
-- **Expected Behavior:** Expanded test suite verifying interactive form submissions, modal dialogs, tab switching, and error boundary handling.
-- **Dependencies:** All previous tasks.
+#### Task `TSK-2C-032`: Responsive Layout Verification Across 5 Standard Viewports
+- **Priority:** **P0** | **Implementation Level:** Level 1 (Experience Redesign)
+- **Target Application:** Cross-Platform (`apps/web`, `apps/mobile`)
+- **User Persona:** Mobile, tablet, and desktop travellers
+- **User Problem:** Broken text wrapping and horizontal scrolling on mobile viewports.
+- **Business Value:** Flawless cross-device user experience.
+- **Current Behavior:** Some desktop layouts overflow horizontally when viewed on mobile screens.
+- **Expected Behavior:** Fluid responsive layouts across 5 viewports: $375\times 667$, $390\times 844$, $768\times 1024$, $1280\times 900$, $1440\times 900$.
+- **Scope:** Responsive CSS adjustments; flex/grid breakpoint tuning.
+- **Exclusions:** None.
+- **Product Requirement References:** `NFR-RESP-001`
+- **Source-Code References:** Layout components across `apps/web` and `apps/mobile`.
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** None.
 - **Acceptance Criteria:**
-  1. Total automated test count exceeds 250 tests.
-  2. 100% test pass rate across all workspace packages.
-  3. Zero deprecation warnings or unhandled promise rejections in test output.
-- **Test Requirements:** Execute `pnpm test` across all packages in CI.
+  1. Zero horizontal overflow scrolling on small screens ($375$px, $390$px).
+  2. Modals and bottom sheets dynamically scale to viewport height.
+- **Automated Test Requirements:** Playwright/Puppeteer responsive viewport audit.
+- **Manual QA Requirements:** Manual inspection at each breakpoint.
+- **Screenshot Requirements:** Side-by-side viewport comparisons.
+- **Definition of Done:** Zero layout breaks across 5 viewports, screenshots verified.
 
 ---
 
-#### Task `TSK-2C-020`: Automated Visual Regression & Screenshot Capture Harness
-- **Priority:** **P1** (Sprint 5 Release Gate)
-- **Target Surfaces:** QA Tooling (`scripts/capture-all-screens.mjs`)
-- **Current Behavior:** Ad-hoc PowerShell Chrome headless commands used to capture evidence.
-- **Expected Behavior:** Standardized automated screenshot capture harness that spins up local servers, renders every registered screen at desktop and mobile viewports, and saves timestamped PNGs for release gating.
-- **Dependencies:** All previous tasks.
+#### Task `TSK-2C-033`: Automated Visual Regression & Screenshot Capture Pipeline
+- **Priority:** **P1** | **Implementation Level:** Level 2 (Functional Frontend)
+- **Target Application:** QA Tooling (`scripts/capture-all-screens.mjs`)
+- **User Persona:** Engineering team & QA Lead
+- **User Problem:** Manual screenshot capture is slow and error-prone.
+- **Business Value:** Continuous visual regression prevention in CI.
+- **Current Behavior:** Ad-hoc PowerShell Chrome headless commands.
+- **Expected Behavior:** Automated Node.js script that spins up local servers, renders all 113 screens across desktop and mobile viewports, captures PNGs, and performs pixel-diff comparison against baseline.
+- **Scope:** Create `scripts/capture-all-screens.mjs` using Puppeteer / Chrome Headless.
+- **Exclusions:** None.
+- **Product Requirement References:** `NFR-QA-002`
+- **Source-Code References:** `scripts/`
+- **API/Backend Dependencies:** None.
+- **Required Decisions:** None.
 - **Acceptance Criteria:**
-  1. Single command `pnpm run test:visual` captures all 113 marketplace screens automatically.
-  2. Compares rendered output against baseline screenshots with visual diff threshold $<0.5\%$.
-  3. Generates an HTML visual audit report with side-by-side comparisons.
-- **Test Requirements:** Script execution verified on local CI runner.
+  1. Single command `pnpm run test:visual` captures all 113 screens automatically.
+  2. Output files match canonical naming convention (`pw-001-landing-desktop.png`, etc.).
+  3. Visual regression report highlights pixel changes $>1.0\%$.
+- **Automated Test Requirements:** Script executes cleanly in CI.
+- **Manual QA Requirements:** Inspect generated HTML visual report.
+- **Screenshot Requirements:** Automatic output generation.
+- **Definition of Done:** Script functional, outputting clean screenshots to `evidence/current/`.
 
 ---
 
-### 3. Task Dependency Graph & Traceability Matrix
+#### Task `TSK-2C-034`: Contract-Driven Component & End-to-End Test Suite
+- **Priority:** **P0** | **Implementation Level:** Level 2 (Functional Frontend)
+- **Target Application:** Automated Testing (`apps/web/test/`, `apps/mobile/test/`, `packages/contracts/test/`)
+- **User Persona:** Engineering team
+- **User Problem:** Existing tests verify static mock object existence rather than component user interactions.
+- **Business Value:** Guarantees zero functional regressions during active redesign.
+- **Current Behavior:** 185 tests verify static schemas and basic render output.
+- **Expected Behavior:** Interactive component test suites testing real user events: form typing, button clicks, modal openings, tab switching, and error handling.
+- **Scope:** Author interactive component tests in React Testing Library / Vitest.
+- **Exclusions:** Backend end-to-end database tests for deferred marketplace endpoints.
+- **Product Requirement References:** `NFR-QA-001`
+- **Source-Code References:** `test/` directories across all packages.
+- **API/Backend Dependencies:** Vitest test runner.
+- **Required Decisions:** None.
+- **Acceptance Criteria:**
+  1. 100% passing tests across all workspace packages.
+  2. Zero unhandled promise rejections or console errors in test output.
+  3. Tests cover form validation errors, modal triggers, and tab switches.
+- **Automated Test Requirements:** `pnpm test` runs green across monorepo.
+- **Manual QA Requirements:** None.
+- **Screenshot Requirements:** None.
+- **Definition of Done:** Interactive component tests passing, CI green.
 
-```
-[TSK-2C-001: Tokens] ────────┬───────────────┬────────────────────────┐
-                             │               │                        │
-                             ▼               ▼                        ▼
-[TSK-2C-002: WebP Assets] [TSK-2C-003: Code Suppress] [TSK-2C-008: Mobile Navigation]
-                             │               │                        │
-                             ▼               ▼                        ▼
-                      [PW: 004 - 007]  [HD: 012 - 014]         [TM/HM: 009 - 011]
-                             │               │                        │
-                             └───────────────┼────────────────────────┘
-                                             │
-                                             ▼
-                                     [AD: 015 - 017]
-                                             │
-                                             ▼
-                             [TSK-2C-018: A11y & Touch Standards]
-                                             │
-                                             ▼
-                             [TSK-2C-019 / 020: QA Release Gates]
-```
+---
 
-| Task ID | Surface | Priority | Primary File Impact | Est. Effort | Target Sprint |
-|---|---|:---:|---|:---:|:---:|
-| `TSK-2C-001` | Cross-Platform | **P0** | `packages/contracts/src/tokens.ts`, `tailwind.config.js` | 16 hrs | Sprint 1 |
-| `TSK-2C-002` | Assets | **P1** | `scripts/optimize-mascot-assets.mjs`, `MascotIllustration.tsx` | 8 hrs | Sprint 1 |
-| `TSK-2C-003` | Cross-Platform | **P0** | All page layouts, `apps/web/src/components/dev/` | 24 hrs | Sprint 1 |
-| `TSK-2C-004` | Public Web | **P0** | `LandingPage.tsx`, `SearchPage.tsx` | 20 hrs | Sprint 2 |
-| `TSK-2C-005` | Public Web | **P0** | `apps/web/src/components/map/LocationMap.tsx` | 24 hrs | Sprint 2 |
-| `TSK-2C-006` | Public Web | **P0** | `LocationDetailsPage.tsx`, `BookingCheckoutPage.tsx` | 24 hrs | Sprint 2 |
-| `TSK-2C-007` | Public Web | **P1** | `TravellerPortalPage.tsx` | 16 hrs | Sprint 2 |
-| `TSK-2C-008` | Mobile | **P0** | `apps/mobile/app/(traveller)/`, `app/(host)/` | 32 hrs | Sprint 3 |
-| `TSK-2C-009` | Mobile | **P0** | `apps/mobile/app/(traveller)/explore.tsx` | 24 hrs | Sprint 3 |
-| `TSK-2C-010` | Mobile | **P0** | `apps/mobile/app/(traveller)/pass.tsx` | 20 hrs | Sprint 3 |
-| `TSK-2C-011` | Mobile | **P0** | `apps/mobile/app/(host)/scanner.tsx` | 24 hrs | Sprint 4 |
-| `TSK-2C-012` | Host Web | **P1** | `HostOverviewPage.tsx`, `HostLayout.tsx` | 20 hrs | Sprint 4 |
-| `TSK-2C-013` | Host Web | **P0** | `HostOperationsDeskPage.tsx`, `HostBookingsLedgerPage.tsx` | 24 hrs | Sprint 4 |
-| `TSK-2C-014` | Host Web | **P1** | `HostFinancePage.tsx`, `HostPayoutSettingsPage.tsx` | 16 hrs | Sprint 4 |
-| `TSK-2C-015` | Superadmin | **P0** | `AdminIncidentsPage.tsx` | 24 hrs | Sprint 5 |
-| `TSK-2C-016` | Superadmin | **P1** | `AdminHostReviewPage.tsx`, `AdminHostDirectoryPage.tsx` | 20 hrs | Sprint 5 |
-| `TSK-2C-017` | Superadmin | **P1** | `AdminEscrowPage.tsx`, `AdminRefundsPage.tsx` | 20 hrs | Sprint 5 |
-| `TSK-2C-018` | Cross-Platform | **P0** | Global CSS, mobile touch targets | 16 hrs | Sprint 5 |
-| `TSK-2C-019` | QA & Tests | **P0** | `apps/web/test/`, `apps/mobile/test/` | 24 hrs | Sprint 5 |
-| `TSK-2C-020` | QA Tooling | **P1** | `scripts/capture-all-screens.mjs` | 16 hrs | Sprint 5 |
-| **TOTAL** | **Phase 2C Scope** | — | **20 Implementation Tasks** | **392 hrs** | **10 Weeks** |
+### 9. Backlog Summary & Task Count Traceability
+
+| Workstream | Workstream Name | Total Tasks | P0 Tasks | P1 Tasks | P2 Tasks | P3 Tasks |
+|---|---|:---:|:---:|:---:|:---:|:---:|
+| **`WS-1`** | Shared Design Foundation | **3** | 2 | 1 | 0 | 0 |
+| **`WS-2`** | Public Traveller Web | **7** | 5 | 2 | 0 | 0 |
+| **`WS-3`** | Traveller Mobile Application | **5** | 5 | 0 | 0 | 0 |
+| **`WS-4`** | Host Web Dashboard | **5** | 1 | 4 | 0 | 0 |
+| **`WS-5`** | Host Mobile Application | **5** | 3 | 1 | 1 | 0 |
+| **`WS-6`** | Superadmin Web Dashboard | **5** | 1 | 4 | 0 | 0 |
+| **`WS-7`** | Cross-Platform Integration & QA | **4** | 3 | 1 | 0 | 0 |
+| **TOTALS** | **Phase 2C Implementation Backlog** | **34 Tasks** | **20 (59%)** | **13 (38%)** | **1 (3%)** | **0 (0%)** |

@@ -1,205 +1,242 @@
-# Phase 2B.1 — Product Decisions Required & Open Architectural Questions
-## Document 16: Product Decisions Required
+# Phase 2C.0 — Product Decisions Required & Open Architectural Questions
+## Document 16: Product Decisions & Requirements Governance Register
 
 **Project:** Global Luggage Storage Marketplace (`https://github.com/kavicastelo/luggage-storage`)  
-**Document ID:** `DOC-UX-P2B-016`  
-**Audit Phase:** Phase 2B.1 — Handover Package  
-**Current HEAD:** `cca134f4a0f909a907f6395f9647a025ac39d71a`  
+**Document ID:** `DOC-UX-P2C-016`  
+**Phase:** Phase 2C.0 — Baseline Reconciliation  
+**Current HEAD Commit:** `17d5afa` / `57b1c39`  
 **Date:** November 9, 2026  
-**Auditor:** Principal Product Architect & Senior UX Auditor  
-**Target Audience:** Product Owner, Executive Stakeholders, Lead System Architect  
+**Auditor:** Principal Product Architect, Senior UX Auditor & Technical Product Manager  
+**Governance Authority:** Product Owner & Executive Stakeholders  
 
 ---
 
 ### 1. Executive Summary & Purpose
 
-During the Phase 2B audit and codebase reconciliation, ten fundamental product, business, and legal assumptions were identified within the simulated prototypes and proposed design system. These assumptions directly impact user flows, liability, database schemas, and engineering scope for **Phase 2C — Product Experience Re-Architecture**.
+During the Phase 2B audit and Phase 2B.1 reconciliation, fundamental product assumptions, marketing copy claims, and business rules were identified within the simulated prototypes and proposed design system. 
 
-This document isolates each open decision, evaluates trade-offs, provides the audit team's professional recommendation, and establishes a formal sign-off register.
+In strict compliance with **Phase 2C.0 Workstream C**, this document isolates each open decision, evaluates evidence and trade-offs, classifies proposals against confirmed requirements, provides the audit team's professional recommendation, and establishes a binding sign-off register.
+
+> [!CAUTION]
+> **Prohibition on Fabricated Marketing Claims:**  
+> The interface must **never** display unsupported statements such as *"Over 50,000 bags stored safely"*, *"100% verified partners"*, *"Fully insured luggage"*, or *"Guaranteed secure storage"*. Unless a claim is supported by verified business data, an approved legal policy, and operational capability, it is strictly classified as `UNAPPROVED_CLAIM` and prohibited from production UI copy. Clearly marked placeholder content may be used in development, but must never be mistaken for approved copy.
 
 ---
 
-### 2. Comprehensive Product Decisions Register
+### 2. Proposal Classification Framework
+
+Every proposed feature across the five client surfaces is classified into one of six governance tiers:
+
+1. **`CONFIRMED_REQUIREMENT`**: Explicitly documented in approved PRDs/FRD and backed by established business rules.
+2. **`EXISTING_IMPLEMENTATION`**: Fully implemented and verified in current production code (e.g. Phase 1B auth/RBAC).
+3. **`DESIGN_RECOMMENDATION`**: Experiential, visual, or layout improvement proposed by UX team (e.g. CWCP palette, tab bar navigation).
+4. **`PRODUCT_DECISION_REQUIRED`**: Unresolved policy, liability, or fee structure requiring explicit Product Owner sign-off before coding.
+5. **`FUTURE_SCOPE`**: Desirable feature approved for roadmap consideration after Phase 2C (e.g. Apple/Google Wallet passbook signing).
+6. **`OUT_OF_SCOPE`**: Explicitly excluded from marketplace scope (e.g. hardware thermal printer drivers, real-time IoT bag GPS trackers).
+
+---
+
+### 3. Detailed Product Decisions Register
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│                           TEN CRITICAL PRODUCT DECISIONS                                  │
-├───────────────┬──────────────────────────────────────────┬──────────────┬────────────────┤
-│ Decision ID   │ Core Subject                             │ Impact Area  │ Priority       │
-├───────────────┼──────────────────────────────────────────┼──────────────┼────────────────┤
-│ DEC-001       │ Mandatory vs Optional Photo Evidence     │ Custody / UX │ Block P0 Flow  │
-│ DEC-002       │ Overdue Fee Payment Collection Channel   │ Payments     │ Block P0 Flow  │
-│ DEC-003       │ Cancellation Gateway Fee Absorption      │ Finance      │ Block P1 Flow  │
-│ DEC-004       │ Apple / Google Wallet MVP Scope          │ Mobile UX    │ Scoping P1     │
-│ DEC-005       │ Offline Digital Pass Cryptographic TTL   │ Security     │ Security P0    │
-│ DEC-006       │ Host Payout Schedule & Minimum Threshold │ Operations   │ Finance P1     │
-│ DEC-007       │ Tamper-Evident Physical Seal Sourcing    │ Logistics    │ Custody P1     │
-│ DEC-008       │ Mascot Tone & Dispute Boundary Policy    │ Brand / Legal│ Brand P1       │
-│ DEC-009       │ "Ceylon Warmth" Palette Formal Adoption  │ Design Sys   │ Design P0      │
-│ DEC-010       │ Partner Trust Badge & Amenity Taxonomy   │ Compliance   │ Marketing P1   │
-└───────────────┴──────────────────────────────────────────┴──────────────┴────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+│                              TEN CRITICAL PRODUCT DECISIONS                                  │
+├─────────┬──────────────────────────────────────────┬─────────────────┬───────────────────────┤
+│ ID      │ Topic                                    │ Workstream      │ Phase 2C Blocking     │
+├─────────┼──────────────────────────────────────────┼─────────────────┼───────────────────────┤
+│ DEC-001 │ Mandatory vs Optional Photo Evidence     │ WS-5 (Host Mob) │ BLOCKS_SPRINT_4       │
+│ DEC-002 │ Overdue Fee Payment Collection Channel   │ WS-2 (Pub Web)  │ BLOCKS_SPRINT_2       │
+│ DEC-003 │ Cancellation Gateway Fee Absorption      │ WS-2 (Pub Web)  │ NON_BLOCKING (P1)     │
+│ DEC-004 │ Apple / Google Wallet MVP Scope          │ WS-3 (Trav Mob) │ NON_BLOCKING (Defer)  │
+│ DEC-005 │ Offline Digital Pass Cryptographic TTL   │ WS-3 (Trav Mob) │ BLOCKS_SPRINT_3       │
+│ DEC-006 │ Host Payout Schedule & Minimum Threshold │ WS-4 (Host Web) │ NON_BLOCKING (P1)     │
+│ DEC-007 │ Tamper-Evident Physical Seal Sourcing    │ WS-5 (Host Mob) │ BLOCKS_SPRINT_4       │
+│ DEC-008 │ Mascot Brand Voice Boundary Policy       │ WS-1 (Foundatn) │ BLOCKS_SPRINT_1       │
+│ DEC-009 │ CWCP Color Tokens Accessible Re-tune     │ WS-1 (Foundatn) │ BLOCKS_SPRINT_1       │
+│ DEC-010 │ Partner Trust Badge & Amenity Taxonomy   │ WS-2 (Pub Web)  │ BLOCKS_SPRINT_2       │
+└─────────┴──────────────────────────────────────────┴─────────────────┴───────────────────────┘
 ```
 
 ---
 
-#### Decision `DEC-001`: Drop-off Photo Evidence Enforcement
-
-- **Context & Current Prototype:** Screen `HM-014` and `TM-029` simulate taking photos of luggage tags and bags at check-in. Current micro-copy states "Photo evidence is mandatory before check-in can be confirmed."
-- **Problem:** In busy hotel lobbies or transit shops with poor lighting or legacy host devices, requiring 3–4 high-resolution photo uploads per booking causes severe check-in queue delays and failures under spotty cellular connectivity.
-- **Options:**
-  - **Option A (Strict Mandatory):** Both host and traveller must capture and upload photo evidence before custody token changes from `CONFIRMED` to `ACTIVE_STORAGE`. Check-in is blocked without photos.
-  - **Option B (Recommended Default with Host Override):** Host is strongly prompted to photograph bags with pre-existing damage, but can bypass with a 1-tap toggle: *"No visible damage / Host verified"*.
-  - **Option C (Traveller-Only Optional):** Traveller can upload photos in their portal (`PW-011`/`TM-029`) at leisure for insurance documentation; host counter flow is unaffected.
-- **UX Audit Recommendation:** **Option B.** Protects queue velocity at busy partner desks while capturing photo evidence for high-value or damaged items.
-- **Engineering Impact:** Option B requires offline queueing in IndexedDB / SQLite with background image compression and upload retry workers.
-- **Owner & Status:** Product Owner • **PENDING SIGN-OFF**
-
----
-
-#### Decision `DEC-002`: Overdue / Late Storage Fee Payment Collection
-
-- **Context & Current Prototype:** Screen `HM-023` and `TM-030` simulate luggage remaining past the booked collection window, accumulating overdue fees ($150\%$ hourly penalty rate per rule `PR-014`).
-- **Problem:** How and where does the marketplace actually collect these accrued fees?
-- **Options:**
-  - **Option A (In-App Auto-Capture):** Host clicks "Release", API calculates total overdue fee and automatically charges the traveller's saved credit card on file via Stripe/PayHere off-session payment intent.
-  - **Option B (Cash at Counter):** Host collects overdue cash fee directly from the traveller; host marks "Cash Collected" in `HM-024`; platform deducts its $15\%$ platform commission from the host's next payout.
-  - **Option C (Pre-Payment Gate):** Traveller mobile pass displays a red alert *"Storage Expired — Tap to Settle Balance"*. Pass QR code is locked/invalid until traveller completes in-app payment.
-- **UX Audit Recommendation:** **Option A with Option C fallback.** Option B introduces cash leakage and counter disputes. Auto-charging saved cards is standard for ride-sharing and micro-mobility.
-- **Engineering Impact:** Requires Stripe Customer ID persistence, off-session payment authorization agreements during initial checkout (`PW-004`), and webhook listeners for charge settlement.
-- **Owner & Status:** Product Owner & Payments Lead • **PENDING SIGN-OFF**
+#### Decision `DEC-001`: Mandatory vs. Optional Drop-Off Photo Evidence
+- **Decision Topic:** Photographic inspection policy at bag check-in (`HM-014`, `TM-029`).
+- **Current Uncertainty:** The current prototype displays *"Photo evidence is mandatory before check-in can be confirmed."* Requiring 3–4 mandatory photos per luggage item causes severe lobby queue bottlenecks in busy hotels and fails under poor cellular connectivity.
+- **Existing Evidence:** In `apps/mobile/app/(host)/index.tsx` (`HM-014`), photo upload is simulated via a client button that always succeeds. No camera hardware bindings or offline image upload queues exist in the repository.
+- **Available Options:**
+  - **Option A (Strict Mandatory):** Both host and traveller must upload bag photos before custody token activates. Check-in blocked without photos.
+  - **Option B (Recommended Default with Host Override):** Host is prompted to photograph existing damage/high-value tags, but can bypass with 1-tap: *"No visible damage / Host verified"*.
+  - **Option C (Traveller-Only Optional):** Traveller can upload photos in their portal at leisure; host counter flow is unaffected.
+- **Recommendation:** **Option B.** Protects counter velocity during peak hours while capturing evidence for damaged bags.
+- **Business & Technical Consequences:** Option A risks customer abandonment in lobby lines. Option B requires offline queueing in SQLite/IndexedDB with background retry workers.
+- **Phase 2C Blocking Status:** **BLOCKS_SPRINT_4** (Host Mobile Intake Flow).
+- **Dependent Workstream:** `WS-5-HOST-MOB` (`TSK-2C-011`).
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
 ---
 
-#### Decision `DEC-003`: Cancellation Refund Gateway Fee Absorption
+#### Decision `DEC-002`: Overdue / Late Storage Fee Payment Collection Channel
+- **Decision Topic:** Overdue fee calculation and collection mechanism (`HM-023`, `TM-030`).
+- **Current Uncertainty:** How and where are accrued late storage fees collected when a traveller collects luggage past the booked window?
+- **Existing Evidence:** Rule `PR-014` specifies a 150% hourly penalty rate. Prototype `HM-023` displays calculated penalty in LKR, but has no payment execution mechanism.
+- **Available Options:**
+  - **Option A (In-App Auto-Charge):** Host marks "Release", API automatically charges traveller's saved card on file via Stripe off-session payment intent.
+  - **Option B (Cash at Counter):** Host collects cash directly from traveller; marks "Cash Collected" in `HM-024`; platform deducts 15% commission from next payout.
+  - **Option C (Pre-Payment Gate):** Traveller digital pass QR code locks/invalidates when overdue until traveller settles outstanding balance in-app.
+- **Recommendation:** **Option A with Option C fallback.** Cash collection introduces severe leakage and disputes.
+- **Business & Technical Consequences:** Option A requires Stripe Customer ID persistence and off-session authorization agreements in checkout terms (`PW-004`).
+- **Phase 2C Blocking Status:** **BLOCKS_SPRINT_2** (Checkout Terms & Policies).
+- **Dependent Workstream:** `WS-2-PUBLIC-WEB`, `WS-3-TRAVELLER-MOB`.
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
-- **Context & Current Prototype:** Screen `PW-011` and `AD-007` simulate a 7-stage refund stepper. Rule `PR-016` specifies full refund if cancelled $>2$ hours prior to booking start time.
-- **Problem:** Payment gateways (Stripe, PayHere) do not refund the initial transaction processing fee (approx. $2.9\% + \$0.30$) upon issuing a customer refund.
-- **Options:**
-  - **Option A (Platform Absorbs):** Customer receives $100\%$ of their booking payment back. Marketplace absorbs payment gateway processing loss as customer acquisition cost.
+---
+
+#### Decision `DEC-003`: Cancellation Refund Payment Gateway Fee Absorption
+- **Decision Topic:** Absorption of merchant gateway transaction fees on customer cancellations (`PW-011`, `AD-007`).
+- **Current Uncertainty:** Payment processors (Stripe, PayHere) retain interchange and gateway fees ($2.9\% + \$0.30$) upon refunding a transaction. Who absorbs this cost?
+- **Existing Evidence:** Prototype `PW-011` simulates a 7-stage refund progress stepper promising 100% refund if cancelled $>2$ hours before booking.
+- **Available Options:**
+  - **Option A (Platform Absorbs):** Customer receives 100% refund. Marketplace absorbs gateway loss as operational overhead.
   - **Option B (Net Refund):** Customer receives refund minus gateway processing fee ($100\% - 3.5\%$). Disclosed in checkout terms.
-  - **Option C (Platform Credit):** Offer $100\%$ refund as non-expiring Luggage Storage Platform Credit, or $95\%$ if refunded to original payment method.
-- **UX Audit Recommendation:** **Option A for cancellations $>24$h; Option B or C for $<24$h.** Reduces customer support disputes and chargebacks.
-- **Engineering Impact:** Financial ledger (`AD-006`, `HD-010`) must record gateway fee expense lines separately from platform gross revenue.
-- **Owner & Status:** Product Owner & Finance Director • **PENDING SIGN-OFF**
+  - **Option C (Platform Credit):** 100% refund issued as non-expiring Luggage Storage Platform Credit, or 95% if refunded to original payment method.
+- **Recommendation:** **Option A for cancellations $>24$h; Option B or C for $<24$h.**
+- **Business & Technical Consequences:** Financial ledger (`AD-006`, `HD-010`) must record gateway fee expense lines separately from gross revenue.
+- **Phase 2C Blocking Status:** **NON_BLOCKING** (P1 Financial Ledger Detail).
+- **Dependent Workstream:** `WS-2-PUBLIC-WEB`, `WS-6-SUPERADMIN`.
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
 ---
 
 #### Decision `DEC-004`: Digital Pass Apple Wallet & Google Wallet Integration Scope
-
-- **Context & Current Prototype:** Design System Document `DOC-UX-P2B-010` proposes *"Add to Apple Wallet"* and *"Save to Google Wallet"* CTA buttons on `PW-005` and `TM-024`.
-- **Problem:** Native passbook provisioning requires Apple Developer Pass Type IDs, cryptographic pass signing keys (.pkpass certificates), and Google Wallet REST API service accounts.
-- **Options:**
-  - **Option A (Full Native Pass Provisioning in Phase 2C):** Implement backend PKPass generation and Google Wallet JWT passes.
-  - **Option B (Deferred to Phase 3+):** Keep custody pass within the web portal (`PW-005`/`PW-011`) and mobile apps (`TM-024`); omit native wallet CTA buttons from Phase 2C UI.
-  - **Option C (Client-Side PWA Pass):** Provide an offline-cached PWA pass card with "Save Image / Screenshot" or PDF download.
-- **UX Audit Recommendation:** **Option B.** Native wallet passes are a valuable convenience but premature for Phase 2C MVP experience re-architecture. Remove wallet CTA buttons from Phase 2C mockups to prevent false expectations.
-- **Engineering Impact:** Saves approximately 80 engineering hours in backend certificate management and mobile PassKit bridge plugins.
-- **Owner & Status:** Lead System Architect & Product Owner • **PENDING SIGN-OFF**
+- **Decision Topic:** Scope and timing of native PassKit (.pkpass) and Google Wallet integration (`PW-005`, `TM-024`).
+- **Current Uncertainty:** Proposed design system included "Add to Apple Wallet" and "Save to Google Wallet" buttons. Native pass generation requires external developer certificates, cryptographic signing servers, and Google Wallet service accounts.
+- **Existing Evidence:** Zero PassKit or Google Wallet code exists in the repository. Buttons in mockups were purely visual design proposals.
+- **Available Options:**
+  - **Option A (Full Native Pass Provisioning in Phase 2C):** Build backend signing service and mobile PassKit bridge.
+  - **Option B (Deferred to Phase 3+ / Future Scope):** Keep digital custody pass within mobile apps (`TM-024`) and web portal (`PW-005`); remove wallet CTA buttons from Phase 2C UI.
+  - **Option C (Client-Side PWA Pass):** Offer offline-cached PWA pass card with "Save Image / Screenshot" or PDF download.
+- **Recommendation:** **Option B.** Native wallet passes are `FUTURE_SCOPE`. Removing wallet buttons prevents customer confusion and saves ~80 engineering hours.
+- **Business & Technical Consequences:** Omitting wallet buttons keeps Phase 2C focused on core usability and responsive web/mobile navigation.
+- **Phase 2C Blocking Status:** **NON_BLOCKING** (Approved as Future Scope).
+- **Dependent Workstream:** `WS-2-PUBLIC-WEB`, `WS-3-TRAVELLER-MOB`.
+- **Approval Status:** **CONFIRMED_RECOMMENDATION (Option B)**
 
 ---
 
 #### Decision `DEC-005`: Offline Digital Pass Cryptographic Security & QR TTL
-
-- **Context & Current Prototype:** Screen `TM-024` renders a static simulated QR payload and PIN `482910`. The audit requires resilient offline display for travellers without international mobile roaming.
-- **Problem:** If a QR pass is cached offline on the traveller's device, how does the system prevent replay attacks or fraudulent screenshots while allowing offline verification by the host?
-- **Options:**
-  - **Option A (Static Signed JWT with PIN):** QR contains a tamper-proof HMAC-signed payload containing `bookingId`, `bagCount`, `dropoffDate`, and `secretHash`. Host app verifies signature either online via API or offline via daily partner public key. Monospace 6-digit PIN acts as secondary verification.
-  - **Option B (Rotating TOTP QR Code):** QR code changes every 60 seconds (like Google Authenticator). Requires clock sync between devices; completely blocks offline screenshot fraud.
-  - **Option C (Simple Reference String):** QR code is merely a URL link to `https://luggage.app/v/:bookingId`. Host scanner opens web page. Fails completely if host is offline.
-- **UX Audit Recommendation:** **Option A.** Best balance of offline reliability, cryptographic security, and human-readable counter fallback.
-- **Engineering Impact:** Defined in contracts package; host scanner parses and verifies HMAC payload offline.
-- **Owner & Status:** Security Architect • **PENDING SIGN-OFF**
+- **Decision Topic:** Offline verification security and QR code replay protection (`TM-024`, `HM-021`).
+- **Current Uncertainty:** If travellers lose cellular roaming, their digital pass must render offline. How does the system prevent replay fraud or forged screenshots?
+- **Existing Evidence:** Prototype `TM-024` renders a static simulated QR string and PIN `482910`.
+- **Available Options:**
+  - **Option A (Static Signed JWT with PIN):** QR contains tamper-proof HMAC-signed payload (`bookingId`, `bagCount`, `dropoffDate`, `secretHash`). Host app verifies signature online or offline via daily partner key. 6-digit PIN provides human counter fallback.
+  - **Option B (Rotating TOTP QR Code):** QR changes every 60 seconds (like Google Authenticator). Requires strict device clock sync; blocks screenshot fraud.
+  - **Option C (Simple Web Link):** QR is a URL to `https://luggage.app/v/:id`. Fails completely if host is offline.
+- **Recommendation:** **Option A.** Delivers reliable offline display for international travellers with strong cryptographic verification.
+- **Business & Technical Consequences:** Contracts package must define HMAC payload schema; host scanner parses and validates payload offline.
+- **Phase 2C Blocking Status:** **BLOCKS_SPRINT_3** (Mobile Pass Architecture).
+- **Dependent Workstream:** `WS-3-TRAVELLER-MOB`, `WS-5-HOST-MOB`.
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
 ---
 
 #### Decision `DEC-006`: Host Payout Schedule Automation & Thresholds
-
-- **Context & Current Prototype:** Screen `HD-010`, `HD-011`, and `AD-008` simulate finance ledgers and batch payout distributions.
-- **Problem:** Automated micro-payouts for single bookings incur high banking fees. A clear payout cadence and minimum payout threshold must be established.
-- **Options:**
-  - **Option A (Weekly Scheduled Batch):** All cleared earnings from Monday through Sunday are batched and disbursed every Tuesday at 00:00 UTC. Minimum threshold: \$50 / LKR 15,000.
-  - **Option B (On-Demand Host Withdrawal):** Host can request payout at any time once balance exceeds \$25, subject to a 24-hour security hold and a nominal withdrawal fee.
-  - **Option C (Manual Superadmin Approval):** Superadmin manually reviews and approves each payout in `AD-008`.
-- **UX Audit Recommendation:** **Option A.** Standard for two-sided marketplaces (Airbnb, Uber); predictable cash flow forecasting and minimal bank transaction fees.
-- **Engineering Impact:** Automated scheduled worker in `apps/api` using Node cron / BullMQ queue.
-- **Owner & Status:** Finance Director & Product Owner • **PENDING SIGN-OFF**
+- **Decision Topic:** Host earnings disbursement schedule and minimum withdrawal threshold (`HD-010`, `AD-008`).
+- **Current Uncertainty:** What is the automated payout cadence, and what minimum balance is required to trigger banking disbursements?
+- **Existing Evidence:** Prototype simulates an 85/15 revenue split but has no automated batch worker or payout threshold logic.
+- **Available Options:**
+  - **Option A (Weekly Scheduled Batch):** Cleared earnings batched every Tuesday at 00:00 UTC. Minimum threshold: \$50 / LKR 15,000.
+  - **Option B (On-Demand Host Withdrawal):** Host can request withdrawal anytime balance exceeds \$25, subject to 24h security hold and nominal bank fee.
+  - **Option C (Manual Superadmin Approval):** Superadmin manually reviews each payout line in `AD-008`.
+- **Recommendation:** **Option A.** Standard marketplace practice; minimizes banking transaction overhead.
+- **Business & Technical Consequences:** Requires automated scheduled worker in `apps/api` using Node cron / BullMQ.
+- **Phase 2C Blocking Status:** **NON_BLOCKING** (P1 Finance Module).
+- **Dependent Workstream:** `WS-4-HOST-WEB`, `WS-6-SUPERADMIN`.
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
 ---
 
 #### Decision `DEC-007`: Tamper-Evident Physical Security Seal Sourcing & Workflow
-
-- **Context & Current Prototype:** Screens `TM-028`, `HM-022`, and rule `PR-012` reference entering a "Tamper-Evident Security Seal Tag Number" (e.g. `#SL-88410`) at bag intake.
-- **Problem:** Who supplies these physical numbered plastic zip-seals, and is seal entry mandatory for every single bag?
-- **Options:**
-  - **Option A (Platform Supplies Branded Seals):** Marketplace ships an onboard pack of 200 branded numbered zip-seals to newly approved hosts during KYC onboarding (`AD-002`). Seal tag barcode scanning is mandatory.
-  - **Option B (Host-Provided Commercial Seals):** Hosts purchase standard commercial numbered luggage seals; input tag serial number into `HM-022`.
-  - **Option C (Digital Photo Seal Fallback):** Physical seals are optional; host takes a close-up photo of the bag's zipper closure with a printed paper baggage tag if plastic seals are unavailable.
-- **UX Audit Recommendation:** **Option A for certified partners; Option C fallback.** The physical seal is the single greatest psychological differentiator for traveller trust.
-- **Engineering Impact:** Host onboarding flow (`HD-002`, `AD-002`) must capture physical mailing address for starter kit fulfillment.
-- **Owner & Status:** Head of Operations • **PENDING SIGN-OFF**
+- **Decision Topic:** Mandatory plastic zip-seals and tag barcode scanning (`TM-028`, `HM-022`).
+- **Current Uncertainty:** Screens reference entering a "Security Seal Tag Number" (e.g. `#SL-88410`). Who supplies these physical numbered seals, and is seal entry mandatory for every single bag?
+- **Existing Evidence:** Rule `PR-012` references tamper-evident seals. No procurement or inventory tracking exists in code.
+- **Available Options:**
+  - **Option A (Platform Ships Branded Seals):** Marketplace ships onboarding starter pack of 200 branded numbered zip-seals to approved hosts upon KYC completion. Seal barcode scanning mandatory.
+  - **Option B (Host-Sourced Commercial Seals):** Hosts purchase commercial numbered luggage seals; input tag serial number into app.
+  - **Option C (Photo Seal Fallback):** Physical seals are optional; host takes a close-up photo of bag zipper closure with paper tag if plastic seals are unavailable.
+- **Recommendation:** **Option A for certified partners; Option C fallback.** Numbered seals are the single highest driver of customer security trust.
+- **Business & Technical Consequences:** KYC onboarding flow (`AD-002`, `HD-002`) must capture physical shipping address.
+- **Phase 2C Blocking Status:** **BLOCKS_SPRINT_4** (Host Intake Desk).
+- **Dependent Workstream:** `WS-5-HOST-MOB`, `WS-6-SUPERADMIN`.
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
 ---
 
 #### Decision `DEC-008`: Mascot Brand Voice Boundary Policy (Kiri the Palm Squirrel)
-
-- **Context & Current Prototype:** Screen `AD-013` currently renders mascot Kiri shrugging in the middle of a serious customer dispute adjudication dashboard. Mascot images appear indiscriminately across internal and public screens.
-- **Problem:** Using a cute cartoon mascot in legal, financial loss, dispute, or security contexts undermines institutional trust and inflames frustrated users.
-- **Policy Definition (Proposed):**
-  - **Approved Mascot Surfaces:**
+- **Decision Topic:** Contextual boundaries for mascot illustrations across application surfaces.
+- **Current Uncertainty:** Screen `AD-013` renders mascot Kiri shrugging in the middle of a serious customer dispute adjudication console. Mascot images appear indiscriminately across internal and public screens.
+- **Existing Evidence:** 20 original PNG files exist in `Assets/` and `apps/web/public/assets/mascot/`.
+- **Policy Rules (Proposed):**
+  - **Approved Surfaces:**
     - Marketing & Public Web Landing (`PW-001`, `PW-006`, `PW-010`).
     - Onboarding & Success Empty States (`TM-002`, `HM-001`, `PW-005`).
-    - Customer Celebration Moments (Booking complete, Bags safely returned, Review submitted).
-    - Helpful educational tooltips (e.g. explaining bag size categories).
-  - **Strictly Prohibited Mascot Surfaces:**
-    - Payment failure, card decline, or banking gateway errors (`PW-004`, `TM-020`).
+    - Customer Celebration Moments (Booking complete, Bags returned, Review submitted).
+  - **Strictly Prohibited Surfaces:**
     - Customer disputes, stolen/damaged luggage claims, and incident filings (`AD-013`, `TM-035`, `HM-037`).
+    - Payment failure, card decline, or banking gateway errors (`PW-004`, `TM-020`).
     - Security settings, password resets, and 2FA authentication screens (`VerifyEmailPage`, `SecuritySettingsPage`).
     - Superadmin operational, compliance, and audit log consoles (`AD-001` through `AD-018`).
-- **UX Audit Recommendation:** **Adopt the proposed policy immediately as an immutable design rule for Phase 2C.**
-- **Engineering Impact:** Update `MascotIllustration` component with variant linting and surface restriction props.
-- **Owner & Status:** Product Owner & Brand Lead • **PENDING SIGN-OFF**
+- **Recommendation:** **Adopt the proposed policy immediately as an immutable design rule for Phase 2C.**
+- **Business & Technical Consequences:** Prevents brand trivialization in legal/dispute contexts. Requires prop lint check in `MascotIllustration.tsx`.
+- **Phase 2C Blocking Status:** **BLOCKS_SPRINT_1** (Shared Design Tokens & Components).
+- **Dependent Workstream:** `WS-1-FOUNDATION`, `WS-6-SUPERADMIN`.
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
 ---
 
-#### Decision `DEC-009`: Formal Approval of "Ceylon Warmth & Coastal Precision" Palette
-
-- **Context & Current Prototype:** Proposed in `DOC-UX-P2B-010` featuring Coastal Navy (`#0A192F`), Ceylon Terracotta (`#E86F2C`), and Sunlit Sand (`#FAF8F5`).
-- **Problem:** Current screens mix cold slate grays (`#0F172A`), harsh purple gradients, and high-saturation blues without a cohesive design token system.
-- **Options:**
-  - **Option A (Approve Proposed CWCP Palette):** Adopt `#0A192F` and `#E86F2C` as official brand tokens; build shared Tailwind token package in `packages/ui`.
-  - **Option B (Standard Tech Palette):** Retain neutral Tailwind Slate/Indigo palette (similar to standard SaaS templates).
-  - **Option C (Commission External Brand Agency):** Defer color token standardization until an external agency delivers complete corporate identity guidelines.
-- **UX Audit Recommendation:** **Option A.** The CWCP palette directly harmonizes with the pre-existing Kiri mascot asset hues (Kiri's fur is terracotta, Kiri's satchel is navy). Delaying tokens blocks Phase 2C component creation.
-- **Engineering Impact:** Establishes Tailwind theme configuration and CSS custom properties across `apps/web` and `apps/mobile`.
-- **Owner & Status:** Product Owner • **PENDING SIGN-OFF**
+#### Decision `DEC-009`: Accessible Color Re-Tune for CWCP Terracotta Token
+- **Decision Topic:** WCAG 2.2 AA accessibility validation of proposed brand terracotta color.
+- **Current Uncertainty:** The proposed CWCP palette specifies Terracotta `#E86F2C`. Mathematical contrast audit reveals:
+  - White text `#FFFFFF` on `#E86F2C` produces a contrast ratio of **$3.56:1$**, which **FAILS WCAG 2.2 Level AA** for normal body text and standard button labels ($<4.5:1$).
+- **Existing Evidence:** Automated contrast calculation using standard relative luminance formula confirms failure.
+- **Available Options:**
+  - **Option A (Accessible Deep Terracotta `#C85316`):** Darken primary terracotta CTA token to `#C85316` (Contrast ratio **$4.62:1$** against white text, fully passing WCAG 2.2 AA).
+  - **Option B (Dark Navy Button Text on Terracotta):** Use Deep Navy `#0A192F` text on Terracotta `#E86F2C` (Contrast ratio **$4.58:1$**, passing WCAG 2.2 AA).
+  - **Option C (Retain Inaccessible `#E86F2C` for Large Text Only):** Restrict `#E86F2C` to elements $\ge 18$pt ($3:1$ requirement), using a darker shade for standard buttons.
+- **Recommendation:** **Option A.** Darkening the terracotta token to `#C85316` maintains warm brand character while guaranteeing 100% automated accessibility compliance across all button sizes.
+- **Business & Technical Consequences:** Eliminates accessibility audit blockers across all web and mobile CTA buttons.
+- **Phase 2C Blocking Status:** **BLOCKS_SPRINT_1** (Design Tokens Definition).
+- **Dependent Workstream:** `WS-1-FOUNDATION`.
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
 ---
 
 #### Decision `DEC-010`: Partner Trust Badge Taxonomy & Verification Criteria
-
-- **Context & Current Prototype:** Location cards in `PW-002` and `TM-015` display a pill badge labeled "Verified Hotel Vault".
-- **Problem:** What physical storage types exist in the marketplace, and what verification steps grant each badge?
+- **Decision Topic:** Verification criteria for location trust badges (`PW-002`, `TM-015`).
+- **Current Uncertainty:** Prototype location cards display a pill badge labeled *"Verified Hotel Vault"*. What physical storage types exist, and what criteria grant each badge?
+- **Existing Evidence:** Prototype uses hardcoded strings. No database enum or KYC verification rule links to badge issuance.
 - **Proposed Taxonomy:**
-  1. `Verified Hotel Vault` (24/7 front desk, dedicated locked luggage room, physical security guard).
+  1. `Verified Hotel Vault` (24/7 staffed front desk, dedicated locked luggage room, CCTV coverage).
   2. `Verified Retail Partner` (Commercial retail store, monitored storage area behind counter).
-  3. `Verified Transit Hub` (Dedicated luggage storage facility adjacent to train station or airport).
-- **UX Audit Recommendation:** Adopt the three-tier taxonomy. Restrict badge rendering to hosts who have completed KYC document verification in `AD-002`.
-- **Engineering Impact:** Add `storage_facility_type` enum to database schema and listing editor (`HD-003`).
-- **Owner & Status:** Head of Operations & Product Owner • **PENDING SIGN-OFF**
+  3. `Verified Transit Hub` (Dedicated luggage facility adjacent to railway station or airport).
+- **Recommendation:** **Adopt the 3-tier taxonomy.** Restrict badge rendering to hosts who have completed KYC document verification in `AD-002`. Prohibit generic unverified claims like *"100% verified partners"*.
+- **Business & Technical Consequences:** Add `storage_facility_type` enum to database schema and listing editor (`HD-003`).
+- **Phase 2C Blocking Status:** **BLOCKS_SPRINT_2** (Location Cards & Search UI).
+- **Dependent Workstream:** `WS-2-PUBLIC-WEB`, `WS-4-HOST-WEB`, `WS-6-SUPERADMIN`.
+- **Approval Status:** **PENDING_PRODUCT_OWNER_SIGN_OFF**
 
 ---
 
-### 3. Summary Sign-Off Register
+### 4. Summary Governance Sign-Off Register
 
-| Decision ID | Summary Topic | Audit Recommendation | Stakeholder Assigned | Status |
-|---|---|---|---|:---:|
-| `DEC-001` | Photo Evidence Policy | Option B (Host override on undamaged bags) | Product Owner | PENDING |
-| `DEC-002` | Overdue Fee Channel | Option A (Auto-charge saved payment card) | Payments Lead | PENDING |
-| `DEC-003` | Refund Gateway Fees | Option A ($>24$h full refund; $<24$h net) | Finance Director | PENDING |
-| `DEC-004` | Apple/Google Wallet | Option B (Deferred to Phase 3+; remove UI) | System Architect | PENDING |
-| `DEC-005` | Offline Pass Security | Option A (Signed JWT + Monospace PIN) | Security Architect | PENDING |
-| `DEC-006` | Payout Cadence | Option A (Weekly Tuesday batch; \$50 min) | Finance Director | PENDING |
-| `DEC-007` | Security Seals | Option A (Platform ships 200 seals on KYC) | Operations Head | PENDING |
-| `DEC-008` | Mascot Tone Boundary | Strict prohibition in disputes/errors/admin | Brand Lead | PENDING |
-| `DEC-009` | CWCP Color Tokens | Option A (Adopt CWCP tokens immediately) | Product Owner | PENDING |
-| `DEC-010` | Trust Badge Taxonomy | 3-tier taxonomy linked to KYC approval | Operations Head | PENDING |
+| Decision ID | Summary Topic | Audit Recommendation | Phase 2C Blocking Status | Dependent Workstream | Approval Status |
+|---|---|---|---|---|:---:|
+| `DEC-001` | Photo Evidence Policy | Option B (Host override on undamaged bags) | BLOCKS_SPRINT_4 | `WS-5-HOST-MOB` | PENDING |
+| `DEC-002` | Overdue Fee Channel | Option A (Auto-charge saved card on file) | BLOCKS_SPRINT_2 | `WS-2-PUBLIC-WEB` | PENDING |
+| `DEC-003` | Refund Gateway Fees | Option A ($>24$h full refund; $<24$h net) | NON_BLOCKING | `WS-2-PUBLIC-WEB` | PENDING |
+| `DEC-004` | Apple/Google Wallet | Option B (Defer to Phase 3+; remove UI) | NON_BLOCKING | `WS-3-TRAVELLER-MOB` | CONFIRMED |
+| `DEC-005` | Offline Pass Security | Option A (Signed JWT + Monospace PIN) | BLOCKS_SPRINT_3 | `WS-3-TRAVELLER-MOB` | PENDING |
+| `DEC-006` | Payout Cadence | Option A (Weekly Tuesday batch; \$50 min) | NON_BLOCKING | `WS-4-HOST-WEB` | PENDING |
+| `DEC-007` | Security Seals | Option A (Platform ships 200 seals on KYC) | BLOCKS_SPRINT_4 | `WS-5-HOST-MOB` | PENDING |
+| `DEC-008` | Mascot Tone Boundary | Strict prohibition in disputes/errors/admin | BLOCKS_SPRINT_1 | `WS-1-FOUNDATION` | PENDING |
+| `DEC-009` | CWCP Color Re-tune | Option A (Adopt `#C85316` for WCAG AA) | BLOCKS_SPRINT_1 | `WS-1-FOUNDATION` | PENDING |
+| `DEC-010` | Trust Badge Taxonomy | 3-tier taxonomy linked to KYC approval | BLOCKS_SPRINT_2 | `WS-2-PUBLIC-WEB` | PENDING |

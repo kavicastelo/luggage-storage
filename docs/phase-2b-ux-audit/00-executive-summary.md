@@ -59,17 +59,18 @@ Historical project documentation contained conflicting screen totals, citing "12
 
 ### 4. Summary of Multi-Dimensional Audit Findings
 
-Every screen was independently audited across seven functional and architectural dimensions, with statuses reconciled to strictly separate route existence from production UI, interaction, and backend capability:
+Every screen was independently audited across eight functional, architectural, and operational dimensions, with statuses reconciled to strictly separate route existence from production UI, interaction, and backend capability:
 
 | Dimension | Verified / Live | Simulated / Preview | Incomplete / Blocked | Audit Conclusion |
 |---|:---:|:---:|:---:|---|
-| **1. Specification (`Spec`)** | 113 / 113 (100%) | 0 | 0 | Fully documented across FRS, UX Registry, and Workflow matrices. |
-| **2. Visual/UI Status (`UI`)** | 3 / 113 (2.7%) | 109 / 113 (96.5%) | 1 / 113 (0.9%) | Only 3 static views (`PW-007, 008, 010`) are clean. 109 operate as prototype simulations with leaked tracking codes; `AD-013` is placeholder. |
-| **3. Interaction (`Interaction`)** | 12 / 113 (10.6%) | 95 / 113 (84.1%) | 6 / 113 (5.3%) | Live for Auth/RBAC; 95 operate purely on ephemeral local React state; map and camera scanning are placeholders. |
-| **4. API Integration (`API`)** | 12 / 113 (10.6%) | 0 | 101 / 113 (89.4%) | Live Fastify endpoints for Auth/RBAC/Audit; 98 domain API endpoints deferred to Phase 3+; 3 static views. |
-| **5. Backend Logic (`Backend`)** | 12 / 113 (10.6%) | 0 | 101 / 113 (89.4%) | Fastify modular backend implements Identity/RBAC; booking/custody/payout engines deferred to Phase 3+. |
-| **6. Database Persistence (`DB`)** | 12 / 113 (10.6%) | 0 | 101 / 113 (89.4%) | PostgreSQL schema covers Identity, RBAC, Sessions, Audit; marketplace tables uncreated in migrations `0000`–`0005`. |
-| **7. QA & Evidence (`QA`)** | 113 / 113 (100%) | 0 | 0 | Vitest unit tests pass against preview data. 107 genuine screenshots captured (26 baseline + 81 fresh); physical device testing is unverified. |
+| **1. Specification (`Spec`)** | 0 Approved / 113 Defined | 0 Partial | 0 Missing | 100% of screens have documented workflow references in `SPEC_DEFINED` state; 0 are `SPEC_APPROVED` pending Product Owner sign-off (`DOC-UX-P2B-016`). |
+| **2. Visual/UI Status (`UI`)** | 3 / 113 (2.7%) | 109 / 113 (96.5%) | 1 / 113 (0.9%) | Only 3 static views (`PW-007, 008, 010`) are `FUNCTIONAL_UI`. 109 operate as prototype `UI_SIMULATION` with leaked tracking codes; `AD-013` is `STRUCTURE_ONLY` placeholder. |
+| **3. Interaction (`Interaction`)** | 3 / 113 (2.7%) | 103 / 113 (91.2%) | 7 / 113 (6.2%) | 3 are `FUNCTIONAL_INTERACTION` (`PW-006, 008`, `AD-017`); 103 operate on ephemeral React `LOCAL_STATE_ONLY`; 6 are `STATIC`; 1 (`AD-013`) is `NOT_IMPLEMENTED`. |
+| **4. API Integration (`API`)** | 2 / 113 (1.8%) | 10 / 113 (8.8%) | 101 / 113 (89.4%) | 2 are `CONNECTED` (`AD-017`, `PW-006`); 10 are `PARTIALLY_CONNECTED` (live auth session, mock domain); 98 are `NOT_CONNECTED`; 3 are `NOT_AVAILABLE` (static). |
+| **5. Backend Logic (`Backend`)** | 12 / 113 (10.6%) | 0 | 101 / 113 (89.4%) | 12 are `IMPLEMENTED` in Fastify (Identity, RBAC, Sessions, Security Audit); 98 are `NOT_IMPLEMENTED` (booking/custody/payout engines); 3 are `NOT_REQUIRED`. |
+| **6. Database Persistence (`DB`)** | 12 / 113 (10.6%) | 0 | 101 / 113 (89.4%) | 12 are `IMPLEMENTED` in PostgreSQL (migrations `0000`–`0005`); 98 are `NOT_IMPLEMENTED` (marketplace tables uncreated); 3 are `NOT_REQUIRED`. |
+| **7. End-to-End Status (`E2E`)** | 3 / 113 (2.7%) | 109 / 113 (96.5%) | 1 / 113 (0.9%) | 3 static views are `VERIFIED`; 109 are `PARTIALLY_VERIFIED` (mock tests pass but transactional journey unintegrated); 1 (`AD-013`) is `BLOCKED`. |
+| **8. Evidence Level (`Evidence`)** | 113 / 113 (100%) | 0 | 0 Device Verified | 113 are `SCREENSHOT_CAPTURED` and `AUTOMATED_TESTED` in headless compositor and Vitest; physical mobile device execution is 0% (`UNVERIFIED`). |
 
 ---
 

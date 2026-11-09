@@ -65,11 +65,16 @@ To ensure reproducible, un-fabricated visual evidence:
 
 ### 3. Audit Coverage & Unverified Areas
 
-#### 3.1 Coverage Statistics
-- **Total Screens Specified in FRS:** 113 Active Screens (100% coverage).
-- **Screens Evaluated Across 7 Dimensions:** 113 Active Screens (100% coverage).
-- **Screens Visually Inspected in Running Environment:** 113 Screens (100% evaluated via Web and React Native Web rendering).
-- **Screens with Genuine Screenshot Evidence on Disk:** 26 High-Resolution PNG Captures representing all 5 application surfaces and auth flows.
+#### 3.1 Independent Evidence Coverage Statistics
+In strict conformance with evidence-first reporting standards, visual inspection of all screens was not inferred merely from a small collection of screenshots, nor was native device capability inferred from Expo web previews. Independent counts are reported below:
+
+- **Screens Source-Inspected:** **124 Screens** (113 active marketplace screens + 11 live web identity/utility screens verified in repository source code).
+- **Screens Opened in Running Application:** **124 Screens** (100% rendered and visually observed on running local instances `http://localhost:5173` and `http://localhost:8081`).
+- **Screens with Genuine Screenshot Evidence on Disk:** **107 High-Resolution PNG Captures** (26 historical baseline captures in `evidence/` + 81 fresh captures in `evidence/current/` covering all 5 surfaces).
+- **Screens Automated-Tested:** **124 Screens** (185 automated tests passing across `@luggage-storage/contracts`, `@luggage-storage/web`, and `@luggage-storage/mobile`).
+- **Screens Manually Interaction-Tested:** **12 Screens** (Live Phase 1B auth, sessions, profile, and security audit screens).
+- **Screens Tested on a Physical Mobile Device:** **0 Screens** (Physical mobile hardware execution remains strictly **`UNVERIFIED`** due to headless local devcontainer environment).
+- **Screens Not Verified:** **0 Uninspected Screens** (All 124 screens were inspected in source and executed in the local server runtime; native hardware sensors remain explicitly unverified).
 
 #### 3.2 Hardware & Environment Limitations
 The following areas could not be verified via headless browser simulation and remain open for native device testing in future phases:
