@@ -16,8 +16,9 @@ export const mobileColors = {
   border: cwcpSemanticRoles.surface.border,
   primaryText: cwcpSemanticRoles.text.primary,
   secondaryText: cwcpSemanticRoles.text.secondary,
-  ctaBg: cwcpPalette.terracotta[500], // #C85316
+  ctaBg: cwcpPalette.terracotta[500], // #C55013
   ctaText: cwcpPalette.white,
+
 };
 
 export const mobileSpacing = {

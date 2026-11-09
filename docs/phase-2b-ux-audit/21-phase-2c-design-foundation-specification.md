@@ -16,7 +16,7 @@
 This document establishes the **authoritative shared design system specification** for Phase 2C. In strict compliance with project governance rules, all specifications are categorized into:
 - **`CONFIRMED_DECISION`**: Approved ergonomic, accessibility, and visual requirements:
   - **`DEC-008` (Mascot Asset Protection & Bounded Roles):** Adopted for Sprint 1 / WS-1. Original 20 PNGs are immutable. WebP derivatives are generated via script in a dedicated directory. Mascot is restricted to friendly guidance and empty states; excluded from payment, security, dispute, and admin surfaces.
-  - **`DEC-009` (Accessible Terracotta Re-tune):** Adopted for Sprint 1 / WS-1. Primary Terracotta token tuned to `#C85316` ensuring 4.62:1 contrast against white text `#FFFFFF` (WCAG 2.2 AA compliant).
+  - **`DEC-009` (Accessible Terracotta Re-tune):** Adopted for Sprint 1 / WS-1. Primary Terracotta token tuned to `#C55013` ensuring 4.635:1 contrast against white text `#FFFFFF` (strictly $\ge 4.50:1$, WCAG 2.2 AA compliant).
   - **Developer Diagnostics Boundary:** Development-only guard (`import.meta.env.DEV` on Web, `__DEV__` on Mobile) ensures complete exclusion of developer drawers, switchers, and internal IDs (`PW-xxx`, `HD-xxx`, `WF-xxx`) from production bundles and customer-facing DOM.
   - Touch targets $\ge 44\times 44$px, WCAG 2.2 AA compliance across all components.
 - **`PROVISIONAL_RECOMMENDATION`**: Extended multi-currency token definitions and advanced motion curves subject to ongoing iteration.
@@ -43,7 +43,7 @@ The CWCP palette balances institutional trust (Coastal Navy) with welcoming warm
 /* Brand Accent — Ceylon Spices (Accessible Re-tune per DEC-009) */
 --color-terracotta-700: #9E3708; /* Active / pressed button states */
 --color-terracotta-600: #B8460A; /* Primary CTA button hover state */
---color-terracotta-500: #C85316; /* Primary CTA background (Contrast 4.62:1 with #FFFFFF) */
+--color-terracotta-500: #C55013; /* Primary CTA background (Strict contrast 4.635:1 with #FFFFFF, >= 4.50:1 AA) */
 --color-terracotta-400: #E86F2C; /* Graphic accents, focus rings, and non-text borders */
 --color-terracotta-100: #FEE8D8; /* Soft terracotta badge background */
 --color-terracotta-50:  #FFF5EF; /* Subtle active card / container background tint */

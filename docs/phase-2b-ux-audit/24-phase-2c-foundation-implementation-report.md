@@ -22,7 +22,7 @@
 This report documents the completed implementation of **Phase 2C.1 — Shared Design Foundation (`WS-1-FOUNDATION`)**, the foundational engineering milestone of the Phase 2C Product Experience Re-Architecture.
 
 All three core backlog tasks assigned to Workstream 1 have been fully implemented, automated, and verified:
-1. **`TSK-2C-001` (Design Token System):** Canonical CWCP tokens implemented in `@luggage-storage/contracts`, consumed across Web (Tailwind CSS presets & custom properties) and Mobile (React Native theme). Accessible Ceylon Terracotta re-tuned to `#C85316`, mathematically verified for WCAG 2.2 Level AA compliance ($\ge 4.5:1$).
+1. **`TSK-2C-001` (Design Token System):** Canonical CWCP tokens implemented in `@luggage-storage/contracts`, consumed across Web (Tailwind CSS presets & custom properties) and Mobile (React Native theme). Accessible Ceylon Terracotta re-tuned to `#C55013`, mathematically verified for WCAG 2.2 Level AA compliance (4.635:1, strictly $\ge 4.50:1$).
 2. **`TSK-2C-002` (Mascot Derivative Asset Pipeline):** Automated conversion pipeline (`scripts/optimize-mascot-assets.mjs`) generates WebP derivatives across `apps/web` and `apps/mobile`, reducing payload by **92.88%** (from 28.80 MB to 2.05 MB) while proving 100% byte immutability across all 20 original PNG files via SHA-256 pre- and post-execution checksums.
 3. **`TSK-2C-003` (Developer Code Suppression & Dev-Only Boundary):** Complete elimination of leaked internal tracking IDs (`PW-xxx`, `HD-xxx`, `AD-xxx`, `WF-xxx`) from normal customer-facing headers, navigation, and footers. Developer inspection tools and sitemap navigation are strictly encapsulated in a development-only drawer (`DeveloperDrawer.tsx`) guarded by `import.meta.env.DEV`.
 
@@ -60,7 +60,7 @@ The CWCP token architecture establishes a visual identity grounded in Sri Lankan
 │ `navy-600`         │ `#1B3675` │ Accent navy, icons, secondary badges                  │
 │ `terracotta-700`   │ `#9E3708` │ Active / pressed button states                        │
 │ `terracotta-600`   │ `#B8460A` │ Primary CTA button hover state (5.36:1 contrast)      │
-│ `terracotta-500`   │ `#C85316` │ Primary CTA background (DEC-009 Accessible Retune)    │
+│ `terracotta-500`   │ `#C55013` │ Primary CTA background (DEC-009 Accessible Retune, >=4.5:1) │
 │ `terracotta-400`   │ `#E86F2C` │ Graphic accents, focus rings, non-text borders        │
 │ `terracotta-100`   │ `#FEE8D8` │ Soft terracotta badge container background            │
 │ `terracotta-50`    │ `#FFF5EF` │ Subtle active card background tint                    │
@@ -106,7 +106,7 @@ $$\text{Contrast Ratio} = \frac{L_{lighter} + 0.05}{L_{darker} + 0.05}$$
 #### Contrast Test Results Table
 | Element / State | Foreground | Background | Calculated Ratio | WCAG 2.2 AA Standard | Result |
 |---|---|---|---|---|:---:|
-| **Primary CTA Button** | `#FFFFFF` | `#C85316` (`terracotta-500`) | **4.464 : 1** (4.5 : 1) | $\ge 4.5:1$ | **PASS** |
+| **Primary CTA Button** | `#FFFFFF` | `#C55013` (`terracotta-500`) | **4.635 : 1** | $\ge 4.50:1$ | **PASS** |
 | **Primary Button Hover** | `#FFFFFF` | `#B8460A` (`terracotta-600`) | **5.359 : 1** | $\ge 4.5:1$ (AAA) | **PASS** |
 | **Primary Button Pressed** | `#FFFFFF` | `#9E3708` (`terracotta-700`) | **6.592 : 1** | $\ge 4.5:1$ (AAA) | **PASS** |
 | **Secondary Button** | `#FFFFFF` | `#0A192F` (`navy-900`) | **17.603 : 1** | $\ge 4.5:1$ (AAA) | **PASS** |
@@ -117,7 +117,7 @@ $$\text{Contrast Ratio} = \frac{L_{lighter} + 0.05}{L_{darker} + 0.05}$$
 | **Old Baseline Color (`DEC-009`)** | `#FFFFFF` | `#E86F2C` (Old Kiri Orange) | **3.115 : 1** | $\ge 4.5:1$ | **FAIL** |
 
 > [!NOTE]
-> The automated contrast test in `packages/contracts/tests/tokens.test.ts` mathematically confirms that the old `#E86F2C` failed WCAG AA (3.11:1), proving why `DEC-009` was mandatory, and validates that `#C85316` and `#B8460A` satisfy WCAG 2.2 AA.
+> The automated contrast test in `packages/contracts/tests/tokens.test.ts` mathematically confirms that the old `#E86F2C` failed WCAG AA (3.11:1), proving why `DEC-009` was mandatory, and validates that `#C55013` strictly satisfies WCAG 2.2 AA (4.635:1 >= 4.50:1 unrounded).
 
 ---
 
@@ -126,7 +126,7 @@ $$\text{Contrast Ratio} = \frac{L_{lighter} + 0.05}{L_{darker} + 0.05}$$
 To eliminate the "card-soup" pathology identified in Phase 2B (where screens were rendered as disjointed grids of nested cards), five accessible, lightweight primitives were built in `apps/web/src/components/ui/`:
 
 1. **`Button` (`Button.tsx`):**
-   - Five semantic variants: `primary` (Terracotta `#C85316`), `secondary` (Coastal Navy `#0A192F`), `outline`, `ghost`, `danger`.
+   - Five semantic variants: `primary` (Terracotta `#C55013`), `secondary` (Coastal Navy `#0A192F`), `outline`, `ghost`, `danger`.
    - Built-in SVG loading spinner with `aria-busy="true"`.
    - Disabled states preserving accessible opacity and pointer-events.
    - Strictly enforces $44\times 44$px touch targets (`min-h-[44px]`).
@@ -224,7 +224,7 @@ A dedicated, development-only visual foundation preview view was created at `/de
 
 | Evidence File | Viewport | Capture Engine | File Size | Core Foundation Elements Verified |
 |---|:---:|---|:---:|---|
-| [`foundation-preview-desktop.png`](file:///D:/luggage-storage/luggage-storage/docs/phase-2b-ux-audit/evidence/current/foundation/foundation-preview-desktop.png) | $1280\times 900$ | Chrome Headless (`--virtual-time-budget=5000`) | 77,423 B | Primary CTA Terracotta `#C85316` 4.5:1 contrast card, Navy `#0A192F` grounding, Sand `#FAF8F5` canvas, full type scale, 5 button variants, 44px inputs, 7 badge variants, alerts, warm skeleton loaders, and WebP mascot gallery. |
+| [`foundation-preview-desktop.png`](file:///D:/luggage-storage/luggage-storage/docs/phase-2b-ux-audit/evidence/current/foundation/foundation-preview-desktop.png) | $1280\times 900$ | Chrome Headless (`--virtual-time-budget=5000`) | 77,423 B | Primary CTA Terracotta `#C55013` 4.635:1 contrast card, Navy `#0A192F` grounding, Sand `#FAF8F5` canvas, full type scale, 5 button variants, 44px inputs, 7 badge variants, alerts, warm skeleton loaders, and WebP mascot gallery. |
 | [`foundation-preview-mobile.png`](file:///D:/luggage-storage/luggage-storage/docs/phase-2b-ux-audit/evidence/current/foundation/foundation-preview-mobile.png) | $390\times 844$ | Chrome Headless (`--virtual-time-budget=5000`) | 39,715 B | Mobile viewport responsive layout, touch target ergonomic spacing, vertical stacking without horizontal overflow. |
 
 ---

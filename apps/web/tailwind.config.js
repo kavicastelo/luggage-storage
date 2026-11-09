@@ -20,7 +20,7 @@ export default {
         brand: {
           50: cwcpPalette.sand[50],
           100: cwcpPalette.terracotta[100],
-          500: cwcpPalette.terracotta[500], // #C85316 Accessible Ceylon Terracotta
+          500: cwcpPalette.terracotta[500], // #C55013 Accessible Ceylon Terracotta (strict >= 4.5:1 unrounded)
           600: cwcpPalette.terracotta[600], // #B8460A
           700: cwcpPalette.terracotta[700], // #9E3708
           800: cwcpPalette.navy[800],
@@ -28,11 +28,12 @@ export default {
         },
         kiri: {
           cream: cwcpPalette.sand[50],     // #FAF8F5 Warm Sand
-          orange: cwcpPalette.terracotta[500], // #C85316 Accessible Terracotta (re-tuned from #E86F2C)
+          orange: cwcpPalette.terracotta[500], // #C55013 Accessible Terracotta
           amber: cwcpPalette.amber[500],
           maroon: "#5C0620",
           navy: cwcpPalette.navy[900],      // #0A192F
         },
+
       },
       fontFamily: {
         sans: ["Plus Jakarta Sans", "Inter", "system-ui", "-apple-system", "sans-serif"],

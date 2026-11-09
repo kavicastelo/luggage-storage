@@ -40,9 +40,10 @@ export const cwcpPalette = {
     100: '#FEE8D8', // Soft terracotta badge background
     200: '#FBB78E',
     300: '#F28D52',
-    400: '#E86F2C', // Graphic accents, focus rings, and non-text borders
-    500: '#C85316', // Primary CTA background (WCAG 2.2 AA compliant >= 4.5:1 with #FFFFFF)
+    400: '#E86F2C', // Graphic accents, focus rings, and non-text borders (>= 3.0:1 for UI elements)
+    500: '#C55013', // Primary CTA background (Strict WCAG 2.2 AA compliant >= 4.50:1 unrounded with #FFFFFF: 4.63:1)
     600: '#B8460A', // Primary CTA button hover state (5.36:1 contrast with #FFFFFF)
+
     700: '#9E3708', // Active / pressed button states
     800: '#7D2B06',
     900: '#5A1E04',
@@ -247,9 +248,10 @@ export const cwcpElevation = {
  */
 export const cwcpInteraction = {
   touchTargetMin: '44px',
-  focusRing: '0 0 0 2px #FAF8F5, 0 0 0 4px #C85316',
+  focusRing: '0 0 0 2px #FAF8F5, 0 0 0 4px #C55013',
   transitionDefault: 'all 150ms cubic-bezier(0.4, 0, 0.2, 1)',
 } as const;
+
 
 /**
  * Consolidated Design System Export
@@ -311,6 +313,7 @@ export function passesWcagAA(
 ): boolean {
   const ratio = calculateContrastRatio(foregroundHex, backgroundHex);
   const minimumRatio = isLargeText ? 3.0 : 4.5;
-  // With standard 1-decimal rounding in WCAG compliance reporting:
-  return ratio >= minimumRatio || Math.round(ratio * 10) / 10 >= minimumRatio;
+  // Strict unrounded threshold verification
+  return ratio >= minimumRatio;
 }
+
