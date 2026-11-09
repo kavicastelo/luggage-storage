@@ -18,6 +18,8 @@ import {
   HostStaffManagementRbacPage,
   HostBusinessProfileLegalPage
 } from "../src/pages/HostDashboardPages";
+import { useAuthStore } from "@/store/useAuthStore";
+import { AuthenticatedUser } from "@luggage-storage/contracts";
 
 function renderWithRouter(ui: React.ReactElement, initialRoute = "/host/dashboard") {
   return renderToString(
@@ -253,7 +255,7 @@ describe("Phase 2C.4 — Host Web Dashboard Experience Verification", () => {
       expect(html).toContain("Desk Counter Active");
       expect(html).toContain("Intake Handover");
       expect(html).toContain("Release Pick-Up");
-      expect(html).toContain("Desktop Counter Workstation:");
+      expect(html).toContain("Desktop Counter Workstation (Local Prototype Simulation):");
       expect(html).toContain("Quick Test Records:");
       expect(html).toContain("Dynamic QR Scan Token (Primary)");
       expect(html).toContain("6-Digit Backup PIN (Rate-Limited Fallback)");
@@ -349,7 +351,7 @@ describe("Phase 2C.4 — Host Web Dashboard Experience Verification", () => {
     it("renders corporate registration certificate (BRN), TIN/VAT status, and verified KYC", () => {
       const html = renderWithRouter(<HostBusinessProfileLegalPage />, "/host/settings");
       expect(html).toContain("Business Profile &amp; Legal Compliance");
-      expect(html).toContain("KYC Verified &amp; Compliant");
+      expect(html).toContain("KYC Profile Preview (Demo Simulation)");
       expect(html).toContain("Ceylon Transit Hospitality (Pvt) Ltd");
       expect(html).toContain("PV-00294812");
       expect(html).toContain("TIN-10928472-0001");
@@ -362,6 +364,108 @@ describe("Phase 2C.4 — Host Web Dashboard Experience Verification", () => {
       const html = renderWithRouter(<HostBusinessProfileLegalPage />, "/host/settings");
       expect(html).not.toMatch(FORBIDDEN_DEVELOPER_PATTERN);
       expect(html).not.toContain("HD-014");
+    });
+  });
+
+  describe("Product Governance & Audit Verifications (WS-4-HOST-WEB)", () => {
+    it("enforces absence of unsupported claims across all surfaces", () => {
+      const layoutHtml = renderWithRouter(<HostOverviewDashboardPage />, "/host/dashboard");
+      expect(layoutHtml).not.toContain("Verified Commercial Storage Partner");
+      expect(layoutHtml).toContain("Sample Host Partner Profile (Demo Preview)");
+
+      const custodyHtml = renderWithRouter(
+        <HostBookingManagementHubPage />,
+        "/host/bookings?inspect=bkg-1001"
+      );
+      expect(custodyHtml).not.toContain("Server verified with QR primary scan");
+      expect(custodyHtml).toContain("Prototype Intake: Handover recorded against demo session fixture");
+
+      const payoutsHtml = renderWithRouter(<HostPayoutAccountsHistoryPage />, "/host/payouts");
+      expect(payoutsHtml).not.toContain("Verified &amp; Active");
+      expect(payoutsHtml).toContain("Sample Bank Record (Demo)");
+
+      const kycHtml = renderWithRouter(<HostBusinessProfileLegalPage />, "/host/settings");
+      expect(kycHtml).not.toContain("KYC Verified &amp; Compliant");
+      expect(kycHtml).toContain("KYC Profile Preview (Demo Simulation)");
+      expect(kycHtml).not.toContain(">Approved<");
+      expect(kycHtml).toContain("Sample Verification Status");
+    });
+
+    it("renders explicit honest prototype notices across custody, operations, finance, and settings", () => {
+      const opsHtml = renderWithRouter(<HostWebCheckInOutOperationsPage />, "/host/operations");
+      expect(opsHtml).toContain("Desktop Counter Workstation (Local Prototype Simulation):");
+
+      const financeHtml = renderWithRouter(<HostFinancialRevenueLedgerPage />, "/host/finance");
+      expect(financeHtml).toContain("Financial Ledger (Demo Figures):");
+      expect(financeHtml).toContain("Illustrative Friday batch estimate (DEC-006)");
+
+      const payoutsHtml = renderWithRouter(<HostPayoutAccountsHistoryPage />, "/host/payouts");
+      expect(payoutsHtml).toContain("Payout Accounts (Demo Record):");
+      expect(payoutsHtml).toContain("Download Sample PDF (Demo Action)");
+
+      const reviewsHtml = renderWithRouter(<HostReviewManagementPage />, "/host/reviews");
+      expect(reviewsHtml).toContain("Customer Reviews (Demo Data):");
+
+      const staffHtml = renderWithRouter(<HostStaffManagementRbacPage />, "/host/staff");
+      expect(staffHtml).toContain("Team Management (Demo State):");
+
+      const legalHtml = renderWithRouter(<HostBusinessProfileLegalPage />, "/host/settings");
+      expect(legalHtml).toContain("Business Profile &amp; KYC (Demo Simulation):");
+    });
+
+    it("reconciles pending product decisions DEC-001, DEC-002, and DEC-006 with clear prototype labels", () => {
+      const locationProfileHtml = renderWithRouter(
+        <HostLocationProfileEditorPage />,
+        "/host/locations/loc-cmb-fort-01"
+      );
+      expect(locationProfileHtml).toContain("Prototype Option: DEC-001 Pending PO Sign-Off");
+
+      const pricingHtml = renderWithRouter(
+        <HostPricingRulesMultipliersPage />,
+        "/host/locations/loc-cmb-fort-01/pricing"
+      );
+      expect(pricingHtml).toContain("DEC-002 Pending PO Sign-Off");
+      expect(pricingHtml).toContain("baggage release is never withheld for overdue fee collection");
+      expect(pricingHtml).toContain("Late Collection Surcharge Policy (Illustrative Prototype)");
+
+      const financeHtml = renderWithRouter(<HostFinancialRevenueLedgerPage />, "/host/finance");
+      expect(financeHtml).toContain("DEC-006 Pending PO Sign-Off");
+
+      const payoutsHtml = renderWithRouter(<HostPayoutAccountsHistoryPage />, "/host/payouts");
+      expect(payoutsHtml).toContain("DEC-006 Pending PO Sign-Off");
+    });
+
+    it("enforces staff role restriction guard with MascotIllustration on owner-only routes", () => {
+      // Simulate authenticated HOST_STAFF user
+      const mockStaffUser: AuthenticatedUser = {
+        id: "usr-staff-test",
+        email: "staff@example.com",
+        displayName: "Staff Counter User",
+        status: "ACTIVE",
+        isEmailVerified: true,
+        isPhoneVerified: false,
+        roles: ["HOST_STAFF"],
+        lastLoginAt: new Date().toISOString()
+      };
+
+      useAuthStore.setState({
+        isAuthenticated: true,
+        user: mockStaffUser
+      });
+
+      try {
+        const staffRestrictedHtml = renderWithRouter(
+          <HostFinancialRevenueLedgerPage />,
+          "/host/finance?role=staff"
+        );
+        expect(staffRestrictedHtml).toContain("Host Owner Authorization Required");
+        expect(staffRestrictedHtml).toContain(
+          "Staff account permissions restricted to counter operations."
+        );
+        expect(staffRestrictedHtml).toContain("Return to Check-In &amp; Out Desk");
+      } finally {
+        useAuthStore.getState().clearAuth();
+      }
     });
   });
 });

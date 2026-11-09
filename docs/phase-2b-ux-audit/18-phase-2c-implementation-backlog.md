@@ -450,7 +450,7 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 ### 5. Workstream 4: Host Web Dashboard (`WS-4-HOST-WEB`)
-*Status: COMPLETED (Phase 2C.4 Delivery — Verified under DOC-UX-P2C-033 and DOC-UX-P2C-034)*
+*Status: ACCEPTED WITH CONDITIONS (Phase 2C.4 Delivery & Independent Audit — Verified under DOC-UX-P2C-033, DOC-UX-P2C-034, DOC-UX-P2C-035, and DOC-UX-P2C-036)*
 
 ---
 

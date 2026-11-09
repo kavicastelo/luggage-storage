@@ -88,7 +88,7 @@ Phase 2C executes across **seven independently deliverable workstreams** organiz
 ---
 
 #### Workstream 4: Host Web Dashboard (`WS-4-HOST-WEB`)
-- **Status:** **COMPLETED** (Sprint 4 / Phase 2C.4 Delivery — Verified under `DOC-UX-P2C-033` and `DOC-UX-P2C-034`)
+- **Status:** **ACCEPTED WITH CONDITIONS** (Sprint 4 / Phase 2C.4 Delivery & Independent Audit — Verified under `DOC-UX-P2C-033`, `DOC-UX-P2C-034`, `DOC-UX-P2C-035`, and `DOC-UX-P2C-036`)
 - **Objective:** Modernize the host operations experience, replacing developer card grids with high-density operational desks and business tools across 14 screens.
 - **Included Applications:** `apps/web` (`apps/web/src/pages/host/`).
 - **Scope:** Collapsible navy sidebar (zero `HD-xxx` codes); high-velocity live counter desk kiosk mode; space capacity utilization bars; bookings ledger with slide-over drawer; 85/15 revenue split center.
