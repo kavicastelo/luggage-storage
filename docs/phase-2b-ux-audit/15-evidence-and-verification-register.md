@@ -219,7 +219,7 @@ Total Registered Screen Identifiers: 124 ID Span
 - **Screens Source-Inspected:** **124 / 124 (100%)**
 - **Screens Opened in Running Application:** **124 / 124 (100%)**
 - **Genuine Screenshot Evidence on Disk:** **123 Genuine PNGs** (26 baseline + 97 current) representing **85 unique catalogued screens** (with dual desktop $1280\times 900$, mobile $390\times 844$, small mobile $375\times 812$, and tablet $768\times 1024$ viewports or multi-state modal captures).
-- **Automated Test Coverage:** **407 tests passing across monorepo** (Contracts: 77, Web: 75, Mobile: 56, API: 199), including comprehensive UI journey test suites for Public Web and Traveller Mobile.
+- **Automated Test Coverage:** **415 tests passing across monorepo** (Contracts: 77, Web: 75, Mobile: 64, API: 199), including comprehensive UI journey and independent audit verification test suites.
 - **Screens Manually Interaction-Tested:** **50 / 124 (40.3%)** (Phase 1B live identity, Phase 2C.2 public web, Phase 2C.3 traveller mobile)
 - **Screens Tested on Physical Mobile Device:** **0 / 124 (0% — UNVERIFIED on real hardware; verified in Expo Web and headless mobile viewports)**
 - **Screens Not Verified:** **0 / 124 Uninspected** (Hardware sensor runtime remains explicitly unverified)

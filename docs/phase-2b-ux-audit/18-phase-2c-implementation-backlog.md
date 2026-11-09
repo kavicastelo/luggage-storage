@@ -311,7 +311,7 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 ### 4. Workstream 3: Traveller Mobile Application (`WS-3-TRAVELLER-MOB`)
-*Status: COMPLETED (Phase 2C.3 Delivery — Verified under DOC-UX-P2C-028 and DOC-UX-P2C-029)*
+*Status: COMPLETED & AUDITED (Phase 2C.3 Delivery — Audited under DOC-UX-P2C-028, DOC-UX-P2C-029, DOC-UX-P2C-030, and DOC-UX-P2C-031)*
 
 ---
 
