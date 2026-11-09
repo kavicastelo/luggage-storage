@@ -59,17 +59,17 @@ Historical project documentation contained conflicting screen totals, citing "12
 
 ### 4. Summary of Multi-Dimensional Audit Findings
 
-Every screen was independently audited across seven functional and architectural dimensions:
+Every screen was independently audited across seven functional and architectural dimensions, with statuses reconciled to strictly separate route existence from production UI, interaction, and backend capability:
 
-| Dimension | Implemented / Complete | Simulated / Preview | Incomplete / Blocked | Audit Conclusion |
+| Dimension | Verified / Live | Simulated / Preview | Incomplete / Blocked | Audit Conclusion |
 |---|:---:|:---:|:---:|---|
 | **1. Specification (`Spec`)** | 113 / 113 (100%) | 0 | 0 | Fully documented across FRS, UX Registry, and Workflow matrices. |
-| **2. UI Presentation (`UI`)** | 113 / 113 (100%) | 0 | 0 | Visually rendered, but suffering from severe aesthetic, card, and jargon defects. |
-| **3. Interaction (`Interaction`)** | 12 / 113 (11%) | 95 / 113 (84%) | 6 / 113 (5%) | Live for Auth/RBAC; remainder operates on local client state; map & camera are placeholders. |
-| **4. API Integration (`API`)** | 12 / 113 (11%) | 0 | 101 / 113 (89%) | Live Fastify endpoints for Auth/RBAC/Audit; domain API endpoints deferred to Phase 3+. |
-| **5. Backend Logic (`Backend`)** | 12 / 113 (11%) | 0 | 101 / 113 (89%) | Fastify modular backend implements Identity/RBAC; booking/custody engines deferred. |
-| **6. Database Persistence (`DB`)** | 12 / 113 (11%) | 0 | 101 / 113 (89%) | PostgreSQL schema covers Identity, RBAC, Sessions, Audit; marketplace tables uncreated. |
-| **7. QA Verification (`QA`)** | 113 / 113 (100%) | 0 | 0 | Vitest contract and component tests pass, but previous "QA_VERIFIED" status disguised UI simulation. |
+| **2. Visual/UI Status (`UI`)** | 3 / 113 (2.7%) | 109 / 113 (96.5%) | 1 / 113 (0.9%) | Only 3 static views (`PW-007, 008, 010`) are clean. 109 operate as prototype simulations with leaked tracking codes; `AD-013` is placeholder. |
+| **3. Interaction (`Interaction`)** | 12 / 113 (10.6%) | 95 / 113 (84.1%) | 6 / 113 (5.3%) | Live for Auth/RBAC; 95 operate purely on ephemeral local React state; map and camera scanning are placeholders. |
+| **4. API Integration (`API`)** | 12 / 113 (10.6%) | 0 | 101 / 113 (89.4%) | Live Fastify endpoints for Auth/RBAC/Audit; 98 domain API endpoints deferred to Phase 3+; 3 static views. |
+| **5. Backend Logic (`Backend`)** | 12 / 113 (10.6%) | 0 | 101 / 113 (89.4%) | Fastify modular backend implements Identity/RBAC; booking/custody/payout engines deferred to Phase 3+. |
+| **6. Database Persistence (`DB`)** | 12 / 113 (10.6%) | 0 | 101 / 113 (89.4%) | PostgreSQL schema covers Identity, RBAC, Sessions, Audit; marketplace tables uncreated in migrations `0000`–`0005`. |
+| **7. QA & Evidence (`QA`)** | 113 / 113 (100%) | 0 | 0 | Vitest unit tests pass against preview data. 107 genuine screenshots captured (26 baseline + 81 fresh); physical device testing is unverified. |
 
 ---
 
