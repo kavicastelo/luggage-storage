@@ -311,10 +311,13 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 ### 4. Workstream 3: Traveller Mobile Application (`WS-3-TRAVELLER-MOB`)
+*Status: COMPLETED (Phase 2C.3 Delivery — Verified under DOC-UX-P2C-028 and DOC-UX-P2C-029)*
 
 ---
 
 #### Task `TSK-2C-011`: Mobile Navigation Restructure: 5-Tab Shell & Stack Router
+- **Status:** **COMPLETED** (Sprint 3 / WS-3 / Phase 2C.3)
+- **Completion Artifacts:** `apps/mobile/app/(traveller)/_layout.tsx`, `apps/mobile/src/components/`, `apps/mobile/tests/traveller-mobile-journeys.test.ts`, `docs/phase-2b-ux-audit/evidence/current/traveller-mobile/tm-011-explore-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 2 (Functional Frontend)
 - **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/`)
 - **User Persona:** Mobile traveller
@@ -340,6 +343,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-012`: Mobile Discovery Hub with Interactive Map & Bottom Sheet (`TM-011`, `TM-012`)
+- **Status:** **COMPLETED** (Sprint 3 / WS-3 / Phase 2C.3)
+- **Completion Artifacts:** `apps/mobile/app/(traveller)/index.tsx`, `apps/mobile/app/(traveller)/explore.tsx`, `apps/mobile/app/(traveller)/location.tsx`, `apps/mobile/tests/traveller-mobile-journeys.test.ts`, `docs/phase-2b-ux-audit/evidence/current/traveller-mobile/tm-011-*, tm-012-*, tm-015-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/explore.tsx`)
 - **User Persona:** Mobile traveller seeking nearby storage
@@ -365,6 +370,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-013`: Mobile Bag Selection, Capacity & Booking Checkout (`TM-017`–`TM-019`)
+- **Status:** **COMPLETED** (Sprint 3 / WS-3 / Phase 2C.3)
+- **Completion Artifacts:** `apps/mobile/app/(traveller)/checkout.tsx`, `apps/mobile/tests/traveller-mobile-journeys.test.ts`, `docs/phase-2b-ux-audit/evidence/current/traveller-mobile/tm-017-checkout-schedule-mobile.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/checkout.tsx`)
 - **User Persona:** Mobile traveller booking storage on the go
@@ -389,6 +396,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-014`: Mobile Digital Custody Ticket & Offline Caching (`TM-024`)
+- **Status:** **COMPLETED** (Sprint 3 / WS-3 / Phase 2C.3)
+- **Completion Artifacts:** `apps/mobile/app/(traveller)/pass.tsx`, `apps/mobile/tests/traveller-mobile-journeys.test.ts`, `docs/phase-2b-ux-audit/evidence/current/traveller-mobile/tm-024-custody-pass-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/pass.tsx`)
 - **User Persona:** Traveller at storage counter without mobile data
@@ -414,6 +423,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-015`: Live Active Custody Countdown Timer & Extension Modal (`TM-030`, `TM-031`)
+- **Status:** **COMPLETED** (Sprint 3 / WS-3 / Phase 2C.3)
+- **Completion Artifacts:** `apps/mobile/app/(traveller)/bookings.tsx`, `apps/mobile/tests/traveller-mobile-journeys.test.ts`, `docs/phase-2b-ux-audit/evidence/current/traveller-mobile/tm-027-active-storage-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Traveller Mobile (`apps/mobile/app/(traveller)/active-storage.tsx`)
 - **User Persona:** Traveller exploring city while bags are stored
