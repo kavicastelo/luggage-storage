@@ -31,22 +31,25 @@ export function MascotIllustration({
   if (variant === "inline") {
     return (
       <div className={`inline-flex items-center gap-3 ${className}`} data-mascot-id={meta.id}>
-        <div className="relative flex-shrink-0 rounded-2xl bg-amber-50/80 border border-amber-200/70 p-1.5 shadow-sm">
-          <img
-            src={meta.publicPath}
-            alt={meta.alt}
-            className={`${SIZE_CLASSES[size]} object-contain select-none`}
-            loading="lazy"
-          />
+        <div className="relative flex-shrink-0 rounded-2xl bg-sand-100/90 border border-sand-200 p-1.5 shadow-sm">
+          <picture>
+            <source srcSet={meta.webpPath} type="image/webp" />
+            <img
+              src={meta.publicPath}
+              alt={meta.alt}
+              className={`${SIZE_CLASSES[size]} object-contain select-none`}
+              loading="lazy"
+            />
+          </picture>
         </div>
         {(badgeText || caption) && (
           <div className="text-left">
             {badgeText && (
-              <span className="inline-block text-[11px] font-bold uppercase tracking-wider text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-full mb-1">
+              <span className="inline-block text-[11px] font-bold uppercase tracking-wider text-terracotta-700 bg-terracotta-100 px-2 py-0.5 rounded-full mb-1">
                 {badgeText}
               </span>
             )}
-            {caption && <p className="text-xs sm:text-sm text-slate-600 font-medium">{caption}</p>}
+            {caption && <p className="text-xs sm:text-sm text-sand-700 font-medium">{caption}</p>}
           </div>
         )}
       </div>
@@ -55,31 +58,36 @@ export function MascotIllustration({
 
   return (
     <div
-      className={`flex flex-col items-center text-center rounded-2xl ${variant === "hero"
-          ? "bg-gradient-to-br from-amber-50 via-white to-blue-50 border border-amber-200/80 p-6 shadow-md"
+      className={`flex flex-col items-center text-center rounded-2xl ${
+        variant === "hero"
+          ? "bg-gradient-to-br from-terracotta-50 via-white to-sand-50 border border-sand-200 p-6 shadow-md"
           : variant === "empty"
-            ? "bg-slate-50/90 border border-dashed border-slate-300 p-8"
-            : "bg-amber-50/50 border border-amber-100 p-4"
-        } ${className}`}
+          ? "bg-sand-50/90 border border-dashed border-sand-300 p-8"
+          : "bg-sand-100/50 border border-sand-200 p-4"
+      } ${className}`}
       data-mascot-id={meta.id}
     >
       {badgeText && (
-        <span className="inline-block text-[11px] font-bold uppercase tracking-wider text-amber-900 bg-amber-100 border border-amber-200 px-2.5 py-0.5 rounded-full mb-2">
+        <span className="inline-block text-[11px] font-bold uppercase tracking-wider text-terracotta-800 bg-terracotta-100 border border-terracotta-200 px-2.5 py-0.5 rounded-full mb-2">
           {badgeText}
         </span>
       )}
-      <img
-        src={meta.publicPath}
-        alt={meta.alt}
-        className={`${SIZE_CLASSES[size]} object-contain select-none drop-shadow-sm`}
-        loading="lazy"
-      />
+      <picture>
+        <source srcSet={meta.webpPath} type="image/webp" />
+        <img
+          src={meta.publicPath}
+          alt={meta.alt}
+          className={`${SIZE_CLASSES[size]} object-contain select-none drop-shadow-sm`}
+          loading="lazy"
+        />
+      </picture>
       {caption && (
-        <p className="mt-2.5 text-xs sm:text-sm text-slate-600 max-w-sm font-medium leading-relaxed">
+        <p className="mt-2.5 text-xs sm:text-sm text-sand-700 max-w-sm font-medium leading-relaxed">
           {caption}
         </p>
       )}
     </div>
   );
+
 }
 

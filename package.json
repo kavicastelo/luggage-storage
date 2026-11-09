@@ -16,11 +16,13 @@
     "test": "turbo run test",
     "db:migrate": "pnpm --filter @luggage-storage/api db:migrate",
     "verify": "turbo run lint typecheck test build",
+    "assets:optimize-mascot": "node scripts/optimize-mascot-assets.mjs",
     "clean": "turbo run clean"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.14.0",
+    "sharp": "^0.35.5",
     "turbo": "^2.0.0",
     "typescript": "^5.4.5",
     "typescript-eslint": "^8.72.1"

@@ -1,0 +1,383 @@
+{
+  "timestamp": "2026-11-09T05:08:27.295Z",
+  "directories": [
+    {
+      "target": "apps/web",
+      "originalFilesCount": 20,
+      "totalOriginalBytes": 28804233,
+      "totalWebpBytes": 2050252,
+      "overallSavings": "92.88%",
+      "items": [
+        {
+          "file": "LS-mascot_01_wave.png",
+          "originalBytes": 1563307,
+          "originalSha256": "18d80bd7849e722809355bfbc373b5a44b96ff6d849897fbede9e7f6ce20e273",
+          "webpFile": "LS-mascot_01_wave.webp",
+          "webpBytes": 108886,
+          "webpSha256": "57faefbbb1a7b8e71050b3d0d5bdbc025aff4d9354564cc3a19f9a0a9d65dccd",
+          "savingPercent": "93.0%"
+        },
+        {
+          "file": "LS-mascot_02_suitcase-walk.png",
+          "originalBytes": 1582849,
+          "originalSha256": "1c296e3cd39731691204055d15d138fad19b7c9b4539c9122764c336b2dd4d29",
+          "webpFile": "LS-mascot_02_suitcase-walk.webp",
+          "webpBytes": 115556,
+          "webpSha256": "a0710316abaec7a157e11170fb912997bd7d9e09f72ea45a90f752e043910eec",
+          "savingPercent": "92.7%"
+        },
+        {
+          "file": "LS-mascot_03_suitcase-peek.png",
+          "originalBytes": 1331431,
+          "originalSha256": "3652fcd5e01c72323a50036e70b26951090f127e9cbf25141246f95bdee95b1e",
+          "webpFile": "LS-mascot_03_suitcase-peek.webp",
+          "webpBytes": 89842,
+          "webpSha256": "b691a417e9756b6b013f64fa892c62fd98d574641c5aa548786b4244f1f7aaed",
+          "savingPercent": "93.3%"
+        },
+        {
+          "file": "LS-mascot_04_blank-tag.png",
+          "originalBytes": 1482241,
+          "originalSha256": "fb57a29aa41d3699f4711b9d5967386f3a75227a7f3704c8e8df1198fcdb4de6",
+          "webpFile": "LS-mascot_04_blank-tag.webp",
+          "webpBytes": 107380,
+          "webpSha256": "d458110d17352372deb826bfbacc61eb84c0ec6c8822d8a37120fc6f70858737",
+          "savingPercent": "92.8%"
+        },
+        {
+          "file": "LS-mascot_05_pointing.png",
+          "originalBytes": 1461814,
+          "originalSha256": "92793d035c6e9c4a7e5525bddf7fe455f816ea304c2cd80b7f759b55a0605253",
+          "webpFile": "LS-mascot_05_pointing.webp",
+          "webpBytes": 102196,
+          "webpSha256": "1054ac4b6dbafa073ba16d82f87d8cab8293afdaabeea6cd64bcddb7d2512e77",
+          "savingPercent": "93.0%"
+        },
+        {
+          "file": "LS-mascot_06_thinking.png",
+          "originalBytes": 1290800,
+          "originalSha256": "1b536a013f167e4910792dc43cdb0a3d0e88bcf2abfd1985a2319f86f26b45c5",
+          "webpFile": "LS-mascot_06_thinking.webp",
+          "webpBytes": 92916,
+          "webpSha256": "a037a79a7d689f4a70592d03b608868e63bb916232f1ed4220c7002c381bf08d",
+          "savingPercent": "92.8%"
+        },
+        {
+          "file": "LS-mascot_07_sleeping.png",
+          "originalBytes": 1326376,
+          "originalSha256": "e9c00f2ba4bfc4c6f0934f97dc01765e03ab96af1cd01e1d4cfc13f20f15f943",
+          "webpFile": "LS-mascot_07_sleeping.webp",
+          "webpBytes": 90778,
+          "webpSha256": "58aeff9c4a9bb9d237f1a9531e9035491955217c6629fec4c94554af211ec6b2",
+          "savingPercent": "93.2%"
+        },
+        {
+          "file": "LS-mascot_08_phone.png",
+          "originalBytes": 1372941,
+          "originalSha256": "f659015ab6cf7a3e4724394896fae3cf979005c435d8d47588eec295730c5407",
+          "webpFile": "LS-mascot_08_phone.webp",
+          "webpBytes": 99216,
+          "webpSha256": "5ff2574ee75825399c5d222d231c38f8430f44ee393ecaaaa7e8c323f3f067fc",
+          "savingPercent": "92.8%"
+        },
+        {
+          "file": "LS-mascot_09_jump.png",
+          "originalBytes": 1422115,
+          "originalSha256": "2cfad35354644a8d4054a689258615eeb74d723e3aa070fda1adea0da22c774c",
+          "webpFile": "LS-mascot_09_jump.webp",
+          "webpBytes": 96902,
+          "webpSha256": "6c20ad61fae1bc64ab642bfd8841da9f2fe06298430ea6a4f02dec22746aa4f6",
+          "savingPercent": "93.2%"
+        },
+        {
+          "file": "LS-mascot_10_map.png",
+          "originalBytes": 1351771,
+          "originalSha256": "d2624d263ff8550b6ac5c380775c476c6767260962681f984b228ff4335a1cef",
+          "webpFile": "LS-mascot_10_map.webp",
+          "webpBytes": 100010,
+          "webpSha256": "4c143ebddd48c1459281f43997282a62a5883947314eff3bdf4be6f61d81dc27",
+          "savingPercent": "92.6%"
+        },
+        {
+          "file": "LS-mascot_11_sun-hat.png",
+          "originalBytes": 1549705,
+          "originalSha256": "1c2a0357e5643a4c7d5f9fb82d1c474d1a420510366246a0811046cd59d300f7",
+          "webpFile": "LS-mascot_11_sun-hat.webp",
+          "webpBytes": 114762,
+          "webpSha256": "831b50df8004a53b03f637493d45386b7b2f245b42c5bcf89bd27035368306c7",
+          "savingPercent": "92.6%"
+        },
+        {
+          "file": "LS-mascot_12_high-five.png",
+          "originalBytes": 1496224,
+          "originalSha256": "f09439e71b193c393c51f513f03ff64c254a53bc281923fe4f681a060874b7e3",
+          "webpFile": "LS-mascot_12_high-five.webp",
+          "webpBytes": 105470,
+          "webpSha256": "4d8cc54aacbe9fbe973b239aa8fbd3b1a4c2d5cdb9e8b2170ec5a0ba05fc63c9",
+          "savingPercent": "93.0%"
+        },
+        {
+          "file": "LS-mascot_13_alarm-clock.png",
+          "originalBytes": 1457902,
+          "originalSha256": "bf2e92467f7666c2ba07a4ca2c1ce215bd757024466749d8c52b32eb4429b89c",
+          "webpFile": "LS-mascot_13_alarm-clock.webp",
+          "webpBytes": 106368,
+          "webpSha256": "cc85347e7946c88cfa232b77b219248f852d9ed23cd9da40dd84920a61c787f7",
+          "savingPercent": "92.7%"
+        },
+        {
+          "file": "LS-mascot_14_key.png",
+          "originalBytes": 1625109,
+          "originalSha256": "2e97a3b942f54a15bab20a14175344854ae0e628bbdfd160d917f4a52ad406a4",
+          "webpFile": "LS-mascot_14_key.webp",
+          "webpBytes": 121470,
+          "webpSha256": "daecf910e06110b4378c60f1a4e2f7c3db382a15fc25ea3fb2151d03e86ad1a0",
+          "savingPercent": "92.5%"
+        },
+        {
+          "file": "LS-mascot_15_suitcase-hug.png",
+          "originalBytes": 1377456,
+          "originalSha256": "d74c89ff60aef66f12928ec74c3719f5c3eb68eab6e42d43708e4e1fb48a2ece",
+          "webpFile": "LS-mascot_15_suitcase-hug.webp",
+          "webpBytes": 94272,
+          "webpSha256": "9c8f779c84d1aab8baaf976f99cd351724a2b430176be6aecea311542dc0214f",
+          "savingPercent": "93.2%"
+        },
+        {
+          "file": "LS-mascot_16_selfie.png",
+          "originalBytes": 1589682,
+          "originalSha256": "29025f673936605e61fb838b40864f2582437efd8e79437a7f2e68578b593d38",
+          "webpFile": "LS-mascot_16_selfie.webp",
+          "webpBytes": 110476,
+          "webpSha256": "a52afa4a752c67258e73384cb90f7fbf1770d495065391dadd2aa77e51113d46",
+          "savingPercent": "93.1%"
+        },
+        {
+          "file": "LS-mascot_17_king-coconut.png",
+          "originalBytes": 1352051,
+          "originalSha256": "43c2c92e07976d1270d3ceda75cbe976798b4d6293ac64021fe7db16701effcb",
+          "webpFile": "LS-mascot_17_king-coconut.webp",
+          "webpBytes": 103324,
+          "webpSha256": "6e2cad50d88e11114e9a3ad3d143e5525f81162fcac447da230e7ded6f380eb1",
+          "savingPercent": "92.4%"
+        },
+        {
+          "file": "LS-mascot_18_salute.png",
+          "originalBytes": 1368009,
+          "originalSha256": "25a76075d71cbaf0b5bd02efd7fa670f774e505d02bc6eaf0739ac1a2393aaf1",
+          "webpFile": "LS-mascot_18_salute.webp",
+          "webpBytes": 95280,
+          "webpSha256": "afb1022b0ccccefca3b12c2a39ec6ff187bf816d10c0ce4efe060ab543e9d910",
+          "savingPercent": "93.0%"
+        },
+        {
+          "file": "LS-mascot_19_shrug.png",
+          "originalBytes": 1401525,
+          "originalSha256": "a5c13babf4951242f4aa0e1efc03dc59003a1f24c78c854f1ce6d725100fc481",
+          "webpFile": "LS-mascot_19_shrug.webp",
+          "webpBytes": 99266,
+          "webpSha256": "cab683f1966bb1629c68a1d7130334c0d3e8d06f481b7850a4bc5903efa8ae98",
+          "savingPercent": "92.9%"
+        },
+        {
+          "file": "LS-mascot_20_sitting-suitcase.png",
+          "originalBytes": 1400925,
+          "originalSha256": "8c496cfb22ae447e423f7b4cb19bb752d5b7ab4a5e16e8cecda05726d366ed36",
+          "webpFile": "LS-mascot_20_sitting-suitcase.webp",
+          "webpBytes": 95882,
+          "webpSha256": "ec201163e36d0123b5941e3c6f7605a5309d496daf61ffb6977d41bf6c683bf0",
+          "savingPercent": "93.2%"
+        }
+      ]
+    },
+    {
+      "target": "apps/mobile",
+      "originalFilesCount": 20,
+      "totalOriginalBytes": 28804233,
+      "totalWebpBytes": 2050252,
+      "overallSavings": "92.88%",
+      "items": [
+        {
+          "file": "LS-mascot_01_wave.png",
+          "originalBytes": 1563307,
+          "originalSha256": "18d80bd7849e722809355bfbc373b5a44b96ff6d849897fbede9e7f6ce20e273",
+          "webpFile": "LS-mascot_01_wave.webp",
+          "webpBytes": 108886,
+          "webpSha256": "57faefbbb1a7b8e71050b3d0d5bdbc025aff4d9354564cc3a19f9a0a9d65dccd",
+          "savingPercent": "93.0%"
+        },
+        {
+          "file": "LS-mascot_02_suitcase-walk.png",
+          "originalBytes": 1582849,
+          "originalSha256": "1c296e3cd39731691204055d15d138fad19b7c9b4539c9122764c336b2dd4d29",
+          "webpFile": "LS-mascot_02_suitcase-walk.webp",
+          "webpBytes": 115556,
+          "webpSha256": "a0710316abaec7a157e11170fb912997bd7d9e09f72ea45a90f752e043910eec",
+          "savingPercent": "92.7%"
+        },
+        {
+          "file": "LS-mascot_03_suitcase-peek.png",
+          "originalBytes": 1331431,
+          "originalSha256": "3652fcd5e01c72323a50036e70b26951090f127e9cbf25141246f95bdee95b1e",
+          "webpFile": "LS-mascot_03_suitcase-peek.webp",
+          "webpBytes": 89842,
+          "webpSha256": "b691a417e9756b6b013f64fa892c62fd98d574641c5aa548786b4244f1f7aaed",
+          "savingPercent": "93.3%"
+        },
+        {
+          "file": "LS-mascot_04_blank-tag.png",
+          "originalBytes": 1482241,
+          "originalSha256": "fb57a29aa41d3699f4711b9d5967386f3a75227a7f3704c8e8df1198fcdb4de6",
+          "webpFile": "LS-mascot_04_blank-tag.webp",
+          "webpBytes": 107380,
+          "webpSha256": "d458110d17352372deb826bfbacc61eb84c0ec6c8822d8a37120fc6f70858737",
+          "savingPercent": "92.8%"
+        },
+        {
+          "file": "LS-mascot_05_pointing.png",
+          "originalBytes": 1461814,
+          "originalSha256": "92793d035c6e9c4a7e5525bddf7fe455f816ea304c2cd80b7f759b55a0605253",
+          "webpFile": "LS-mascot_05_pointing.webp",
+          "webpBytes": 102196,
+          "webpSha256": "1054ac4b6dbafa073ba16d82f87d8cab8293afdaabeea6cd64bcddb7d2512e77",
+          "savingPercent": "93.0%"
+        },
+        {
+          "file": "LS-mascot_06_thinking.png",
+          "originalBytes": 1290800,
+          "originalSha256": "1b536a013f167e4910792dc43cdb0a3d0e88bcf2abfd1985a2319f86f26b45c5",
+          "webpFile": "LS-mascot_06_thinking.webp",
+          "webpBytes": 92916,
+          "webpSha256": "a037a79a7d689f4a70592d03b608868e63bb916232f1ed4220c7002c381bf08d",
+          "savingPercent": "92.8%"
+        },
+        {
+          "file": "LS-mascot_07_sleeping.png",
+          "originalBytes": 1326376,
+          "originalSha256": "e9c00f2ba4bfc4c6f0934f97dc01765e03ab96af1cd01e1d4cfc13f20f15f943",
+          "webpFile": "LS-mascot_07_sleeping.webp",
+          "webpBytes": 90778,
+          "webpSha256": "58aeff9c4a9bb9d237f1a9531e9035491955217c6629fec4c94554af211ec6b2",
+          "savingPercent": "93.2%"
+        },
+        {
+          "file": "LS-mascot_08_phone.png",
+          "originalBytes": 1372941,
+          "originalSha256": "f659015ab6cf7a3e4724394896fae3cf979005c435d8d47588eec295730c5407",
+          "webpFile": "LS-mascot_08_phone.webp",
+          "webpBytes": 99216,
+          "webpSha256": "5ff2574ee75825399c5d222d231c38f8430f44ee393ecaaaa7e8c323f3f067fc",
+          "savingPercent": "92.8%"
+        },
+        {
+          "file": "LS-mascot_09_jump.png",
+          "originalBytes": 1422115,
+          "originalSha256": "2cfad35354644a8d4054a689258615eeb74d723e3aa070fda1adea0da22c774c",
+          "webpFile": "LS-mascot_09_jump.webp",
+          "webpBytes": 96902,
+          "webpSha256": "6c20ad61fae1bc64ab642bfd8841da9f2fe06298430ea6a4f02dec22746aa4f6",
+          "savingPercent": "93.2%"
+        },
+        {
+          "file": "LS-mascot_10_map.png",
+          "originalBytes": 1351771,
+          "originalSha256": "d2624d263ff8550b6ac5c380775c476c6767260962681f984b228ff4335a1cef",
+          "webpFile": "LS-mascot_10_map.webp",
+          "webpBytes": 100010,
+          "webpSha256": "4c143ebddd48c1459281f43997282a62a5883947314eff3bdf4be6f61d81dc27",
+          "savingPercent": "92.6%"
+        },
+        {
+          "file": "LS-mascot_11_sun-hat.png",
+          "originalBytes": 1549705,
+          "originalSha256": "1c2a0357e5643a4c7d5f9fb82d1c474d1a420510366246a0811046cd59d300f7",
+          "webpFile": "LS-mascot_11_sun-hat.webp",
+          "webpBytes": 114762,
+          "webpSha256": "831b50df8004a53b03f637493d45386b7b2f245b42c5bcf89bd27035368306c7",
+          "savingPercent": "92.6%"
+        },
+        {
+          "file": "LS-mascot_12_high-five.png",
+          "originalBytes": 1496224,
+          "originalSha256": "f09439e71b193c393c51f513f03ff64c254a53bc281923fe4f681a060874b7e3",
+          "webpFile": "LS-mascot_12_high-five.webp",
+          "webpBytes": 105470,
+          "webpSha256": "4d8cc54aacbe9fbe973b239aa8fbd3b1a4c2d5cdb9e8b2170ec5a0ba05fc63c9",
+          "savingPercent": "93.0%"
+        },
+        {
+          "file": "LS-mascot_13_alarm-clock.png",
+          "originalBytes": 1457902,
+          "originalSha256": "bf2e92467f7666c2ba07a4ca2c1ce215bd757024466749d8c52b32eb4429b89c",
+          "webpFile": "LS-mascot_13_alarm-clock.webp",
+          "webpBytes": 106368,
+          "webpSha256": "cc85347e7946c88cfa232b77b219248f852d9ed23cd9da40dd84920a61c787f7",
+          "savingPercent": "92.7%"
+        },
+        {
+          "file": "LS-mascot_14_key.png",
+          "originalBytes": 1625109,
+          "originalSha256": "2e97a3b942f54a15bab20a14175344854ae0e628bbdfd160d917f4a52ad406a4",
+          "webpFile": "LS-mascot_14_key.webp",
+          "webpBytes": 121470,
+          "webpSha256": "daecf910e06110b4378c60f1a4e2f7c3db382a15fc25ea3fb2151d03e86ad1a0",
+          "savingPercent": "92.5%"
+        },
+        {
+          "file": "LS-mascot_15_suitcase-hug.png",
+          "originalBytes": 1377456,
+          "originalSha256": "d74c89ff60aef66f12928ec74c3719f5c3eb68eab6e42d43708e4e1fb48a2ece",
+          "webpFile": "LS-mascot_15_suitcase-hug.webp",
+          "webpBytes": 94272,
+          "webpSha256": "9c8f779c84d1aab8baaf976f99cd351724a2b430176be6aecea311542dc0214f",
+          "savingPercent": "93.2%"
+        },
+        {
+          "file": "LS-mascot_16_selfie.png",
+          "originalBytes": 1589682,
+          "originalSha256": "29025f673936605e61fb838b40864f2582437efd8e79437a7f2e68578b593d38",
+          "webpFile": "LS-mascot_16_selfie.webp",
+          "webpBytes": 110476,
+          "webpSha256": "a52afa4a752c67258e73384cb90f7fbf1770d495065391dadd2aa77e51113d46",
+          "savingPercent": "93.1%"
+        },
+        {
+          "file": "LS-mascot_17_king-coconut.png",
+          "originalBytes": 1352051,
+          "originalSha256": "43c2c92e07976d1270d3ceda75cbe976798b4d6293ac64021fe7db16701effcb",
+          "webpFile": "LS-mascot_17_king-coconut.webp",
+          "webpBytes": 103324,
+          "webpSha256": "6e2cad50d88e11114e9a3ad3d143e5525f81162fcac447da230e7ded6f380eb1",
+          "savingPercent": "92.4%"
+        },
+        {
+          "file": "LS-mascot_18_salute.png",
+          "originalBytes": 1368009,
+          "originalSha256": "25a76075d71cbaf0b5bd02efd7fa670f774e505d02bc6eaf0739ac1a2393aaf1",
+          "webpFile": "LS-mascot_18_salute.webp",
+          "webpBytes": 95280,
+          "webpSha256": "afb1022b0ccccefca3b12c2a39ec6ff187bf816d10c0ce4efe060ab543e9d910",
+          "savingPercent": "93.0%"
+        },
+        {
+          "file": "LS-mascot_19_shrug.png",
+          "originalBytes": 1401525,
+          "originalSha256": "a5c13babf4951242f4aa0e1efc03dc59003a1f24c78c854f1ce6d725100fc481",
+          "webpFile": "LS-mascot_19_shrug.webp",
+          "webpBytes": 99266,
+          "webpSha256": "cab683f1966bb1629c68a1d7130334c0d3e8d06f481b7850a4bc5903efa8ae98",
+          "savingPercent": "92.9%"
+        },
+        {
+          "file": "LS-mascot_20_sitting-suitcase.png",
+          "originalBytes": 1400925,
+          "originalSha256": "8c496cfb22ae447e423f7b4cb19bb752d5b7ab4a5e16e8cecda05726d366ed36",
+          "webpFile": "LS-mascot_20_sitting-suitcase.webp",
+          "webpBytes": 95882,
+          "webpSha256": "ec201163e36d0123b5941e3c6f7605a5309d496daf61ffb6977d41bf6c683bf0",
+          "savingPercent": "93.2%"
+        }
+      ]
+    }
+  ]
+}

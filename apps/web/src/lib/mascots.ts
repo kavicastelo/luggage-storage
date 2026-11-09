@@ -25,11 +25,14 @@ export interface MascotAssetMeta {
   key: MascotKey;
   filename: string;
   publicPath: string;
+  webpPath?: string;
   title: string;
   alt: string;
   tone: string;
   primaryScreens: string[];
 }
+
+
 
 export const MASCOT_CATALOGUE: Record<MascotKey, MascotAssetMeta> = {
   wave: {
@@ -237,6 +240,17 @@ export const MASCOT_CATALOGUE: Record<MascotKey, MascotAssetMeta> = {
 export const ALL_MASCOT_KEYS = Object.keys(MASCOT_CATALOGUE) as MascotKey[];
 
 export function getMascotMeta(key: MascotKey): MascotAssetMeta {
-  return MASCOT_CATALOGUE[key];
+  const base = MASCOT_CATALOGUE[key];
+  if (!base) {
+    throw new Error(`Unknown mascot key: ${key}`);
+  }
+  const webpPath =
+    base.webpPath ||
+    base.publicPath.replace("/assets/mascots/", "/assets/mascots/webp/").replace(".png", ".webp");
+  return {
+    ...base,
+    webpPath,
+  };
 }
+
 

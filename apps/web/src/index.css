@@ -3,7 +3,60 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
+
+  /* CWCP Design System Root Variables */
+  --color-navy-950: #070e1a;
+  --color-navy-900: #0a192f;
+  --color-navy-800: #132742;
+  --color-navy-600: #1b3675;
+
+  --color-terracotta-700: #9e3708;
+  --color-terracotta-600: #b8460a;
+  --color-terracotta-500: #c85316;
+  --color-terracotta-400: #e86f2c;
+  --color-terracotta-100: #fee8d8;
+  --color-terracotta-50: #fff5ef;
+
+  --color-sand-50: #faf8f5;
+  --color-sand-100: #f3efea;
+  --color-sand-200: #e5dfd7;
+  --color-sand-300: #d1c7bb;
+  --color-sand-500: #aba296;
+  --color-sand-700: #6b635a;
+  --color-sand-900: #2e2a25;
+
+  --color-emerald-600: #059669;
+  --color-emerald-50: #ecfdf5;
+  --color-amber-600: #d97706;
+  --color-amber-50: #fffbeb;
+  --color-rose-600: #e11d48;
+  --color-rose-50: #fff1f2;
+}
+
+body {
+  background-color: var(--color-sand-50);
+  color: var(--color-navy-950);
+  min-height: 100vh;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Accessible focus ring convention */
+*:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-sand-50), 0 0 0 4px var(--color-terracotta-500);
+}
+
+/* Ergonomic touch target class */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }

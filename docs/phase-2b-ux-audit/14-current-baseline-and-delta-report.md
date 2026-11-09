@@ -21,25 +21,38 @@ This document provides a rigorous, line-by-line verification of the codebase del
 
 ---
 
-### 2. Repository Commit Lineage & Baseline Verification
+### 2. Repository Commit Lineage & Three-Commit Baseline Distinction
+
+To prevent confusing documentation updates with application source-code changes, three distinct commit baselines are formally established:
+
+1. **Original Phase 2B Source-Code Baseline (`ae3515f`):**
+   - The state of the codebase when the initial Phase 2B UX audit was performed and documented in `4a0715b`.
+2. **Phase 2B.1 Verification Source-Code Baseline (`cca134f`):**
+   - The authoritative source-code baseline for application logic, containing the email verification token fix and monorepo `.env` loading.
+3. **Current Repository HEAD (`17d5afa` / `57b1c39`):**
+   - The current repository HEAD containing all reconciled audit documentation (`00` through `23`) and 107 genuine visual screenshots. Zero application source-code changes exist between `cca134f` and `17d5afa` / `57b1c39`.
 
 ```
-[ae3515f] fix(stabilization): complete security, CI, email and decision remediation
+[ae3515f] fix(stabilization): complete security, CI, email and decision remediation (Phase 2B Source Baseline)
    │
 [4a0715b] docs(ux): complete phase 2b product experience audit (Initial 14 Audit Docs + 26 Screenshots)
    │
-[cca134f] fix email delivery issue (User commit on feat/phase-1b-identity)
+[cca134f] fix email delivery issue (Phase 2B.1 Verification Source Baseline)
    │  │
    │  └─── [dba73b8] Merge pull request #7 from kavicastelo/feat/phase-1b-identity (origin/main)
    ▼
-[HEAD] (Current working tree on feat/phase-1b-identity, 100% tree-identical to origin/main)
+[17d5afa] docs(ux): reconcile phase 2b audit and prepare phase 2c handover (Local Branch HEAD)
+   │  │
+   │  └─── [57b1c39] Merge pull request #8 from kavicastelo/feat/phase-1b-identity (Current origin/main HEAD)
+   ▼
+[HEAD] (100% tree-identical to origin/main @ 57b1c39 across all application packages)
 ```
 
 #### 2.1 Git Status & Working-Tree State
 - **Branch:** `feat/phase-1b-identity` (tracking `origin/feat/phase-1b-identity`).
-- **Head SHA:** `cca134f4a0f909a907f6395f9647a025ac39d71a`.
-- **Remote Parity:** `git diff HEAD..origin/main` produces 0 file differences. The local branch tree is in exact parity with the production `main` branch.
-- **Uncommitted User Changes:** 0 application source code changes. Only audit documentation reconciliations (`00`, `08`, `10`, `14`–`19`) and newly captured screenshot evidence files (`evidence/current/`) exist in the working directory.
+- **Current Local Commit:** `17d5afa` (tree-identical to `origin/main` @ `57b1c39`).
+- **Remote Parity:** `git diff HEAD origin/main` produces 0 file differences.
+- **Uncommitted User Changes:** 0 application source code changes.
 
 ---
 
