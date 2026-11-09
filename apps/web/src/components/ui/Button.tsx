@@ -12,9 +12,10 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  // Primary CTA: Ceylon Terracotta (#C85316) with white text (>4.5:1 contrast)
+  // Primary CTA: Ceylon Terracotta (#C55013) with white text (>4.5:1 strict unrounded contrast)
   primary:
     "bg-terracotta-500 hover:bg-terracotta-600 active:bg-terracotta-700 text-white shadow-sm hover:shadow focus-visible:ring-terracotta-500",
+
   // Secondary: Coastal Navy (#0A192F) with white text (>17:1 contrast)
   secondary:
     "bg-navy-900 hover:bg-navy-800 active:bg-navy-950 text-white shadow-sm hover:shadow focus-visible:ring-navy-900",

@@ -89,7 +89,7 @@ export function FoundationPreviewPage() {
               {primaryContrast} : 1
             </div>
             <p className="text-xs text-sand-600">
-              White (#FFFFFF) on Ceylon Terracotta (<code className="font-mono text-terracotta-700">#C85316</code>).
+              White (#FFFFFF) on Ceylon Terracotta (<code className="font-mono text-terracotta-700">#C55013</code>).
             </p>
           </div>
 
@@ -183,7 +183,7 @@ export function FoundationPreviewPage() {
               </div>
               <div className="h-10 rounded-lg bg-terracotta-500 text-white flex items-center justify-between px-3 font-mono ring-2 ring-navy-900 ring-offset-1">
                 <span>terracotta-500 (CTA)</span>
-                <span>#C85316</span>
+                <span>#C55013</span>
               </div>
               <div className="h-10 rounded-lg bg-terracotta-100 text-terracotta-900 flex items-center justify-between px-3 font-mono">
                 <span>terracotta-100</span>

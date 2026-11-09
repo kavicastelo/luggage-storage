@@ -21,13 +21,14 @@ describe('CWCP Design Tokens & Accessibility Matrix', () => {
     });
 
     it('defines accessible Ceylon Terracotta with DEC-009 retune', () => {
-      expect(cwcpPalette.terracotta[500]).toBe('#C85316');
+      expect(cwcpPalette.terracotta[500]).toBe('#C55013');
       expect(cwcpPalette.terracotta[600]).toBe('#B8460A');
       expect(cwcpPalette.terracotta[700]).toBe('#9E3708');
       expect(cwcpPalette.terracotta[400]).toBe('#E86F2C');
       expect(cwcpPalette.terracotta[100]).toBe('#FEE8D8');
       expect(cwcpPalette.terracotta[50]).toBe('#FFF5EF');
     });
+
 
     it('defines warm Sunlit Sand surface neutrals replacing cold slate', () => {
       expect(cwcpPalette.sand[50]).toBe('#FAF8F5');
@@ -46,11 +47,18 @@ describe('CWCP Design Tokens & Accessibility Matrix', () => {
   });
 
   describe('WCAG 2.2 AA Contrast Calculations', () => {
-    it('verifies primary button white text on terracotta[500] meets AA requirement', () => {
+    it('verifies primary button white text on terracotta[500] strictly meets unrounded AA requirement', () => {
       const ratio = calculateContrastRatio('#FFFFFF', cwcpPalette.terracotta[500]);
-      // Standard WCAG AA threshold is 4.5:1 (ratio rounds to 4.5)
-      expect(ratio).toBeGreaterThan(4.45);
+      // Strict unrounded WCAG AA threshold is >= 4.5:1
+      expect(ratio).toBeGreaterThanOrEqual(4.5);
+      expect(ratio).toBeCloseTo(4.63, 1);
       expect(passesWcagAA('#FFFFFF', cwcpPalette.terracotta[500])).toBe(true);
+    });
+
+    it('verifies previous #C85316 was mathematically < 4.5:1 unrounded, validating the correction', () => {
+      const c85316Ratio = calculateContrastRatio('#FFFFFF', '#C85316');
+      expect(c85316Ratio).toBeLessThan(4.5);
+      expect(passesWcagAA('#FFFFFF', '#C85316')).toBe(false);
     });
 
     it('verifies terracotta[600] provides enhanced contrast for hover/focus', () => {
@@ -58,6 +66,7 @@ describe('CWCP Design Tokens & Accessibility Matrix', () => {
       expect(ratio).toBeGreaterThan(5.0);
       expect(passesWcagAA('#FFFFFF', cwcpPalette.terracotta[600])).toBe(true);
     });
+
 
     it('verifies old #E86F2C fails WCAG AA for normal text, validating DEC-009', () => {
       const oldRatio = calculateContrastRatio('#FFFFFF', '#E86F2C');

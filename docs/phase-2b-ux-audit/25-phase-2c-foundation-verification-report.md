@@ -99,7 +99,7 @@ All relevant release gates have been rigorously tested against automated test su
 #### Gate 07: WCAG 2.2 Level AA Accessibility Compliance (`GATE-07`)
 - **Requirement:** Color contrast $\ge 4.5:1$ for normal text, $\ge 3.0:1$ for large text/UI, and touch targets $\ge 44\times 44$px.
 - **Verification Evidence:**
-  - White on Ceylon Terracotta `#C85316`: 4.464:1 (4.5:1 rounded, AA compliant).
+  - White on Ceylon Terracotta `#C55013`: 4.635:1 (strictly >= 4.50:1 unrounded, AA compliant).
   - White on Terracotta Hover `#B8460A`: 5.359:1 (AAA compliant).
   - White on Terracotta Pressed `#9E3708`: 6.592:1 (AAA compliant).
   - White on Coastal Navy `#0A192F`: 17.603:1 (AAA compliant).

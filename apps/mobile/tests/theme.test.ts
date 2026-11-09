@@ -2,12 +2,13 @@ import { describe, it, expect } from "vitest";
 import { mobileColors, mobileSpacing, mobileRadius, mobileTypography } from "../src/lib/theme";
 
 describe("Mobile CWCP Theme Tokens", () => {
-  it("exports Ceylon Terracotta CTA color #C85316 with white text", () => {
-    expect(mobileColors.ctaBg).toBe("#C85316");
+  it("exports Ceylon Terracotta CTA color #C55013 with white text", () => {
+    expect(mobileColors.ctaBg).toBe("#C55013");
     expect(mobileColors.ctaText).toBe("#FFFFFF");
-    expect(mobileColors.terracotta[500]).toBe("#C85316");
+    expect(mobileColors.terracotta[500]).toBe("#C55013");
     expect(mobileColors.terracotta[600]).toBe("#B8460A");
   });
+
 
   it("exports Coastal Navy grounding tokens", () => {
     expect(mobileColors.navy[900]).toBe("#0A192F");

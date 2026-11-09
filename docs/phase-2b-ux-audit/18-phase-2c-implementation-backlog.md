@@ -124,6 +124,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-004`: Public Web Landing Page Overhaul & Factual Copy (`PW-001`)
+- **Status:** **COMPLETED** (Sprint 2 / WS-2 / Phase 2C.2)
+- **Completion Artifacts:** `apps/web/src/pages/PublicMarketplacePages.tsx` (`PublicLandingPage`), `apps/web/tests/public-web-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/public-web/pw-001-landing-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Public Web (`apps/web/src/pages/LandingPage.tsx`)
 - **User Persona:** Traveller looking for safe bag storage
@@ -149,6 +151,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-005`: Split-Screen Search & Discovery with Interactive MapLibre (`PW-002`)
+- **Status:** **COMPLETED** (Sprint 2 / WS-2 / Phase 2C.2)
+- **Completion Artifacts:** `apps/web/src/pages/PublicMarketplacePages.tsx` (`WebSearchDiscoveryPage`), `apps/web/tests/public-web-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/public-web/pw-002-search-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Public Web (`apps/web/src/pages/SearchPage.tsx`, `LocationMap.tsx`)
 - **User Persona:** Traveller finding convenient location near transit
@@ -174,6 +178,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-006`: Partner Location Details & Storage Security Gallery (`PW-003`)
+- **Status:** **COMPLETED** (Sprint 2 / WS-2 / Phase 2C.2)
+- **Completion Artifacts:** `apps/web/src/pages/PublicMarketplacePages.tsx` (`LocationProfileDetailPage`), `apps/web/tests/public-web-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/public-web/pw-003-location-details-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Public Web (`apps/web/src/pages/LocationDetailsPage.tsx`)
 - **User Persona:** Traveller evaluating partner security
@@ -199,6 +205,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-007`: Transparent Pricing & Step-by-Step Checkout Flow (`PW-004`)
+- **Status:** **COMPLETED** (Sprint 2 / WS-2 / Phase 2C.2)
+- **Completion Artifacts:** `apps/web/src/pages/PublicMarketplacePages.tsx` (`WebCheckoutSchedulePage`), `apps/web/tests/public-web-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/public-web/pw-004-checkout-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Public Web (`apps/web/src/pages/BookingCheckoutPage.tsx`)
 - **User Persona:** Traveller completing booking
@@ -224,6 +232,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-008`: Booking Confirmation & Printable Digital Custody Pass (`PW-005`)
+- **Status:** **COMPLETED** (Sprint 2 / WS-2 / Phase 2C.2)
+- **Completion Artifacts:** `apps/web/src/pages/PublicMarketplacePages.tsx` (`WebPaymentConfirmationPage`), `apps/web/tests/public-web-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/public-web/pw-005-custody-pass-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Public Web (`apps/web/src/pages/BookingConfirmationPage.tsx`)
 - **User Persona:** Traveller arriving at storage partner counter
@@ -249,6 +259,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-009`: Host Acquisition Landing & Real Earnings Estimator (`PW-006`)
+- **Status:** **COMPLETED** (Sprint 2 / WS-2 / Phase 2C.2)
+- **Completion Artifacts:** `apps/web/src/pages/PublicMarketplacePages.tsx` (`BecomeAHostLandingPage`), `apps/web/tests/public-web-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/public-web/pw-006-become-a-host-*.png`
 - **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Public Web (`apps/web/src/pages/BecomeAHostLandingPage.tsx`)
 - **User Persona:** Prospective storage partner (hotel, cafe, shop owner)
@@ -273,6 +285,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-010`: Traveller Self-Service Portal & Active Storage Hub (`PW-011`)
+- **Status:** **COMPLETED** (Sprint 2 / WS-2 / Phase 2C.2)
+- **Completion Artifacts:** `apps/web/src/pages/PublicMarketplacePages.tsx` (`TravellerWebPortalPage`), `apps/web/tests/public-web-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/public-web/pw-011-traveller-portal-*.png`
 - **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Public Web (`apps/web/src/pages/TravellerPortalPage.tsx`)
 - **User Persona:** Traveller managing existing bookings
