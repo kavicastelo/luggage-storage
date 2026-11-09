@@ -8,15 +8,15 @@
 
 ## 1. Drizzle Migration Chain & Snapshot Integrity
 
-Prior to stabilization, migrations `0003_wp07_rbac_permissions.sql` and `0004_wp12_audit_immutability.sql` lacked corresponding Drizzle snapshot files (`0003_snapshot.json`, `0004_snapshot.json`). During stabilization, the complete migration chain was reconciled and extended with `0005_stabilization_verification_and_rate_limits.sql`.
+Prior to stabilization, migrations `0003_system_roles.sql` and `0004_permissions_and_rbac.sql` lacked corresponding Drizzle snapshot files (`0003_snapshot.json`, `0004_snapshot.json`). During stabilization, the complete migration chain was reconciled and extended with `0005_stabilization_verification_and_rate_limits.sql`.
 
 | Index | Tag | SQL File | Snapshot File | Purpose |
 |---|---|---|---|---|
-| `0` | `0000_ambitious_silver_samurai` | `0000_ambitious_silver_samurai.sql` | `meta/0000_snapshot.json` | Initial system metadata table |
-| `1` | `0001_empty_puff_adder` | `0001_empty_puff_adder.sql` | `meta/0001_snapshot.json` | Core identity, roles, sessions, password resets, and audit schema |
-| `2` | `0002_wp02_identity_hardening` | `0002_wp02_identity_hardening.sql` | `meta/0002_snapshot.json` | Trigger guards, partial unique indexes, and role helper functions |
-| `3` | `0003_wp07_rbac_permissions` | `0003_wp07_rbac_permissions.sql` | `meta/0003_snapshot.json` | 26 canonical permissions and role-permission mappings |
-| `4` | `0004_wp12_audit_immutability` | `0004_wp12_audit_immutability.sql` | `meta/0004_snapshot.json` | Append-only immutability triggers on `security_audit_events` |
+| `0` | `0000_outgoing_thunderbolt_ross` | `0000_outgoing_thunderbolt_ross.sql` | `meta/0000_snapshot.json` | Core identity, roles, permissions, profiles, sessions, password resets, and audit schema |
+| `1` | `0001_empty_puff_adder` | `0001_empty_puff_adder.sql` | `meta/0001_snapshot.json` | `auth_sessions_previous_token_hash_idx`, `users_normalized_email_match_check`, and initial audit immutability trigger |
+| `2` | `0002_marvelous_hercules` | `0002_marvelous_hercules.sql` | `meta/0002_snapshot.json` | Audit immutability hardening, catalog privilege revocations, and `assign_default_traveller_role` function |
+| `3` | `0003_system_roles` | `0003_system_roles.sql` | `meta/0003_snapshot.json` | Seeds canonical system roles (`SUPERADMIN`, `SUPPORT`, `HOST_OWNER`, `HOST_STAFF`) |
+| `4` | `0004_permissions_and_rbac` | `0004_permissions_and_rbac.sql` | `meta/0004_snapshot.json` | Seeds 26 canonical permissions, role-permission mappings, and `assign_user_role`/`revoke_user_role` functions |
 | `5` | `0005_stabilization_verification_and_rate_limits` | `0005_stabilization_verification_and_rate_limits.sql` | `meta/0005_snapshot.json` | `users.email_verified_at`, `email_verification_tokens`, `auth_rate_limits`, and `REVOKE ALL ... FROM PUBLIC` on functions |
 
 ---
@@ -26,11 +26,11 @@ Prior to stabilization, migrations `0003_wp07_rbac_permissions.sql` and `0004_wp
 1. **`users.email_verified_at` (`TIMESTAMPTZ`):**
    - Tracks the exact timestamp at which a user completed email verification. Backfilled for pre-existing verified users (`UPDATE "users" SET "email_verified_at" = "updated_at" WHERE "is_email_verified" = true AND "email_verified_at" IS NULL`).
 2. **`email_verification_tokens` Table:**
-   - Columns: `id` (`UUID PK`), `user_id` (`UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`), `token_hash` (`VARCHAR(64) NOT NULL`), `expires_at` (`TIMESTAMPTZ NOT NULL`), `used_at` (`TIMESTAMPTZ`), `requested_ip` (`VARCHAR(45)`), `user_agent` (`TEXT`), `created_at` (`TIMESTAMPTZ NOT NULL DEFAULT NOW()`).
-   - Indexes: Unique `email_verification_tokens_token_hash_idx` on `(token_hash)` and composite `email_verification_tokens_user_id_expires_idx` on `(user_id, expires_at)`.
+   - Columns: `id` (`uuid PRIMARY KEY DEFAULT gen_random_uuid()`), `user_id` (`uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE`), `token_hash` (`varchar(64) NOT NULL`), `expires_at` (`timestamptz NOT NULL`), `used_at` (`timestamptz`), `created_at` (`timestamptz NOT NULL DEFAULT now()`).
+   - Indexes: Unique `email_verification_tokens_token_hash_unique` on `(token_hash)` and composite `email_verification_tokens_user_expires_idx` on `(user_id, expires_at)`.
 3. **`auth_rate_limits` Table:**
-   - Columns: `key_hash` (`VARCHAR(128) PRIMARY KEY`), `scope` (`VARCHAR(64) NOT NULL`), `points` (`INTEGER NOT NULL DEFAULT 0`), `window_started_at` (`TIMESTAMPTZ NOT NULL DEFAULT NOW()`), `expires_at` (`TIMESTAMPTZ NOT NULL`), `updated_at` (`TIMESTAMPTZ NOT NULL DEFAULT NOW()`).
-   - Index: `auth_rate_limits_expires_at_idx` on `(expires_at)`.
+   - Columns: `key_hash` (`varchar(64) PRIMARY KEY NOT NULL`), `scope` (`varchar(32) NOT NULL`), `points` (`integer NOT NULL DEFAULT 1`), `window_start` (`timestamptz NOT NULL DEFAULT now()`), `expires_at` (`timestamptz NOT NULL`), `updated_at` (`timestamptz NOT NULL DEFAULT now()`).
+   - Indexes: `auth_rate_limits_expires_at_idx` on `(expires_at)` and `auth_rate_limits_scope_idx` on `(scope)`.
 4. **Function Execution Privilege Hardening:**
    - Revokes `PUBLIC` execute permission on `public.assign_user_role(uuid, varchar, uuid)`, `public.revoke_user_role(uuid, varchar)`, and `public.prevent_audit_tampering()` and grants `EXECUTE` explicitly to `luggage_user` and `luggage_migrator`.
 

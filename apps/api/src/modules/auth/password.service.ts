@@ -15,6 +15,7 @@ import { argon2Service } from "./argon2.service.js";
 import { emailService } from "../email/email.service.js";
 import { auditService, SecurityEventType } from "../audit/audit.service.js";
 import { rateLimitService } from "./rate-limit.service.js";
+import { logger } from "../../infrastructure/logging/logger.js";
 
 export interface ClientConnectionInfo {
   ip?: string;
@@ -234,7 +235,40 @@ export class PasswordService {
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour TTL
 
-    // Invalidate previous outstanding tokens and insert new token transactionally
+    // Deliver via email boundary BEFORE invalidating existing unused reset tokens (AUD-002 Section 3.5)
+    const deliveryResult = await emailService.sendPasswordResetEmail({
+      to: user.email,
+      displayName: user.displayName,
+      resetToken: rawToken,
+      resetUrl: `/reset-password?token=${rawToken}`
+    });
+
+    if (!deliveryResult.delivered) {
+      logger.warn(
+        {
+          userId: user.id,
+          provider: deliveryResult.provider,
+          deliveryError: deliveryResult.error
+        },
+        "[PasswordService] Password reset email delivery failed; preserving existing unused reset token"
+      );
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_PASSWORD_RESET_REQUESTED,
+        userId: user.id,
+        clientInfo: params.clientInfo,
+        metadata: {
+          delivered: false,
+          provider: deliveryResult.provider,
+          deliveryError: deliveryResult.error,
+          reason: "EMAIL_DELIVERY_FAILED_EXISTING_TOKEN_PRESERVED"
+        }
+      });
+
+      return genericResponse;
+    }
+
+    // Invalidate previous outstanding tokens and insert new token transactionally after provider acceptance
     await db.transaction(async (tx) => {
       // Invalidate previous tokens
       await tx.execute(
@@ -257,18 +291,13 @@ export class PasswordService {
         userId: user.id,
         clientInfo: params.clientInfo,
         metadata: {
+          delivered: true,
+          provider: deliveryResult.provider,
+          messageId: deliveryResult.messageId,
           expiresAt: expiresAt.toISOString()
         },
         tx
       });
-    });
-
-    // Deliver via email boundary (respecting OQ-019)
-    await emailService.sendPasswordResetEmail({
-      to: user.email,
-      displayName: user.displayName,
-      resetToken: rawToken,
-      resetUrl: `/auth/reset-password?token=${rawToken}`
     });
 
     return genericResponse;

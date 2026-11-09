@@ -10,11 +10,15 @@
 
 ## 1. Executive Summary
 
-This document reviews and resolves every Open Question (`OQ-001` through `OQ-022`) and Open Technical Decision (`OTD-001` through `OTD-008`) across the Global Luggage Storage Marketplace documentation and codebase. Each item is assigned an authoritative disposition:
+This document reviews and resolves every Open Question (`OQ-001` through `OQ-022`) and Open Technical Decision (`OTD-001` through `OTD-008`) across the Global Luggage Storage Marketplace documentation and codebase using the standardized 7-status governance model (`AUD-005`):
 
-- **`RESOLVED_INTERNAL`** — Resolved through architecture, product governance, and code implementation within the repository.
-- **`BLOCKED_EXTERNAL`** — Requires external legal counsel or payment-gateway vendor confirmation; documented here with exact decision packages, architectural fallbacks, and questionnaires so no ambiguity remains for engineering.
-- **`DEFERRED_POST_MVP`** — Explicitly scoped out of the MVP baseline with an approved architectural boundary so MVP code does not depend on unbuilt external infrastructure.
+- **`RESOLVED_INTERNAL`** — Internal engineering/product design decision implemented or adopted as the default baseline.
+- **`OWNER_APPROVAL_REQUIRED`** — Internal recommendation exists, but final business policy or commercial sign-off requires Product Owner approval.
+- **`VENDOR_CONFIRMATION_REQUIRED`** — Depends on written confirmation, API capability, or contract from an external vendor.
+- **`LEGAL_REVIEW_REQUIRED`** — Depends on legal counsel review.
+- **`TAX_REVIEW_REQUIRED`** — Depends on tax/accounting counsel review.
+- **`DEFERRED`** — Intentionally postponed to a later phase with documented rationale.
+- **`BLOCKED`** — Cannot be finalized for commercial production launch until a named external dependency is completed.
 
 ---
 
@@ -22,43 +26,43 @@ This document reviews and resolves every Open Question (`OQ-001` through `OQ-022
 
 ### 2.1 Product Open Questions (`OQ-001` – `OQ-022`)
 
-| ID | Topic | Previous Status | Stabilization Status | Phase Impact | Code / Doc Enforcement |
+| ID | Topic | Internal Baseline Status | External / Owner Gate Status | Phase Impact | Code / Doc Enforcement |
 |:---|:---|:---|:---|:---|:---|
-| `OQ-001` | Bag Size & Weight Tiers (`Small`, `Medium`, `Large`, `Extra Large / Odd-Size`) | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Domain | Enforced in UI (`TM-018`, `PW-004`, `HD-005`) |
-| `OQ-002` | Host Verification Document Checklist (Sri Lanka MVP) | `Pending Legal & Operations Sign-off` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Host Onboarding | Standardized tiered checklist (`NIC/Passport`, `BR/ Registration`, `Address Proof`, `Premises Photos`) |
-| `OQ-003` | PayHere Marketplace Model (`Standard Merchant` vs `Automated Split`) | `Pending PayHere Commercial & Technical Confirmation` | **`BLOCKED_EXTERNAL`** | Phase 4 Payments & Ledger | Platform Merchant-of-Record + Ledger-Driven Host Payout Batch default (`WF-034`/`WF-035`) + Vendor Questionnaire |
-| `OQ-004` | Booking Confirmation Model (`Instant` vs `Request-to-Book`) | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Bookings | Hybrid Location-Level Configurable (`INSTANT_BOOK` default, `REQUEST_TO_BOOK` optional) |
-| `OQ-005` | Overdue Bag Abandonment Escalation Protocol | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Custody | 4-stage escalation (`0h`, `+2h`, `+24h`, `+72h`) with mandatory Superadmin approval (`AD-013`) |
-| `OQ-006` | Traveller Display Currency vs Settlement Currency | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 4 Payments | Multi-currency display (`LKR`, `USD`, `EUR`, `GBP`, `AUD`) + explicit `LKR` settlement disclosure |
-| `OQ-007` | Prohibited Items Policy & Check-in Declaration | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Bookings | Mandatory pre-payment Prohibited Items checkbox (`PW-004`, `TM-019`) + Host right of refusal (`HM-022`) |
-| `OQ-008` | Review Eligibility & Double-Blind Window | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 5 Reviews | Verified `CHECKED_OUT` bookings only, 14-day window, publish-on-submit + Host response (`TM-034`, `HD-012`) |
-| `OQ-009` | Minimum Booking Duration & Billing Granularity | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Pricing | Hybrid per-24h / per-hour location pricing with 1-unit minimum charge (`HD-006`, `HM-014`) |
-| `OQ-010` | Sri Lanka Legal & Tax Compliance (`VAT`, `SSCL`, `WHT`, CBSL Escrow) | `Pending Legal & Tax Counsel Review` | **`BLOCKED_EXTERNAL`** | Phase 4 Financial Ledger | 4-Layer Configurable Tax/Commission Engine (`AD-010`, `AD-016`) + Legal/Tax Counsel Checklist |
-| `OQ-011` | Traveller Cancellation Tiers (`Flexible`, `Moderate`, `Strict`) | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 4 Refunds | Standardized 3-tier system (`Flexible` default) + 15-minute post-payment grace period (`TM-031`, `AD-007`) |
-| `OQ-012` | Host Commission Structure & Platform Service Fee | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 4 Ledger | Configurable dual-fee structure (Host commission + Traveller service fee) on `AD-016` |
-| `OQ-013` | Refund Execution Capabilities (PayHere API vs Manual Assisted) | `Approved Decision (Requires Technical Verification)` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 4 Refunds | 7-stage refund state machine supporting both API-automated and Superadmin-assisted execution (`AD-007`, `TM-033`) |
-| `OQ-014` | Custody Verification Security (QR Primary + PIN Fallback) | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Custody | Cryptographic QR primary + rate-limited 6-digit PIN fallback + mandatory bag-count check (`HM-021`..`025`, `HD-009`) |
-| `OQ-015` | Late Collection Fee & Decoupled Custody Return | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Custody | Configurable grace period & late fee; unpaid fee never blocks physical bag return (`HM-028`, `AD-013`) |
-| `OQ-016` | Operational Support Workflow & Ticket Queue Separation | `Pending Decision` | **`RESOLVED_INTERNAL`** | Phase 1B RBAC / Phase 2 UX | Dual specialized queues: `AD-011`/`AD-012` (`SUPPORT` + `SUPERADMIN`) vs `AD-013` Incidents/Disputes (`SUPERADMIN` escalation) |
-| `OQ-017` | Host Staff Invitation & Operational Role Boundaries | `Approved Decision` | **`RESOLVED_INTERNAL`** | Phase 1B RBAC / Phase 2 UX | `HOST_STAFF` strictly restricted to operational check-in/out & booking view; zero access to finance/payouts/staff/location deletion |
-| `OQ-018` | Geospatial Map Provider Selection (Sri Lanka & Global) | `Open Technical Decision` | **`RESOLVED_INTERNAL`** | Phase 2 UX / Phase 3 Discovery | MapLibre GL / MapTiler Vector Tiles (OpenStreetMap data) selected for MVP with Google Maps adapter interface |
-| `OQ-019` | Transactional Email Provider & Adapter Architecture | `Open Technical Decision` | **`RESOLVED_INTERNAL`** | Phase 1B Auth & Email | `EmailDeliveryAdapter` implemented with `ResendHttpEmailAdapter` (production), `ConsoleDevEmailAdapter` (dev), `DeterministicTestEmailAdapter` (test) |
-| `OQ-020` | SMS / WhatsApp OTP Verification Scope | `Open Technical Decision` | **`DEFERRED_POST_MVP`** | Phase 1B Auth | Email token verification is authoritative for MVP (`POST /auth/verify-email`); SMS/WhatsApp OTP deferred to Post-MVP |
-| `OQ-021` | Rate Limiting & Distributed Locking Infrastructure (PostgreSQL vs Redis) | `Open Technical Decision` | **`RESOLVED_INTERNAL`** | Phase 1B Security | PostgreSQL-backed `auth_rate_limits` & row-level locking (`SELECT ... FOR UPDATE`) for MVP; Redis deferred until multi-region scale |
-| `OQ-022` | Object Storage & KYC Document Isolation | `Open Technical Decision` | **`RESOLVED_INTERNAL`** | Phase 3 Host Onboarding | S3-compatible private bucket (`Cloudflare R2` / `AWS S3`) with short-lived pre-signed URLs for KYC & custody photos |
+| `OQ-001` | Authentication Strategy (Self-Managed Fastify Auth, Argon2id) | **`RESOLVED_INTERNAL`** | **Approved** | Phase 1B Identity | Enforced in `apps/api/src/modules/auth/` |
+| `OQ-002` | Host Verification Document Checklist (Sri Lanka MVP) | **`RESOLVED_INTERNAL`** | **`OWNER_APPROVAL_REQUIRED`, `LEGAL_REVIEW_REQUIRED`** | Phase 2 UX / Phase 3 Host Onboarding | Configurable two-tier checklist (`NIC/Passport`, `BR`, `Address Proof`, `Premises Photos`) |
+| `OQ-003` | PayHere Marketplace Model (`Standard Merchant` vs `Automated Split`) | **`RESOLVED_INTERNAL`** | **`BLOCKED`, `VENDOR_CONFIRMATION_REQUIRED`** | Phase 4 Payments & Ledger | Platform Merchant-of-Record + Ledger-Driven Host Payout Batch baseline (`WF-034`/`WF-035`) |
+| `OQ-004` | Booking Modes, Configuration Hierarchy & Payment Timing | **`RESOLVED_INTERNAL`** | **Approved** | Phase 2 UX / Phase 3 Bookings | Hybrid Location-Level Configurable (`INSTANT_BOOK` default, `REQUEST_TO_BOOK` optional) |
+| `OQ-005` | Platform Commission (15%) & Promotional Discounts | **`RESOLVED_INTERNAL`** | **Approved** | Phase 2 UX / Phase 4 Finance | 15% initial commission on storage subtotal, gateway fees absorbed, promo funding rules |
+| `OQ-006` | Storage Capacity & Bag Categories (`Small`, `Medium`, `Large`, `Oversized`) | **`RESOLVED_INTERNAL`** | **Approved** | Phase 2 UX / Phase 3 Capacity | 4 bag categories + location opt-in for Oversized (`TM-018`, `PW-004`, `HD-005`) |
+| `OQ-007` | Traveller and Host Account Relationship (Unified Identity) | **`RESOLVED_INTERNAL`** | **Approved** | Phase 1B Identity | Unified `users` account with role contexts (`TRAVELLER`, `HOST_OWNER`, `HOST_STAFF`) |
+| `OQ-008` | Currency Representation (`LKR` Launch, Integer Minor Units) | **`RESOLVED_INTERNAL`** | **Approved** (`DEFERRED` Multi-Currency) | Phase 2 UX / Phase 4 Payments | `LKR` launch currency in integer minor units; multi-currency settlement deferred |
+| `OQ-009` | Customer Cancellation & Refund Policy Tiers | **`RESOLVED_INTERNAL`** | **Approved** | Phase 2 UX / Phase 4 Refunds | Tiered customer refund schedule (`100%` >2h, `50%` <=2h, `0%` after start/no-show) |
+| `OQ-010` | Sri Lanka Legal & Tax Compliance (`VAT`, `SSCL`, `WHT`, Invoicing) | **`RESOLVED_INTERNAL`** | **`BLOCKED`, `LEGAL_REVIEW_REQUIRED`, `TAX_REVIEW_REQUIRED`** | Phase 4 Financial Ledger | 4-Layer Configurable Tax/Commission Engine (`AD-010`, `AD-016`) + Legal/Tax Counsel Gate |
+| `OQ-011` | Superadmin & Platform Support Role Separation | **`RESOLVED_INTERNAL`** | **Approved** | Phase 1B RBAC | Strict least-privilege server-side RBAC (`rbac.service.ts`) |
+| `OQ-012` | Address Privacy Baseline & Location Disclosure Details | **`RESOLVED_INTERNAL`** | **Approved** (Baseline) / **`OWNER_APPROVAL_REQUIRED`** (Jitter & Storefront Details) | Phase 2 UX / Phase 3 Discovery | Approximate public discovery; exact street address post-booking only |
+| `OQ-013` | Payment-Provider Refund Capabilities, Execution Method & Fees | **`RESOLVED_INTERNAL`** | **`VENDOR_CONFIRMATION_REQUIRED`** | Phase 2 UX / Phase 4 Refunds | 7-stage refund state machine supporting both API-automated and Superadmin-assisted execution |
+| `OQ-014` | Custody Verification Security (QR Primary + PIN Fallback) | **`RESOLVED_INTERNAL`** | **Approved** | Phase 2 UX / Phase 3 Custody | QR primary + rate-limited PIN fallback + mandatory bag-count check (`HM-021`..`025`, `HD-009`) |
+| `OQ-015` | Late Collection Fee & Decoupled Custody Return | **`RESOLVED_INTERNAL`** | **Approved** | Phase 2 UX / Phase 3 Custody | In-app collection only; unpaid overdue fee never blocks physical bag return (`HM-028`, `AD-013`) |
+| `OQ-016` | Operational Support Workflow & Ticket Queue Separation | **`RESOLVED_INTERNAL`** | **Internal Baseline Approved** | Phase 1B RBAC / Phase 2 UX | Public reviews (`FR-12`) separated from Support Queue (`AD-011`/`AD-012`) & Incident Queue (`AD-013`) |
+| `OQ-017` | Host Staff Permission Granularity (`FR-42` — `Later`) | **`RESOLVED_INTERNAL`** | **`DEFERRED`** (Per-Staff Custom ACL) | Phase 1B RBAC / Phase 2 UX | Fixed least-privilege `HOST_STAFF` counter scope; custom per-staff permission toggles deferred |
+| `OQ-018` | Commercial Map Tile, Geocoding & Routing Provider | **`RESOLVED_INTERNAL`** | **`VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED`** | Phase 2 UX / Phase 3 Discovery | MapLibre + MapTiler adapter & native directions deep links; prod API keys & billing pending |
+| `OQ-019` | Transactional Email Provider Selection (`Zoho Mail`) | **`RESOLVED_INTERNAL`** | **`OWNER_APPROVAL_REQUIRED`, `VENDOR_CONFIRMATION_REQUIRED`** | Phase 1B Auth & Email | `ZohoSmtpEmailAdapter` (`EMAIL_PROVIDER=zoho`) implemented; live DNS (`SPF`/`DKIM`/`DMARC`) & credentials pending |
+| `OQ-020` | SMS / Phone OTP Verification Policy | **`RESOLVED_INTERNAL`** (Email) | **`DEFERRED`, `VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED`** (SMS OTP) | Phase 1B Auth | Email token verification is authoritative for MVP (`POST /auth/verify-email`); SMS/WhatsApp OTP deferred |
+| `OQ-021` | Rate Limiting & Distributed Locking Infrastructure (PostgreSQL vs Redis) | **`RESOLVED_INTERNAL`** | **`DEFERRED`** (Redis / Upstash) | Phase 1B Security | PostgreSQL `auth_rate_limits` (`HMAC-SHA-256`) & row locks (`FOR UPDATE`) for MVP; Redis deferred |
+| `OQ-022` | Normalization of Duplicate FRS Requirement Numbers (`FR-2`–`FR-14`) | **`RESOLVED_INTERNAL`** | **Approved** | Phase 0B Requirements | 1:1 traceability normalization (`REQ-TRV-001`..`027`, `REQ-HST-001`..`030`) |
 
 ### 2.2 Phase 0C Open Technical Decisions (`OTD-001` – `OTD-008` Cross-Reference)
 
 | OTD ID | Corresponding OQ | Resolution Summary |
 |:---|:---|:---|
-| `OTD-001` | `OQ-003`, `OQ-013` | PayHere Standard Merchant Checkout + Ledger-Driven Payout Batching selected as default MVP architecture; 7-stage refund state machine handles both API and manual settlement. |
-| `OTD-002` | `OQ-018` | MapLibre GL JS / React Native MapLibre with MapTiler (OSM) vector tiles selected for cost-predictable Sri Lanka & global coverage; provider-agnostic coordinate schema (`lat`/`lng` + PostGIS `GEOGRAPHY(POINT, 4326)`). |
-| `OTD-003` | `OQ-019` | `EmailDeliveryAdapter` implemented in `apps/api/src/modules/email/` supporting `resend` (HTTPS API), `console` (local dev), `test` (deterministic capture), and `noop` (explicitly logged). |
-| `OTD-004` | `OQ-020` | Self-service Email Verification (`email_verification_tokens`) is mandatory and authoritative for MVP account activation; SMS/WhatsApp notifications deferred to Post-MVP. |
-| `OTD-005` | `OQ-021` | PostgreSQL atomic upsert (`auth_rate_limits`) and transactional row locks (`FOR UPDATE`) used for MVP without requiring a Redis cluster. |
-| `OTD-006` | `OQ-002` | Tiered Sri Lanka Host KYC checklist approved (Individual/Sole Proprietor vs Registered Company/Hotel) with Superadmin verification queue (`AD-002`). |
-| `OTD-007` | `OQ-010` | 4-layer configurable fee/tax/withholding ledger schema (`AD-010`, `AD-016`) ready for Sri Lanka tax parameters upon external counsel sign-off. |
-| `OTD-008` | `OQ-006` | Pricing stored in integer minor units (`cents`/`paisa`) with ISO-4217 currency code; display conversion decoupled from `LKR` settlement currency. |
+| `OTD-001` | `OQ-003`, `OQ-013` | `RESOLVED_INTERNAL` (Architecture) / `BLOCKED`, `VENDOR_CONFIRMATION_REQUIRED` (PayHere Written Approval & Refund API Verification). |
+| `OTD-002` | `OQ-018` | `RESOLVED_INTERNAL` (MapLibre + MapTiler Adapter & Native Directions Deep Links) / `VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED` (Prod API Keys). |
+| `OTD-003` | `OQ-019` | `RESOLVED_INTERNAL` (`ZohoSmtpEmailAdapter` implemented for `EMAIL_PROVIDER=zoho`) / `OWNER_APPROVAL_REQUIRED`, `VENDOR_CONFIRMATION_REQUIRED` (Live DNS & Mailbox Secrets). |
+| `OTD-004` | `OQ-020` | `RESOLVED_INTERNAL` (Email Verification mandatory for MVP) / `DEFERRED`, `VENDOR_CONFIRMATION_REQUIRED`, `OWNER_APPROVAL_REQUIRED` (SMS/WhatsApp OTP). |
+| `OTD-005` | `OQ-021` | `RESOLVED_INTERNAL` (PostgreSQL `auth_rate_limits` with keyed `HMAC-SHA-256` & row locks) / `DEFERRED` (Redis / Upstash). |
+| `OTD-006` | `OQ-002` | `RESOLVED_INTERNAL` (Two-Tier Sri Lanka Host KYC Checklist Baseline) / `OWNER_APPROVAL_REQUIRED`, `LEGAL_REVIEW_REQUIRED` (Mandatory Document Sign-Off). |
+| `OTD-007` | `OQ-010` | `RESOLVED_INTERNAL` (4-Layer Configurable Tax & Ledger Architecture) / `BLOCKED`, `LEGAL_REVIEW_REQUIRED`, `TAX_REVIEW_REQUIRED` (Sri Lanka Legal & Tax Counsel Sign-Off). |
+| `OTD-008` | `OQ-008` | `RESOLVED_INTERNAL` (`LKR` Launch in ISO 4217 Integer Minor Units) / `DEFERRED` (Multi-Currency Settlement). |
 
 ---
 
@@ -185,20 +189,16 @@ Select **MapLibre GL with MapTiler Vector Tiles (OpenStreetMap)** as the primary
 
 ---
 
-### 3.8 `OQ-019` / `OTD-003` — Transactional Email Provider & Adapter Architecture (`RESOLVED_INTERNAL`)
-
-| Criterion | Option A: Resend (HTTPS API) | Option B: AWS SES | Option C: Postmark |
-|:---|:---|:---|:---|
-| **Integration Simplicity** | **Zero external SDK bloat** (single standard `fetch` POST to `https://api.resend.com/emails`) | Requires `@aws-sdk/client-ses` or SMTP signing | Simple REST API |
-| **Deliverability & DKIM/SPF** | Fast domain verification, dedicated transactional routing | High (requires AWS sandbox exit request) | Very High |
-| **Local Dev & Automated Test Safety** | Cleanly abstracted behind `EmailDeliveryAdapter` | Cleanly abstracted behind `EmailDeliveryAdapter` | Cleanly abstracted behind `EmailDeliveryAdapter` |
+### 3.8 `OQ-019` / `OTD-003` — Transactional Email Provider & Zoho Mail Integration (`RESOLVED_INTERNAL` + `OWNER_APPROVAL_REQUIRED` / `VENDOR_CONFIRMATION_REQUIRED`)
 
 **Decision & Implementation (`apps/api/src/modules/email/`):**  
-We have standardized on the pluggable `EmailDeliveryAdapter` interface supporting both **Account Email Verification** (`sendEmailVerificationEmail`) and **Password Reset** (`sendPasswordResetEmail`) with four concrete runtime strategies controlled via `EMAIL_PROVIDER`:
-1. `resend` (`ResendHttpEmailAdapter`) — Production HTTPS adapter using native `fetch` with timeout and structured error handling; requires `RESEND_API_KEY` and `EMAIL_FROM_ADDRESS`.
-2. `console` (`ConsoleDevEmailAdapter`) — Default in local `development`; logs structured metadata and verification/reset links to the local developer console without claiming external delivery.
-3. `test` (`DeterministicTestEmailAdapter`) — Default in automated `test` environment; captures sent messages in memory so Vitest suites can deterministically inspect verification and reset tokens.
-4. `noop` (`NoopEmailDeliveryAdapter`) — Safe fallback when no external provider key is configured; logs an explicit warning (`deliveryStatus: "skipped_noop"`) and **never falsely claims** an external email was delivered.
+We have integrated **Zoho Mail** as the production transactional email delivery provider behind the `EmailDeliveryAdapter` interface supporting both **Account Email Verification** (`sendEmailVerificationEmail`) and **Password Reset** (`sendPasswordResetEmail`):
+1. `zoho` (`ZohoSmtpEmailAdapter`) — Required production SMTP adapter (`EMAIL_PROVIDER=zoho`) using `nodemailer` with TLS/STARTTLS validation (`ZOHO_SMTP_HOST`, `ZOHO_SMTP_PORT`, `ZOHO_SMTP_SECURE`, `ZOHO_SMTP_REQUIRE_TLS`, `ZOHO_SMTP_USER`, `ZOHO_SMTP_PASSWORD`, `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME`) and mobile-friendly HTML + plain-text templates (`email.templates.ts`).
+2. `console` (`ConsoleDevEmailAdapter`) — Default in local `development`; logs structured metadata without exposing raw tokens.
+3. `test` (`DeterministicTestEmailAdapter`) — Default in automated `test` environment; captures sent messages in memory and supports simulated failure injection (`setSimulatedFailure`).
+4. `noop` (`NoopEmailDeliveryAdapter`) — Non-production fallback returning `delivered: false`.
+5. **Production Enforcement:** `EnvSchema` and `createAdapterForEnvironment` strictly reject `noop`, `console`, and `test` when `NODE_ENV=production`.
+6. **External Pre-Production Gate (`OWNER_APPROVAL_REQUIRED`, `VENDOR_CONFIRMATION_REQUIRED`):** Live Zoho Mail mailbox provisioning, domain DNS verification (`SPF`, `DKIM`, `DMARC`), and production secret injection (`ZOHO_SMTP_USER`, `ZOHO_SMTP_PASSWORD`) must be completed before production deployment.
 
 ---
 

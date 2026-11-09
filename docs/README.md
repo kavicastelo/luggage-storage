@@ -134,3 +134,6 @@ To maintain high signal-to-noise ratio and prevent uncontrolled documentation sp
 - **Phase 1A & 1A-R:** `docs/engineering/phase-1a-completion-report.md`, `phase-1a-r-completion-report.md`, `phase-1a-r-baseline-audit.md`.
 - **Phase 1A-RC through RC3-C4:** All corrective audit files (`phase-1a-rc-*`, `phase-1a-rc3-c1-*`, `phase-1a-rc3-c2-*`, `phase-1a-rc3-c3-*`, `phase-1a-rc3-c4-*`) in `docs/engineering/` and `docs/security/`.
 - **Acceptance Closure Audits:** `docs/engineering/phase-1a-r-final-acceptance-change-audit.md`, `docs/engineering/phase-1a-r-final-acceptance-evidence-audit.md`.
+- **Project Stabilization & Audit Remediation (`docs/project-stabilization/` & `docs/project-stabilization-2/`):**
+  - [project-stabilization/08-final-stabilization-report.md](file:///d:/luggage-storage/luggage-storage/docs/project-stabilization/08-final-stabilization-report.md) — First stabilization remediation report.
+  - [project-stabilization-2/08-final-stabilization-report.md](file:///d:/luggage-storage/luggage-storage/docs/project-stabilization-2/08-final-stabilization-report.md) — Second stabilization audit remediation (`AUD-001`–`AUD-007`), Zoho Mail SMTP integration, production security hardening, and schema/governance reconciliation.

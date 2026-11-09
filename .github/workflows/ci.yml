@@ -2,9 +2,9 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [ main, dev, develop ]
+    branches: [ main, dev, develop, feat/phase-1b-identity, 'feat/**' ]
   pull_request:
-    branches: [ main, dev, develop ]
+    branches: [ main, dev, develop, feat/phase-1b-identity, 'feat/**' ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -37,6 +37,16 @@ jobs:
 
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
+
+      - name: Build shared contracts
+        run: pnpm --filter @luggage-storage/contracts build
+
+      - name: Apply PostgreSQL database migrations and verify schema
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://luggage_user:luggage_password@127.0.0.1:5432/luggage_storage_dev
+          MIGRATION_DATABASE_URL: postgresql://luggage_migrator:migrator_password@127.0.0.1:5432/luggage_storage_dev
+          NODE_ENV: test
 
       - name: Execute Full Quality Gate (pnpm verify)
         run: pnpm verify

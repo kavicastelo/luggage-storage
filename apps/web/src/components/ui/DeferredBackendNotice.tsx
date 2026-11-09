@@ -60,7 +60,7 @@ export function ScreenHeaderBadge({
             {backendStatus === "UI_SIMULATION" && (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
                 <Info className="h-3 w-3" />
-                Interactive UI Preview (Domain API Phase 3+)
+                Demo Simulation • Interactive UI Preview (Domain API Phase 3+)
               </span>
             )}
           </div>
@@ -89,11 +89,11 @@ export function DeferredBackendNotice({
       <Info className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
       <div>
         <p className="font-semibold">
-          {featureName} — Interactive UI/UX Preview ({targetPhase})
+          {featureName} — Demo Simulation ({targetPhase})
         </p>
         <p className="text-amber-800/90 mt-0.5">
           {description ||
-            "State transitions on this screen operate against typed local preview state. No live financial, payment gateway, or custody database mutation is fabricated prior to domain backend activation."}
+            "Demo Simulation only: state transitions on this screen operate against typed local preview state. No live financial, payment gateway, or custody database mutation is persisted prior to domain backend activation."}
         </p>
       </div>
     </div>

@@ -4,13 +4,21 @@ export class AppError extends Error {
   public readonly code: ErrorCode;
   public readonly statusCode: number;
   public readonly details?: ApiErrorDetail[];
+  public readonly retryAfterSeconds?: number;
 
-  constructor(code: ErrorCode, message: string, statusCode = 400, details?: ApiErrorDetail[]) {
+  constructor(
+    code: ErrorCode,
+    message: string,
+    statusCode = 400,
+    details?: ApiErrorDetail[],
+    retryAfterSeconds?: number
+  ) {
     super(message);
     this.name = "AppError";
     this.code = code;
     this.statusCode = statusCode;
     this.details = details;
+    this.retryAfterSeconds = retryAfterSeconds;
     Error.captureStackTrace(this, this.constructor);
   }
 
@@ -42,7 +50,7 @@ export class AppError extends Error {
     return new AppError("INTERNAL_SERVER_ERROR", message, 500);
   }
 
-  static rateLimited(message = "Too many requests"): AppError {
-    return new AppError("RATE_LIMITED", message, 429);
+  static rateLimited(message = "Too many requests", retryAfterSeconds?: number): AppError {
+    return new AppError("RATE_LIMITED", message, 429, undefined, retryAfterSeconds);
   }
 }

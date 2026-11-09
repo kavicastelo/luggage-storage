@@ -20,6 +20,7 @@ import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { ScreenHeaderBadge, DeferredBackendNotice } from "@/components/ui/DeferredBackendNotice";
 import { useAuthStore } from "@/store/useAuthStore";
 import { PermissionGate } from "@/components/auth/PermissionGate";
+import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
   DEMO_LOCATIONS,
   DEMO_BOOKINGS,
@@ -36,8 +37,12 @@ export function HostDashboardLayout() {
   const { isAuthenticated, user } = useAuthStore();
   const [hostRoleMode, setHostRoleMode] = useState<"HOST_OWNER" | "HOST_STAFF">("HOST_OWNER");
 
-  const searchParams = new URLSearchParams(location.search);
-  const querySuffix = searchParams.get("preview") === "demo" ? "?preview=demo" : "";
+  const isDemoActive = isDemoPreviewActive({
+    allowDemoPreview: true,
+    search: location.search,
+    isAuthenticated
+  });
+  const querySuffix = isDemoActive ? "?preview=demo" : "";
 
   const canActAsHostOwner =
     !isAuthenticated ||
