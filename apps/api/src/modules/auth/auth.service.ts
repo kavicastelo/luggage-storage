@@ -418,11 +418,15 @@ export class AuthService {
       );
 
       if (result.rows.length === 0) {
+        logger.warn(
+          { tokenHashPrefix: tokenHash.substring(0, 12), tokenLength: input.token.length },
+          "[AuthService] Email verification token not found in database"
+        );
         await auditService.recordEvent({
           eventType: SecurityEventType.AUTH_EMAIL_VERIFICATION_FAILED,
           userId: null,
           clientInfo,
-          metadata: { reason: "TOKEN_NOT_FOUND" },
+          metadata: { reason: "TOKEN_NOT_FOUND", tokenHashPrefix: tokenHash.substring(0, 12) },
           tx
         });
         return { status: "INVALID_TOKEN" as const };

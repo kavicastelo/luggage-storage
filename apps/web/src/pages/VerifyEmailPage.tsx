@@ -21,9 +21,11 @@ export function VerifyEmailPage() {
   const [isVerified, setIsVerified] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const hasRequestedRef = React.useRef(false);
 
   useEffect(() => {
-    if (initialToken) {
+    if (initialToken && !hasRequestedRef.current) {
+      hasRequestedRef.current = true;
       void executeVerify(initialToken);
     }
   }, [initialToken]);

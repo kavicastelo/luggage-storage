@@ -1,7 +1,14 @@
 import { z } from "zod";
 import dotenv from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load workspace .env first, then fallback to monorepo root .env
 dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
 const booleanFlagSchema = (defaultValue: boolean) =>
   z
