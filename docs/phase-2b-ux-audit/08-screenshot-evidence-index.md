@@ -18,7 +18,9 @@ In strict compliance with Non-Negotiable Constraints 10 and 11 ("Do not claim to
 
 ---
 
-### 2. Comprehensive Screenshot Evidence Register
+### 2. Comprehensive Screenshot Evidence Register (Baseline Suite — 26 Files)
+
+Located in `docs/phase-2b-ux-audit/evidence/`:
 
 | Evidence File | Associated Screen IDs | Surface | Viewport | Target URL | Critical Architectural & UX Findings Captured |
 |---|:---:|:---:|:---:|---|---|
@@ -48,6 +50,21 @@ In strict compliance with Non-Negotiable Constraints 10 and 11 ("Do not claim to
 | `hm-host-index.png` | `HM-006`, `HM-001`..`037` | Host Mobile | $390\times 844$ | `http://localhost:8081/(host)` | Same developer switcher architecture as TM; card grid labeled "Browse All 31 Registered Host Mobile Screens". |
 | `hm-021-scanner-mobile.png` | `HM-021`, `HM-024` | Host Mobile | $390\times 844$ | `http://localhost:8081/(host)/scanner` | No camera scanner; displays simulated text box with pre-filled string `482910` and button labeled `HM-021 Check-In`. |
 | `auth-mobile-login.png` | Mobile Identity | Mobile (Expo) | $390\times 844$ | `http://localhost:8081/(auth)/login` | Live React Native authentication screen; email/password inputs with Fastify auth integration. |
+
+---
+
+### 2.1 Revalidated Evidence Register (Phase 2B.1 Suite — 81 Additional Files)
+
+Located in `docs/phase-2b-ux-audit/evidence/current/`:
+
+| Directory | Capture Count | Surface Covered | Viewport(s) | Primary Purpose & Findings Captured |
+|---|:---:|---|:---:|---|
+| `public-web/` | 16 | Public Web (`PW-001` to `PW-011` + Auth) | $1280\times 900$ & $390\times 844$ | Complete high-resolution desktop and responsive mobile captures of all public consumer routes. Confirms dark gradient backgrounds, prominent developer chips, and footer sitemaps. |
+| `host-dashboard/` | 14 | Host Web (`HD-001` to `HD-014`) | $1280\times 900$ | Dedicated view of every single Host Dashboard route. Confirms uniform sidebar layout, tracking badge prefixes on navigation, and local state tables. |
+| `superadmin/` | 18 | Superadmin (`AD-001` to `AD-018`) | $1280\times 900$ | Dedicated view of every single Superadmin console route. Confirms live audit event integration (`AD-017`), placeholder dispute status (`AD-013`), and financial ledger simulation. |
+| `traveller-mobile/` | 17 | Traveller Mobile (`TM` key screens + Auth) | $390\times 844$ | High-frequency traveller journey screens: splash, welcome, language selector, search hub, discovery, bag counter, checkout, custody pass, history, profile, and auth screens. |
+| `host-mobile/` | 16 | Host Mobile (`HM` key screens) | $390\times 844$ | Host journey screens: operational dashboard, listings, space manager, booking approvals, custody scanner fallback, security seal prompt, and payout details. |
+| **Total Captured Evidence** | **107 Files** | **All 5 Surfaces + Identity** | **Desktop & Mobile** | **Comprehensive visual proof across 100% of marketplace applications.** |
 
 ---
 

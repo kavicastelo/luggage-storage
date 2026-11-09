@@ -11,10 +11,26 @@
 
 ### 1. Brand Personality & Core Design Philosophy
 
-The Global Luggage Storage Marketplace operates at the intersection of **hospitality, physical security, and travel convenience**. The design system must project two complementary attributes:
+> [!IMPORTANT]
+> **Status Disclaimer:** The "Ceylon Warmth & Coastal Precision" (CWCP) design system presented in this document is a **proposed visual direction and design recommendation** prepared during the Phase 2B audit. It is **not** an approved customer-contracted product requirement baseline. Final adoption of brand tokens, palette nomenclature, amenity badges, and wallet integrations requires explicit Product Owner sign-off (see `16-product-decisions-required.md`).
+
+The Global Luggage Storage Marketplace operates at the intersection of **hospitality, physical security, and travel convenience**. The proposed design system projects two complementary attributes:
 
 1. **Coastal Precision (Trust & Security):** Crisp lines, institutional navy tones, clear data hierarchy, and unambiguous status feedback that give travellers complete confidence their valuables are in safe hands.
 2. **Ceylon Warmth (Hospitality & Energy):** Welcoming terracotta accents, sunlit sand surfaces, approachable human typography, and delightful, contextual guidance from "Kiri the Palm Squirrel".
+
+---
+
+### 1.1 Architectural Classification of Design System Elements
+
+To avoid conflating UX research recommendations with mandatory product requirements or premature scope commitments, all elements of this design system are categorized across four strict governance tiers:
+
+| Tier | Category | Scope Elements Included | Governance Authority |
+|---|---|---|---|
+| **Tier 1** | **Evidence-Backed Requirements** | • Elimination of internal tracking IDs (`PW-001`, `HD-008`, `WF-xxx`) from all end-user UI.<br>• Minimum $44\times 44$px touch targets across mobile and web touch interfaces.<br>• WCAG 2.2 Level AA color contrast compliance ($\ge 4.5:1$ normal text, $\ge 3:1$ large text).<br>• Replacement of card-grid screen switcher prototypes with standard navigation (tab bar, stack navigation).<br>• Fully responsive mobile-first layouts (375px–1440px viewports).<br>• Clear visual hierarchy distinguishing primary CTAs from secondary/destructive actions. | Non-negotiable UX/QA baseline for Phase 2C. |
+| **Tier 2** | **Reasonable Design Recommendations** | • "Ceylon Warmth & Coastal Precision" color tokens (`navy-900`, `terracotta-500`, `sand-50`) derived from existing Kiri mascot assets.<br>• Geometric sans-serif typography (`Plus Jakarta Sans` or `Inter`) with monospace accent font (`JetBrains Mono`) for booking references and PINs.<br>• Standardized 4px spatial baseline and 16px container border radius with soft ambient shadows replacing nested hard 1px borders.<br>• Contextual mascot placement guidelines (supportive in empty states/success, silent in checkout/disputes).<br>• High-density operational tables with sticky headers and dot-status badges for Host and Superadmin dashboards. | Recommended default for Phase 2C design token implementation. |
+| **Tier 3** | **Product Assumptions Requiring Validation** | • "Verified Hotel Vault" / "Verified Luggage Partner" trust badge iconography and verification criteria.<br>• Specific amenity taxonomy (e.g., CCTV, 24/7 Access, Climate Controlled, Free WiFi).<br>• Apple Wallet and Google Wallet digital pass integration hooks.<br>• Automated mobile display brightness boost upon rendering digital custody QR code.<br>• Emergency 1-tap host dial button on mobile pass.<br>• Counter check-in photo evidence workflow enforcement. | Subject to Product Owner confirmation in `16-product-decisions-required.md`. |
+| **Tier 4** | **Out-of-Scope Functionality (Excluded)** | • Native hardware PassKit / Google Pay wallet pass generation backend services.<br>• IoT / Bluetooth / RFID smart luggage tracking integrations.<br>• Thermal barcode printer hardware integration for physical luggage tags.<br>• In-app video/voice calling between traveller and host.<br>• Biometric authentication at partner storage counter. | Strictly excluded from Phase 2C scope. |
 
 ---
 
