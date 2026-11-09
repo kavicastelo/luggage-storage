@@ -450,10 +450,13 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 ### 5. Workstream 4: Host Web Dashboard (`WS-4-HOST-WEB`)
+*Status: COMPLETED (Phase 2C.4 Delivery — Verified under DOC-UX-P2C-033 and DOC-UX-P2C-034)*
 
 ---
 
 #### Task `TSK-2C-016`: Host Dashboard Navigation Shell & Human Sidebar
+- **Status:** **COMPLETED** (Sprint 4 / WS-4 / Phase 2C.4)
+- **Completion Artifacts:** `apps/web/src/pages/HostDashboardPages.tsx` (`HostDashboardLayout`, `HostOverviewDashboardPage`), `apps/web/tests/host-dashboard-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/host-dashboard/hd-001-overview-*.png`
 - **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Web Dashboard (`apps/web/src/pages/host/`)
 - **User Persona:** Storage partner manager
@@ -478,6 +481,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-017`: Host Live Operations Desk & Rapid Intake/Release Kiosk (`HD-009`)
+- **Status:** **COMPLETED** (Sprint 4 / WS-4 / Phase 2C.4)
+- **Completion Artifacts:** `apps/web/src/pages/HostDashboardPages.tsx` (`HostWebCheckInOutOperationsPage`), `apps/web/tests/host-dashboard-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/host-dashboard/hd-009-operations-*.png`
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Web Dashboard (`apps/web/src/pages/host/HostOperationsDeskPage.tsx`)
 - **User Persona:** Storage partner counter staff
@@ -503,6 +508,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-018`: Storage Capacity Management & Space Editor (`HD-002`–`HD-005`)
+- **Status:** **COMPLETED** (Sprint 4 / WS-4 / Phase 2C.4)
+- **Completion Artifacts:** `apps/web/src/pages/HostDashboardPages.tsx` (`HostLocationManagementPage`, `HostLocationProfileEditorPage`, `HostScheduleCalendarEditorPage`, `HostCapacityPoolsZonesPage`, `HostPricingRulesMultipliersPage`), `apps/web/tests/host-dashboard-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/host-dashboard/hd-002-*, hd-003-*, hd-004-*, hd-005-*, hd-006-*`
 - **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Web Dashboard (`HostListingsPage.tsx`, `HostSpaceEditorPage.tsx`, `HostOperatingHoursPage.tsx`)
 - **User Persona:** Storage partner manager
@@ -527,6 +534,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-019`: Host Bookings Ledger & Investigation Modal (`HD-007`, `HD-008`)
+- **Status:** **COMPLETED** (Sprint 4 / WS-4 / Phase 2C.4)
+- **Completion Artifacts:** `apps/web/src/pages/HostDashboardPages.tsx` (`HostBookingManagementHubPage`), `apps/web/tests/host-dashboard-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/host-dashboard/hd-007-*, hd-008-*`
 - **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Web Dashboard (`HostBookingsLedgerPage.tsx`, `HostBookingDetailsPage.tsx`)
 - **User Persona:** Storage partner manager
@@ -551,6 +560,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-020`: Host Revenue Breakdown & Payout Settings (`HD-010`, `HD-011`)
+- **Status:** **COMPLETED** (Sprint 4 / WS-4 / Phase 2C.4)
+- **Completion Artifacts:** `apps/web/src/pages/HostDashboardPages.tsx` (`HostFinancialRevenueLedgerPage`, `HostPayoutAccountsHistoryPage`, `HostReviewManagementPage`, `HostStaffManagementRbacPage`, `HostBusinessProfileLegalPage`), `apps/web/tests/host-dashboard-journeys.test.tsx`, `docs/phase-2b-ux-audit/evidence/current/host-dashboard/hd-010-*, hd-011-*, hd-012-*, hd-013-*, hd-014-*`
 - **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Web Dashboard (`HostFinancePage.tsx`, `HostPayoutSettingsPage.tsx`)
 - **User Persona:** Storage partner business owner
