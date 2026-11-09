@@ -53,7 +53,8 @@ Phase 2C executes across **seven independently deliverable workstreams** organiz
 
 ---
 
-#### Workstream 2: Public Traveller Web (`WS-2-PUBLIC-WEB`)
+#### Workstream 2: Public Traveller Web (`WS-2-PUBLIC-WEB`) [COMPLETED]
+- **Status:** **COMPLETED** (Verified in `DOC-UX-P2C-026` & `DOC-UX-P2C-027`, Branch `feat/phase-2c-public-web`)
 - **Objective:** Overhaul the consumer discovery and booking experience across all 11 public web screens.
 - **Included Applications:** `apps/web` (`apps/web/src/pages/`).
 - **Scope:** Redesign `PW-001` through `PW-011`: hospitality landing hero, split-screen MapLibre search, location profile details, transparent checkout, confirmation pass, and self-service portal.
