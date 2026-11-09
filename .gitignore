@@ -43,3 +43,4 @@ web-build/
 *.tsbuildinfo
 
 .agents
+temp

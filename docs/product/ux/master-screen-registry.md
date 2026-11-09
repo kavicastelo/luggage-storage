@@ -2,8 +2,8 @@
 
 **Project:** Global Luggage Storage Marketplace  
 **Document Type:** UX Architecture & Multi-Dimensional Screen Implementation Registry  
-**Status:** Reconciled Stabilization Baseline (`DOC-UX-001`)  
-**Governing Documents:** FRS, Phase 0A Architecture, Technical Blueprint Section 6, Functional Requirements (`FR-001`–`FR-057`, `IR-001`–`IR-015`), Workflow Inventory (`WF-001`–`WF-044`), Project Stabilization Assessment (`DOC-STAB-00`).
+**Status:** Reconciled Phase 2B Audit Baseline (`DOC-UX-001` / `DOC-UX-P2B-002`)  
+**Governing Documents:** FRS, Phase 0A Architecture, Technical Blueprint Section 6, Functional Requirements (`FR-001`–`FR-057`, `IR-001`–`IR-015`), Workflow Inventory (`WF-001`–`WF-044`), Project Stabilization Assessment (`DOC-STAB-00`), Phase 2B Product Experience Audit (`DOC-UX-P2B-000`..`013`).
 
 ---
 
@@ -16,15 +16,18 @@ The Master Screen Registry is the central authoritative inventory of every scree
 4. **`HD` — Host Web Dashboard** (React + Vite — 14 Active Screens)
 5. **`AD` — Superadmin Web Dashboard** (React + Vite — 18 Active Screens)
 
-### 1.1 Honest Multi-Dimensional Implementation Classification (`REM-A01`)
+### 1.1 Honest Multi-Dimensional Implementation Classification (`REM-A01` & Phase 2B Audit)
 To prevent mock or preview interactions from being misclassified as completed backend capabilities, every screen is tracked across **seven distinct implementation dimensions**:
 
 1. **Spec Status (`Spec`):** `Approved` (Phase 0C UX specification complete).
-2. **UI Status (`UI`):** `UI-Complete` (React / React Native view rendered with design tokens and mascot integration).
+2. **UI Status (`UI`):**
+   - `UI-Simulation`: Prototype React / React Native view rendered with mock datasets and developer tracking badges; pending Phase 2C redesign.
+   - `Static Content`: Informational / legal / FAQ content views (`PW-007`, `PW-008`, `PW-010`).
 3. **Frontend Interaction (`Interaction`):**
-   - `Live Auth/RBAC`: Wired to live client state, validation, and server endpoints.
-   - `Interactive Preview`: Client-side interactive state machine using clearly isolated demo data.
-   - `Static Content`: Informational / legal / marketing content view.
+   - `Live Auth/RBAC`: Wired to live client state, validation, and Fastify server endpoints (12 screens).
+   - `Interactive Preview`: Client-side interactive state machine using clearly isolated demo data (95 screens).
+   - `Placeholder`: Non-functional UI card (`AD-013` Incident Investigation, `HM-021` Camera Scanner).
+   - `Static Content`: Informational / legal view.
 4. **API Integration (`API`):**
    - `Live (Phase 1B)`: Connected to Fastify `/api/v1/auth` or `/api/v1/admin` endpoints.
    - `Deferred (Phase 3+)`: Uses isolated client preview state; marketplace REST integration scheduled for Phases 3–12.
@@ -218,3 +221,10 @@ To prevent mock or preview interactions from being misclassified as completed ba
 | `HM-016` | Host Mobile | Pricing / Dynamic Rates | **Reserved for Weekend / Seasonal Pricing Multipliers**. | Zero omission. Core daily rate covered by `HM-014`. |
 | `HM-017` | Host Mobile | Pricing / Discounts | **Reserved for Host Multi-Day Volume Discount Rule Editor**. Embedded in `HM-014` for MVP. | Zero omission. Multi-day discounts handled in `HM-014`. |
 | `HM-032` | Host Mobile | Finance / Statements | **Reserved for Monthly Tax Invoice & PDF Earnings Statement Download**. Summary covered by `HM-029` and `HM-031`. | Zero omission. `FR-36`–`FR-38` covered. |
+
+### 7.3 Historical "123 Active Screens" Reference & Live Web Auth Reconciliation
+
+1. **Resolution of the 123 Reference:** In early project stabilization documents (`DOC-STAB-08` line 20), active screens were inaccurately written as `123` based on an erroneous calculation `134 - 11 = 123`. As verified by section 7.1 above, the actual numbering span is 124, which minus the 11 reserved IDs yields exactly **113 Active Catalogued Marketplace Screens**.
+2. **Live Uncatalogued Web Auth Screens:** In addition to the 113 marketplace screens, the web codebase includes 11 active identity and utility screens (`/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`, `/profile`, `/settings/security`, `/settings/sessions`, `/health`, `/forbidden`, `/404`) that operate live against Fastify and PostgreSQL.
+3. **Phase 2B Audit Baseline:** For the comprehensive 7-dimension assessment, visual design critique, and redesign roadmap, refer to `docs/phase-2b-ux-audit/` (`DOC-UX-P2B-000` through `DOC-UX-P2B-013`).
+

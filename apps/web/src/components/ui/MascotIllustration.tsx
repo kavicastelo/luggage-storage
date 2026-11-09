@@ -55,13 +55,12 @@ export function MascotIllustration({
 
   return (
     <div
-      className={`flex flex-col items-center text-center rounded-2xl ${
-        variant === "hero"
+      className={`flex flex-col items-center text-center rounded-2xl ${variant === "hero"
           ? "bg-gradient-to-br from-amber-50 via-white to-blue-50 border border-amber-200/80 p-6 shadow-md"
           : variant === "empty"
-          ? "bg-slate-50/90 border border-dashed border-slate-300 p-8"
-          : "bg-amber-50/50 border border-amber-100 p-4"
-      } ${className}`}
+            ? "bg-slate-50/90 border border-dashed border-slate-300 p-8"
+            : "bg-amber-50/50 border border-amber-100 p-4"
+        } ${className}`}
       data-mascot-id={meta.id}
     >
       {badgeText && (

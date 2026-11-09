@@ -3,21 +3,21 @@
 **Project:** Global Luggage Storage Marketplace  
 **Document ID:** `DOC-ENG-P2-TRACKER`  
 **Phase:** Phase 2 — Complete Product UI/UX Implementation  
-**Authoritative Baseline:** `docs/product/ux/master-screen-registry.md` (`DOC-UX-001`), `docs/product/ux/navigation-and-journey-maps.md` (`DOC-UX-002`), `docs/product/ux/screen-to-workflow-matrix.md` (`DOC-UX-003`)  
-**Status:** `COMPLETE — 113 / 113 ACTIVE SCREENS QA_VERIFIED`
+**Authoritative Baseline:** `docs/product/ux/master-screen-registry.md` (`DOC-UX-001`), `docs/product/ux/navigation-and-journey-maps.md` (`DOC-UX-002`), `docs/product/ux/screen-to-workflow-matrix.md` (`DOC-UX-003`), `docs/phase-2b-ux-audit/00-executive-summary.md` (`DOC-UX-P2B-000`)  
+**Status:** `RECONCILED PHASE 2B AUDIT BASELINE — 113 ACTIVE SCREENS (TEST_VERIFIED_SIMULATION / PENDING PHASE 2C REDESIGN)`
 
 ---
 
 ## 1. Executive Summary & Surface Totals
 
-| Surface Code | Target Application | Registered Active Screens | Implemented | Navigation Wired | Interactive States | QA Verified |
+| Surface Code | Target Application | Registered Active Screens | Visual Rendering | Interaction State | API & Backend | QA / Audit Status |
 |:---|:---|:---:|:---:|:---:|:---:|:---:|
-| **`TM`** (Traveller Mobile) | `apps/mobile` | **39** | 39 / 39 | 39 / 39 | 39 / 39 | `QA_VERIFIED` |
-| **`HM`** (Host Mobile) | `apps/mobile` | **31** | 31 / 31 | 31 / 31 | 31 / 31 | `QA_VERIFIED` |
-| **`PW`** (Public Website) | `apps/web` | **11** | 11 / 11 | 11 / 11 | 11 / 11 | `QA_VERIFIED` |
-| **`HD`** (Host Web Dashboard) | `apps/web` | **14** | 14 / 14 | 14 / 14 | 14 / 14 | `QA_VERIFIED` |
-| **`AD`** (Superadmin Dashboard) | `apps/web` | **18** | 18 / 18 | 18 / 18 | 18 / 18 | `QA_VERIFIED` |
-| **TOTAL ACTIVE SCREENS** | **Monorepo (`web` + `mobile`)** | **113** | **113 / 113** | **113 / 113** | **113 / 113** | **`100% QA_VERIFIED`** |
+| **`TM`** (Traveller Mobile) | `apps/mobile` | **39** | 39 / 39 (Simulation) | 39 / 39 (Hybrid) | 6 Live Auth / 33 Deferred | `TEST_VERIFIED_SIMULATION` |
+| **`HM`** (Host Mobile) | `apps/mobile` | **31** | 31 / 31 (Simulation) | 31 / 31 (Hybrid) | 2 Live Auth / 29 Deferred | `TEST_VERIFIED_SIMULATION` |
+| **`PW`** (Public Website) | `apps/web` | **11** | 11 / 11 (Simulation) | 11 / 11 (Local) | 1 Live Auth / 10 Deferred | `TEST_VERIFIED_SIMULATION` |
+| **`HD`** (Host Web Dashboard) | `apps/web` | **14** | 14 / 14 (Simulation) | 14 / 14 (Local) | 1 Live Profile / 13 Deferred | `TEST_VERIFIED_SIMULATION` |
+| **`AD`** (Superadmin Dashboard) | `apps/web` | **18** | 18 / 18 (Simulation) | 18 / 18 (Hybrid) | 2 Live Auth/Audit / 16 Deferred | `TEST_VERIFIED_SIMULATION` |
+| **TOTAL ACTIVE SCREENS** | **Monorepo (`web` + `mobile`)** | **113** | **113 / 113** | **113 / 113** | **12 Live / 101 Deferred** | **`PHASE 2B AUDITED`** |
 
 ### 1.1 Reserved Screen IDs (Excluded by Specification — 11 IDs)
 Per `docs/product/ux/master-screen-registry.md`, the following 11 IDs are intentionally reserved and verified **NOT** implemented as active screens:
@@ -195,5 +195,31 @@ Following Product Owner review against `docs/product/assumptions-and-open-questi
   - Standard customer service inquiries (`AD-011` / `AD-012`) are accessible to `SUPPORT` and `SUPERADMIN`, whereas high-priority custody/financial disputes (`AD-013`) are escalated to `SUPERADMIN`.
 - **7-Dimension Implementation Status (`Spec`, `UI`, `Interaction`, `API`, `Backend`, `DB`, `QA`):**
   - See `docs/product/ux/master-screen-registry.md` for the complete 7-dimension breakdown across all 113 active screens distinguishing live Phase 1B Identity/RBAC/Audit screens (`TM-001`, `TM-005`..`TM-008`, `TM-042`, `TM-043`, `HM-002`, `AD-017`, `AD-018`, plus Web Auth pages) from Phase 3+ deferred marketplace domain backend capabilities.
+
+---
+
+## 8. Phase 2B Independent Product UI/UX Audit Findings & Tracker Reconciliation
+
+Following the independent Phase 2B Product UI/UX Audit (`DOC-UX-P2B-000` through `DOC-UX-P2B-013`), this tracker has been formally reconciled against actual visual and runtime evidence:
+
+### 8.1 Reconciled Screen Inventory (113 Active Screens vs Historical 123 Reference)
+- **Active Marketplace Catalog:** Exactly **113 Active Screens** (`39 TM + 31 HM + 11 PW + 14 HD + 18 AD = 113`).
+- **Reserved Identifier Gaps:** **11 Reserved IDs** (`TM-009, 010, 025, 026, 038`; `HM-008, 012, 015, 016, 017, 032`).
+- **Total ID Span:** `113 active + 11 reserved = 124`.
+- **Discrepancy Root Cause:** The historical "123 active screens" in Phase 1B documentation was a mathematical typo (`134 - 11 = 123` instead of `124 - 11 = 113`). No screens were omitted.
+- **Uncatalogued Live Auth Screens:** 11 live web identity/utility screens (`/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`, `/profile`, `/settings/security`, `/settings/sessions`, `/health`, `/forbidden`, `/404`) operate live in `apps/web`.
+
+### 8.2 QA_VERIFIED Scope Correction
+The previous designation of `100% QA_VERIFIED` strictly denoted that:
+1. Automated Vitest tests in `apps/web/tests/phase-2-screens-and-mascots.test.ts` passed against static mock objects.
+2. Fastify Phase 1B identity endpoints operated correctly against PostgreSQL.
+
+The designation did **NOT** denote production UX completeness. The actual audit reveals:
+- **Visual Design:** 110 of 113 screens operate as prototype UI simulations burdened by nested cards, generic palettes, and leaked tracking codes.
+- **Mobile Navigation:** Both Mobile apps operate as monolithic screen-picker hub switchers rather than native navigable applications.
+- **Hardware Integrations:** Camera QR scanning (`HM-021`) and MapLibre geospatial maps (`PW-002`, `TM-012`) are simulated placeholders.
+- **Backlog Priority:** 48 actionable UX/UI redesign findings (7 P0, 14 P1, 18 P2, 9 P3) are prioritized in `docs/phase-2b-ux-audit/09-prioritized-ux-redesign-backlog.md`.
+- **Redesign Execution:** Scheduled for Phase 2C/3 under the "Ceylon Warmth & Coastal Precision" Design System (`DOC-UX-P2B-010`).
+
 
 

@@ -543,6 +543,10 @@ export function createAdapterForEnvironment(
     return new ZohoSmtpEmailAdapter();
   }
 
+  if (nodeEnv === "test" || provider === "test") {
+    return new DeterministicTestEmailAdapter();
+  }
+
   if (provider === "zoho") {
     return new ZohoSmtpEmailAdapter();
   }
@@ -554,9 +558,6 @@ export function createAdapterForEnvironment(
   }
   if (provider === "noop") {
     return new NoopEmailDeliveryAdapter();
-  }
-  if (nodeEnv === "test" || provider === "test") {
-    return new DeterministicTestEmailAdapter();
   }
   return new ConsoleDevEmailAdapter();
 }
