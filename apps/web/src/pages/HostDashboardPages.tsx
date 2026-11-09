@@ -81,8 +81,12 @@ export function useHostVenue(): HostContextType {
 // ============================================================================
 export function HostDashboardLayout() {
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const roleParam = searchParams.get("role")?.toUpperCase();
+  const initialRole: "HOST_OWNER" | "HOST_STAFF" =
+    roleParam === "HOST_STAFF" || roleParam === "STAFF" ? "HOST_STAFF" : "HOST_OWNER";
   const { isAuthenticated, user } = useAuthStore();
-  const [hostRoleMode, setHostRoleMode] = useState<"HOST_OWNER" | "HOST_STAFF">("HOST_OWNER");
+  const [hostRoleMode, setHostRoleMode] = useState<"HOST_OWNER" | "HOST_STAFF">(initialRole);
   const [selectedLocationId, setSelectedLocationId] = useState<string>("loc-cmb-fort-01");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -197,7 +201,7 @@ export function HostDashboardLayout() {
                     ? user.displayName || user.email
                     : "Ceylon Transit Hospitality (Pvt) Ltd"}
                 </p>
-                <p className="text-[11px] text-sand-400 mt-0.5">Verified Commercial Storage Partner</p>
+                <p className="text-[11px] text-sand-400 mt-0.5">Sample Host Partner Profile (Demo Preview)</p>
               </div>
 
               {/* Active Venue Selector */}
@@ -1186,7 +1190,7 @@ export function HostLocationProfileEditorPage() {
                 </option>
               </select>
               <p className="text-[10px] text-navy-500 mt-1">
-                Mandatory photo capture attaches intake photos to the custody audit log.
+                Mandatory photo capture attaches intake photos to the custody audit log. (Prototype Option: DEC-001 Pending PO Sign-Off)
               </p>
             </div>
             <div className="space-y-2">
@@ -1636,10 +1640,10 @@ export function HostPricingRulesMultipliersPage() {
       <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
         <div className="space-y-1">
           <h2 className="text-sm font-bold text-navy-950">
-            Late Collection Grace Period &amp; Fee Policy
+            Late Collection Grace Period &amp; Fee Policy (DEC-002 Pending PO Sign-Off)
           </h2>
           <p className="text-xs text-navy-600">
-            Grace periods and late collection fees are configurable per location and disclosed to travellers before checkout. No unannounced penalty fees may be charged.
+            Grace periods and late collection fees are configurable per location and disclosed to travellers before checkout. In accordance with platform policy, baggage release is never withheld for overdue fee collection.
           </p>
         </div>
 
@@ -1662,7 +1666,7 @@ export function HostPricingRulesMultipliersPage() {
           </div>
           <div>
             <label className="block font-bold text-navy-900 mb-1">
-              Late Collection Surcharge Policy
+              Late Collection Surcharge Policy (Illustrative Prototype)
             </label>
             <select
               aria-label="Late Collection Surcharge Policy"
@@ -1881,7 +1885,7 @@ export function HostBookingManagementHubPage() {
                   <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                   <div>
                     <strong className="text-navy-950">2. Physical Intake Handover</strong>
-                    <p className="text-[11px] text-navy-500">Server verified with QR primary scan • Backup PIN: <span className="font-mono">{inspectedBooking.pinCode}</span></p>
+                    <p className="text-[11px] text-navy-500">Prototype Intake: Handover recorded against demo session fixture • Backup PIN: <span className="font-mono">{inspectedBooking.pinCode}</span></p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
@@ -1968,8 +1972,8 @@ export function HostWebCheckInOutOperationsPage() {
       setIsSubmitting(false);
       setHandoverSuccessMessage(
         operationMode === "CHECK_IN"
-          ? `Custody Handover Completed: Booking ${lookupQuery} verified. Reconciled ${reconciledBags} bags. Numbered Seal ${sealInput} logged. Acting staff: Roshan Fernando (staff-usr-204).`
-          : `Baggage Release Completed: Booking ${lookupQuery} verified via ${verificationMethod}. Reconciled ${reconciledBags} bags returned to guest. Custody cleared.`
+          ? `Local Prototype Simulation: Custody Handover logged to workstation session for booking ${lookupQuery}. Reconciled ${reconciledBags} bags. Numbered Seal ${sealInput} logged. Acting staff: Roshan Fernando (staff-usr-204). (Requires API integration in Phase 3+)`
+          : `Local Prototype Simulation: Baggage Release logged to workstation session for booking ${lookupQuery} via ${verificationMethod}. Reconciled ${reconciledBags} bags returned to guest. Custody cleared. (Requires API integration in Phase 3+)`
       );
     }, 700);
   };
@@ -2030,7 +2034,7 @@ export function HostWebCheckInOutOperationsPage() {
       <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
         <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
         <div>
-          <strong className="text-navy-950">Desktop Counter Workstation:</strong> Supports manual barcode scanner input, booking lookup, or 6-digit backup PIN verification. Optical camera scanning requires a mobile companion or dedicated USB barcode hardware.
+          <strong className="text-navy-950">Desktop Counter Workstation (Local Prototype Simulation):</strong> Supports manual barcode scanner input, booking lookup, or 6-digit backup PIN verification. Physical intake and releases in this prototype session update client state and will connect to the live backend custody API in Phase 3+. Optical camera scanning requires a mobile companion or dedicated USB barcode hardware.
         </div>
       </div>
 
@@ -2238,7 +2242,7 @@ export function HostFinancialRevenueLedgerPage() {
               Financial Revenue &amp; Commission Ledger
             </h1>
             <p className="text-xs text-navy-600 mt-0.5">
-              Itemized gross booking volume, 15% platform commission, and 85% net host earnings.
+              Itemized gross booking volume, illustrative 15% platform commission, and 85% net host earnings (DEC-006 Pending PO Sign-Off).
             </p>
           </div>
           <button
@@ -2255,10 +2259,18 @@ export function HostFinancialRevenueLedgerPage() {
         </div>
       </div>
 
+      {/* Honest Prototype Notice */}
+      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <strong className="text-navy-950">Financial Ledger (Demo Figures):</strong> Financial volumes, deductions, and batch settlement dates are calculated from local mock bookings for Fort Hub demonstration. Export actions generate simulated client exports. Production ledger queries will connect to the payments service in Phase 3+.
+        </div>
+      </div>
+
       {downloadNotice && (
         <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center gap-2">
           <Info className="h-4 w-4 text-blue-600" />
-          <span>Generating financial ledger export (CSV). Download starting shortly.</span>
+          <span>Generating financial ledger export (CSV). Download starting shortly (Demo Action).</span>
         </div>
       )}
 
@@ -2279,7 +2291,7 @@ export function HostFinancialRevenueLedgerPage() {
         <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-1">
           <span className="text-xs font-bold text-navy-500 uppercase tracking-wider">Net Host Payout (85%)</span>
           <p className="text-2xl font-extrabold text-emerald-700">{formatLkr(184500)}</p>
-          <span className="text-[11px] text-emerald-800 font-semibold">Cleared for weekly batch transfer</span>
+          <span className="text-[11px] text-emerald-800 font-semibold">Illustrative Friday batch estimate (DEC-006)</span>
         </div>
       </div>
 
@@ -2367,7 +2379,7 @@ export function HostPayoutAccountsHistoryPage() {
               Payout Accounts &amp; Settlement History
             </h1>
             <p className="text-xs text-navy-600 mt-0.5">
-              Manage Sri Lankan LKR settlement bank details (CEFT / SLIPS) and review weekly batch transfer statements.
+              Manage Sri Lankan LKR settlement bank details (CEFT / SLIPS) and review weekly batch transfer statements (Illustrative Friday Schedule: DEC-006 Pending PO Sign-Off).
             </p>
           </div>
           <button
@@ -2377,6 +2389,14 @@ export function HostPayoutAccountsHistoryPage() {
           >
             Update Bank Details
           </button>
+        </div>
+      </div>
+
+      {/* Honest Prototype Notice */}
+      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <strong className="text-navy-950">Payout Accounts (Demo Record):</strong> Bank beneficiary details and batch settlement records are illustrative fixtures for Ceylon Transit Hospitality demonstration. Bank verification and CEFT/SLIPS disbursement integration will connect in Phase 3+.
         </div>
       </div>
 
@@ -2392,8 +2412,8 @@ export function HostPayoutAccountsHistoryPage() {
               <p className="text-xs text-navy-600">Colombo Fort Corporate Branch (Code 001)</p>
             </div>
           </div>
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            Verified &amp; Active
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200">
+            Sample Bank Record (Demo)
           </span>
         </div>
 
@@ -2447,7 +2467,7 @@ export function HostPayoutAccountsHistoryPage() {
                       type="button"
                       className="text-terracotta-600 hover:text-terracotta-700 font-bold"
                     >
-                      Download PDF
+                      Download Sample PDF (Demo Action)
                     </button>
                   </td>
                 </tr>
@@ -2578,10 +2598,18 @@ export function HostReviewManagementPage() {
         </div>
       </div>
 
+      {/* Honest Prototype Notice */}
+      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <strong className="text-navy-950">Customer Reviews (Demo Data):</strong> Sample feedback ratings and reviews shown for Fort Hub demonstration. Replies are held in local state and will connect to the live review publication endpoint in Phase 3+.
+        </div>
+      </div>
+
       {replyPublished && (
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-          <span>Official host response published to customer profile.</span>
+          <span>Local Prototype: Official host response previewed in workstation session (not published to public travellers).</span>
         </div>
       )}
 
@@ -2704,6 +2732,14 @@ export function HostStaffManagementRbacPage() {
             <Plus className="h-4 w-4" />
             <span>Invite Staff Member</span>
           </button>
+        </div>
+      </div>
+
+      {/* Honest Prototype Notice */}
+      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <strong className="text-navy-950">Team Management (Demo State):</strong> Staff directory is populated with demo counter supervisors for Fort Hub. Modal invitations simulate the staff onboarding journey and will connect to RBAC identity provisioning in Phase 3+.
         </div>
       </div>
 
@@ -2866,10 +2902,18 @@ export function HostBusinessProfileLegalPage() {
               Corporate registration certificate (BRN), Sri Lanka TIN/VAT status, and verified insurance compliance.
             </p>
           </div>
-          <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            <span>KYC Verified &amp; Compliant</span>
+          <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-sand-100 text-navy-800 border border-sand-300 flex items-center gap-1.5">
+            <CheckCircle2 className="h-4 w-4 text-terracotta-600" />
+            <span>KYC Profile Preview (Demo Simulation)</span>
           </span>
+        </div>
+      </div>
+
+      {/* Honest Prototype Notice */}
+      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <strong className="text-navy-950">Business Profile &amp; KYC (Demo Simulation):</strong> Corporate entities, tax identifiers (BRN/TIN), and insurance certificates displayed here are sample fixtures for Fort Hub onboarding demonstration. Production verification and document uploads will connect to Superadmin compliance workflows in Phase 3+.
         </div>
       </div>
 
@@ -2914,8 +2958,8 @@ export function HostBusinessProfileLegalPage() {
                 <p className="text-[10px] text-navy-500">Verified by Superadmin Compliance</p>
               </div>
             </div>
-            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-              Approved
+            <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
+              Sample Verification Status
             </span>
           </div>
 
@@ -2927,8 +2971,8 @@ export function HostBusinessProfileLegalPage() {
                 <p className="text-[10px] text-navy-500">LKR 10,000,000 Public Liability Insurance Policy</p>
               </div>
             </div>
-            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-              Approved
+            <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
+              Sample Verification Status
             </span>
           </div>
         </div>

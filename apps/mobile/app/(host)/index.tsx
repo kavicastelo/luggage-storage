@@ -1,528 +1,612 @@
-import React, { useState, useMemo } from "react";
+import React from "react";
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   StyleSheet
 } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { MascotIllustration } from "../../src/components/MascotIllustration";
-import { HOST_MOBILE_SCREENS, MobileScreenSpec } from "../../src/data/mock-marketplace";
+import { useRouter } from "expo-router";
+import { useHostStore } from "../../src/store/useHostStore";
 import { useAuthStore } from "../../src/store/useAuthStore";
+import { MobileIcon } from "../../src/components/MobileIcon";
+import { mobileColors } from "../../src/lib/theme";
 
-const HOST_CATEGORIES = [
-  "ALL",
-  "Host Onboarding & Auth",
-  "Location & Schedule Config",
-  "Custody & Handover Operations",
-  "Overdue & Mandatory Release",
-  "Finance, Staff & Settings"
-] as const;
-
-export default function HostMobileHubScreen() {
+export default function HostLiveDeskScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ screen?: string }>();
-  const initialScreenId = params.screen || "HM-006";
   const { user, isAuthenticated } = useAuthStore();
+  const { hub, bookings, startIntake } = useHostStore();
 
-  const [previewHostRole, setPreviewHostRole] = useState<"HOST_OWNER" | "HOST_STAFF">("HOST_OWNER");
-  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
-  const [activeScreenId, setActiveScreenId] = useState<string>(initialScreenId);
+  const isHostOwner =
+    !isAuthenticated ||
+    Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"));
 
-  const isHostAuthorized =
-    user?.roles?.includes("HOST_OWNER") ||
-    user?.roles?.includes("HOST_STAFF") ||
-    user?.roles?.includes("SUPERADMIN");
+  // Operational metrics calculated from reactive store
+  const inVaultBookings = bookings.filter((b) => b.status === "IN_STORAGE" || b.status === "OVERDUE");
+  const overdueBookings = bookings.filter((b) => b.status === "OVERDUE");
+  const confirmedArrivals = bookings.filter((b) => b.status === "CONFIRMED");
 
-  const hostRole: "HOST_OWNER" | "HOST_STAFF" =
-    isAuthenticated && user
-      ? user.roles?.includes("HOST_OWNER") || user.roles?.includes("SUPERADMIN")
-        ? "HOST_OWNER"
-        : "HOST_STAFF"
-      : previewHostRole;
-
-  // Interactive operational states
-  const [slaDecision, setSlaDecision] = useState<"PENDING" | "APPROVED" | "DECLINED">(
-    "PENDING"
+  const totalBagsInVault = inVaultBookings.reduce((sum, b) => sum + b.totalBags, 0);
+  const capacityPercent = Math.min(
+    100,
+    Math.round((totalBagsInVault / hub.totalCapacityBags) * 100)
   );
-  const [sealNumber, setSealNumber] = useState("SEAL-LK-90211");
-  const [assignedZone, setAssignedZone] = useState("RACK-A");
-  const [disputedReleased, setDisputedReleased] = useState(false);
-
-  const activeScreen: MobileScreenSpec = useMemo(() => {
-    return (
-      HOST_MOBILE_SCREENS.find((s) => s.id === activeScreenId) ||
-      HOST_MOBILE_SCREENS.find((s) => s.id === "HM-006") ||
-      HOST_MOBILE_SCREENS[0]
-    );
-  }, [activeScreenId]);
-
-  const filteredScreens = useMemo(() => {
-    if (selectedCategory === "ALL") return HOST_MOBILE_SCREENS;
-    return HOST_MOBILE_SCREENS.filter((s) => s.category === selectedCategory);
-  }, [selectedCategory]);
-
-  const isOwnerRestricted =
-    hostRole === "HOST_STAFF" && activeScreen.actorScope === "Host Owner";
-
-  if (isAuthenticated && !isHostAuthorized) {
-    return (
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.restrictedCard}>
-          <MascotIllustration
-            mascot="key"
-            size="md"
-            badgeText="RBAC Guard Active: Host Role Required"
-            caption={`Authenticated account (${user?.email}) does not hold HOST_OWNER, HOST_STAFF, or SUPERADMIN permissions.`}
-          />
-          <TouchableOpacity
-            style={styles.primaryCta}
-            onPress={() => router.replace("/(traveller)")}
-          >
-            <Text style={styles.primaryCtaText}>Return to Traveller Mode</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    );
-  }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      {/* Top Host Surface Banner */}
-      <View style={styles.headerBanner}>
-        <View style={styles.headerRow}>
-          <Text style={styles.surfaceTag}>HOST MOBILE • 31 ACTIVE SCREENS</Text>
-          <TouchableOpacity style={styles.switchBtn} onPress={() => router.push("/")}>
-            <Text style={styles.switchBtnText}>Switch Surface</Text>
-          </TouchableOpacity>
+    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Header & Venue Banner */}
+      <View style={styles.venueHeader}>
+        <View style={styles.venueTopRow}>
+          <View style={styles.activePill}>
+            <View style={styles.pulseDot} />
+            <Text style={styles.activePillText}>Desk Counter Active</Text>
+          </View>
+          <Text style={styles.roleTag}>
+            {isHostOwner ? "Host Owner View" : "Host Staff View"}
+          </Text>
         </View>
 
-        <Text style={styles.headerTitle}>
-          {activeScreen.id} — {activeScreen.name}
+        <Text style={styles.venueTitle}>{hub.name}</Text>
+        <Text style={styles.venueAddress}>
+          {hub.address} • {hub.operatingHours}
         </Text>
-        <Text style={styles.headerSubtitle}>{activeScreen.summary}</Text>
-
-        {/* Role Switcher: Demo Preview only; locked when authenticated */}
-        {!isAuthenticated ? (
-          <View style={styles.roleToggleRow}>
-            <TouchableOpacity
-              style={[
-                styles.roleBtn,
-                hostRole === "HOST_OWNER" ? styles.roleBtnActive : null
-              ]}
-              onPress={() => setPreviewHostRole("HOST_OWNER")}
-            >
-              <Text
-                style={
-                  hostRole === "HOST_OWNER"
-                    ? styles.roleBtnTextActive
-                    : styles.roleBtnText
-                }
-              >
-                Role: HOST_OWNER
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.roleBtn,
-                hostRole === "HOST_STAFF" ? styles.roleBtnStaffActive : null
-              ]}
-              onPress={() => setPreviewHostRole("HOST_STAFF")}
-            >
-              <Text
-                style={
-                  hostRole === "HOST_STAFF"
-                    ? styles.roleBtnTextActive
-                    : styles.roleBtnText
-                }
-              >
-                Role: HOST_STAFF
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.roleToggleRow}>
-            <View style={[styles.roleBtn, styles.roleBtnActive]}>
-              <Text style={styles.roleBtnTextActive}>
-                Authenticated Role: {hostRole}
-              </Text>
-            </View>
-          </View>
-        )}
       </View>
 
-      {/* Active Screen Viewport */}
-      {isOwnerRestricted ? (
-        <View style={styles.restrictedCard}>
-          <MascotIllustration
-            mascot="key"
-            size="md"
-            badgeText="RBAC Guard Active: HOST_OWNER Required"
-            caption={`Screen ${activeScreen.id} (${activeScreen.name}) is restricted to HOST_OWNER accounts. Counter staff (${hostRole}) cannot modify pricing, bank accounts, or staff RBAC.`}
-          />
-          {!isAuthenticated && (
+      {/* Primary Action Buttons */}
+      <View style={styles.actionRow}>
+        <TouchableOpacity
+          style={styles.primaryScanBtn}
+          onPress={() => router.push("/(host)/scanner")}
+          accessibilityLabel="Scan Luggage Pass"
+        >
+          <MobileIcon name="qr-code" size={22} color="#FFFFFF" />
+          <View style={styles.btnTextCol}>
+            <Text style={styles.scanBtnTitle}>Scan Luggage Pass</Text>
+            <Text style={styles.scanBtnSubtitle}>Camera barcode scan or 6-digit PIN</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.secondaryIntakeBtn}
+          onPress={() => {
+            const firstConfirmed = confirmedArrivals[0] || bookings[0];
+            if (firstConfirmed) {
+              startIntake(firstConfirmed);
+            }
+            router.push("/(host)/intake");
+          }}
+          accessibilityLabel="Manual Intake Wizard"
+        >
+          <MobileIcon name="plus" size={20} color={mobileColors.terracotta[600]} />
+          <Text style={styles.intakeBtnText}>Manual Intake</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Overdue Custody Alert (If overdue items exist) */}
+      {overdueBookings.length > 0 && (
+        <View style={styles.overdueAlertCard}>
+          <View style={styles.overdueHeaderRow}>
+            <MobileIcon name="alert-triangle" size={18} color="#991B1B" />
+            <Text style={styles.overdueAlertTitle}>Overdue Baggage Notice (30m Grace Elapsed)</Text>
+          </View>
+          <Text style={styles.overdueAlertBody}>
+            Guest <Text style={styles.boldText}>{overdueBookings[0].travellerName}</Text> was
+            scheduled for collection at {overdueBookings[0].scheduledPickupTime.split("•")[1] || "earlier"}.
+            Storage zone: {overdueBookings[0].zoneCode}.
+          </Text>
+          <View style={styles.overdueActionsRow}>
             <TouchableOpacity
-              style={styles.primaryCta}
-              onPress={() => setPreviewHostRole("HOST_OWNER")}
+              style={styles.overdueActionBtn}
+              onPress={() => router.push("/(host)/vault")}
             >
-              <Text style={styles.primaryCtaText}>Elevate Preview to HOST_OWNER</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      ) : (
-        <View style={styles.viewportCard}>
-          <MascotIllustration
-            mascot={activeScreen.mascot}
-            size="md"
-            badgeText={`${activeScreen.id} • ${activeScreen.actorScope}`}
-            caption={activeScreen.summary}
-          />
-
-          {/* Contextual Interactive Controls */}
-          {(activeScreen.id === "HM-018" || activeScreen.id === "HM-019") && (
-            <View style={styles.interactiveBox}>
-              <Text style={styles.boxTitle}>
-                15m SLA Request #LS-2026-8843 (11m Left • Status: {slaDecision})
-              </Text>
-              <View style={styles.rowGap}>
-                <TouchableOpacity
-                  style={styles.approveBtn}
-                  onPress={() => setSlaDecision("APPROVED")}
-                >
-                  <Text style={styles.btnWhiteText}>Approve Booking</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.declineBtn}
-                  onPress={() => setSlaDecision("DECLINED")}
-                >
-                  <Text style={styles.btnWhiteText}>Decline Request</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {(activeScreen.id === "HM-022" || activeScreen.id === "HM-023") && (
-            <View style={styles.interactiveBox}>
-              <Text style={styles.boxTitle}>
-                Mandatory Bag-Count Reconciliation, Seal & Configurable Photo Evidence (OQ-014)
-              </Text>
-              <Text style={styles.invariantNote}>
-                Photo evidence is optional by default and configurable as mandatory per location.
-                Check-in timestamp and responsible staff ID are recorded server-side.
-              </Text>
-              <TextInput
-                style={styles.input}
-                value={sealNumber}
-                onChangeText={setSealNumber}
-                placeholder="Tamper-Evident Seal ID"
-              />
-              <TextInput
-                style={[styles.input, { marginTop: 8 }]}
-                value={assignedZone}
-                onChangeText={setAssignedZone}
-                placeholder="Storage Rack Zone Code"
-              />
-            </View>
-          )}
-
-          {(activeScreen.id === "HM-026" || activeScreen.id === "HM-027") && (
-            <View style={styles.interactiveBox}>
-              <Text style={styles.boxTitle}>
-                Configurable Overdue Grace & In-App Late Fee Request (OQ-015)
-              </Text>
-              <Text style={styles.invariantNote}>
-                Grace periods and late fees are configurable per location (illustrative demo: 30m
-                grace / 1.5x daily rate) and disclosed before checkout. Travellers review and pay
-                in-app—no silent charges and no cash at counter.
-              </Text>
-            </View>
-          )}
-
-          {activeScreen.id === "HM-028" && (
-            <View style={styles.interactiveBox}>
-              <Text style={styles.boxTitle}>
-                OQ-015 & Invariant BR-035: Decoupled Custody & Disputed Release Handover
-              </Text>
-              <Text style={styles.invariantNote}>
-                Physical luggage custody and overdue fee settlement are strictly separate. Hosts are
-                prohibited from holding luggage hostage over unpaid or disputed late fees
-                (configurable per location; illustrative demo: 1.5x daily rate). Release bags
-                immediately upon QR/PIN verification and escalate fee recovery to Platform Support.
-              </Text>
-              <TouchableOpacity
-                style={styles.approveBtn}
-                onPress={() => setDisputedReleased(true)}
-              >
-                <Text style={styles.btnWhiteText}>
-                  {disputedReleased
-                    ? "Bags Released & Claim Escalated ✓"
-                    : "Execute Mandatory Release & Log Claim"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          <View style={styles.quickRoutesRow}>
-            <TouchableOpacity
-              style={styles.secondaryBtn}
-              onPress={() => router.push("/(host)/scanner")}
-            >
-              <Text style={styles.secondaryBtnText}>
-                Open QR / PIN Scanner (HM-021)
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.secondaryBtn}
-              onPress={() => setActiveScreenId("HM-028")}
-            >
-              <Text style={styles.secondaryBtnText}>
-                Disputed Release (HM-028)
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.secondaryBtn}
-              onPress={() => setActiveScreenId("HM-029")}
-            >
-              <Text style={styles.secondaryBtnText}>Host Earnings (HM-029)</Text>
+              <Text style={styles.overdueActionText}>Review in Vault Monitor</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
 
-      {/* Category Filter */}
-      <Text style={styles.sectionHeader}>
-        Browse All 31 Registered Host Mobile Screens
-      </Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categoryScroll}
-      >
-        {HOST_CATEGORIES.map((cat) => (
-          <TouchableOpacity
-            key={cat}
-            style={[
-              styles.catTab,
-              selectedCategory === cat ? styles.catTabActive : null
-            ]}
-            onPress={() => setSelectedCategory(cat)}
-          >
-            <Text
-              style={
-                selectedCategory === cat ? styles.catTabTextActive : styles.catTabText
-              }
-            >
-              {cat}
+      {/* Backroom Vault Capacity Meter */}
+      <View style={styles.capacityCard}>
+        <View style={styles.capacityHeader}>
+          <View>
+            <Text style={styles.sectionLabel}>Physical Vault Capacity</Text>
+            <Text style={styles.capacityHeadline}>
+              {totalBagsInVault} / {hub.totalCapacityBags} Bags Stored
             </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+          </View>
+          <Text style={styles.capacityPercentage}>{capacityPercent}% Full</Text>
+        </View>
 
-      {/* Screen Registry Cards */}
-      <View style={styles.screenGrid}>
-        {filteredScreens.map((scr) => {
-          const isSelected = scr.id === activeScreen.id;
-          const lockedForStaff =
-            hostRole === "HOST_STAFF" && scr.actorScope === "Host Owner";
-          return (
-            <TouchableOpacity
-              key={scr.id}
-              style={[styles.screenCard, isSelected ? styles.screenCardActive : null]}
-              onPress={() => setActiveScreenId(scr.id)}
-            >
-              <View style={styles.screenCardTop}>
-                <Text style={styles.screenIdBadge}>{scr.id}</Text>
-                <Text style={styles.screenScopeText}>
-                  {lockedForStaff ? "🔒 HOST_OWNER ONLY" : scr.actorScope}
-                </Text>
-              </View>
-              <Text style={styles.screenName}>{scr.name}</Text>
-              <Text style={styles.screenDesc} numberOfLines={2}>
-                {scr.summary}
+        {/* Progress Bar */}
+        <View style={styles.progressBarTrack}>
+          <View style={[styles.progressBarFill, { width: `${capacityPercent}%` }]} />
+        </View>
+
+        {/* Zone Utilization Chips */}
+        <View style={styles.zonesRow}>
+          {hub.zones.map((zone) => (
+            <View key={zone.code} style={styles.zoneChip}>
+              <Text style={styles.zoneCodeText}>{zone.code}</Text>
+              <Text style={styles.zoneUtilText}>
+                {zone.utilized}/{zone.capacity}
               </Text>
-            </TouchableOpacity>
-          );
-        })}
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Operational KPI Grid */}
+      <View style={styles.kpiGrid}>
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiLabel}>Expected Today</Text>
+          <Text style={styles.kpiNumber}>{confirmedArrivals.length}</Text>
+          <Text style={styles.kpiSub}>Arrival handovers</Text>
+        </View>
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiLabel}>Vault Stored</Text>
+          <Text style={[styles.kpiNumber, { color: mobileColors.navy[900] }]}>
+            {inVaultBookings.length}
+          </Text>
+          <Text style={styles.kpiSub}>Active guest bags</Text>
+        </View>
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiLabel}>Completed Today</Text>
+          <Text style={[styles.kpiNumber, { color: "#065F46" }]}>
+            {bookings.filter((b) => b.status === "COMPLETED").length}
+          </Text>
+          <Text style={styles.kpiSub}>Released handovers</Text>
+        </View>
+      </View>
+
+      {/* Active Custody Movement Queue */}
+      <View style={styles.queueCard}>
+        <View style={styles.queueHeaderRow}>
+          <Text style={styles.sectionTitle}>Today&apos;s Movement Queue</Text>
+          <TouchableOpacity onPress={() => router.push("/(host)/requests")}>
+            <Text style={styles.viewAllLink}>View All</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.queueList}>
+          {bookings.slice(0, 4).map((b) => (
+            <View key={b.id} style={styles.queueItem}>
+              <View style={styles.queueItemLeft}>
+                <View style={styles.avatarCircle}>
+                  <Text style={styles.avatarLetter}>{b.travellerName.charAt(0)}</Text>
+                </View>
+                <View>
+                  <Text style={styles.travellerName}>{b.travellerName}</Text>
+                  <Text style={styles.bookingRef}>
+                    {b.reference} • {b.totalBags} {b.totalBags === 1 ? "bag" : "bags"}
+                  </Text>
+                  <Text style={styles.timingText}>
+                    {b.status === "CONFIRMED"
+                      ? `Arrival: ${b.scheduledIntakeTime}`
+                      : `Pickup: ${b.scheduledPickupTime}`}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.queueItemRight}>
+                <View
+                  style={[
+                    styles.statusPill,
+                    b.status === "OVERDUE"
+                      ? styles.statusOverdue
+                      : b.status === "IN_STORAGE"
+                      ? styles.statusInStorage
+                      : b.status === "CONFIRMED"
+                      ? styles.statusConfirmed
+                      : styles.statusCompleted
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusPillText,
+                      b.status === "OVERDUE"
+                        ? styles.textOverdue
+                        : b.status === "IN_STORAGE"
+                        ? styles.textInStorage
+                        : b.status === "CONFIRMED"
+                        ? styles.textConfirmed
+                        : styles.textCompleted
+                    ]}
+                  >
+                    {b.status === "IN_STORAGE"
+                      ? "In Vault"
+                      : b.status === "CONFIRMED"
+                      ? "Confirmed"
+                      : b.status === "OVERDUE"
+                      ? "Overdue"
+                      : "Released"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Honest Prototype Notice */}
+      <View style={styles.prototypeNoticeCard}>
+        <MobileIcon name="info" size={16} color={mobileColors.terracotta[600]} />
+        <Text style={styles.prototypeNoticeText}>
+          <Text style={styles.boldText}>Live Desk Simulation:</Text> Operational metrics and
+          queue movements update local demo session state for {hub.city} Fort Hub. Backend Fastify
+          API integration connects in Phase 3+.
+        </Text>
       </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 16, backgroundColor: "#F8FAFC", paddingBottom: 40 },
-  headerBanner: {
-    backgroundColor: "#0F172A",
-    borderRadius: 18,
+  container: {
     padding: 16,
-    marginBottom: 14
+    backgroundColor: mobileColors.sand[100],
+    paddingBottom: 40
   },
-  headerRow: {
+  venueHeader: {
+    backgroundColor: mobileColors.navy[900],
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2
+  },
+  venueTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 6
+    marginBottom: 8
   },
-  surfaceTag: {
-    color: "#38BDF8",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.6
-  },
-  switchBtn: {
-    backgroundColor: "#1E293B",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  activePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(16, 185, 129, 0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 8
   },
-  switchBtnText: { color: "#E2E8F0", fontSize: 11, fontWeight: "600" },
-  headerTitle: {
+  pulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#10B981",
+    marginRight: 6
+  },
+  activePillText: {
+    color: "#34D399",
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase"
+  },
+  roleTag: {
+    color: mobileColors.sand[300],
+    fontSize: 11,
+    fontWeight: "500"
+  },
+  venueTitle: {
     color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "800",
-    marginBottom: 4
+    marginBottom: 4,
+    letterSpacing: -0.2
   },
-  headerSubtitle: {
-    color: "#CBD5E1",
-    fontSize: 12,
-    lineHeight: 17,
-    marginBottom: 12
+  venueAddress: {
+    color: mobileColors.sand[300],
+    fontSize: 11,
+    lineHeight: 16
   },
-  roleToggleRow: { flexDirection: "row", gap: 8 },
-  roleBtn: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: "#1E293B",
-    alignItems: "center"
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14
   },
-  roleBtnActive: { backgroundColor: "#2563EB" },
-  roleBtnStaffActive: { backgroundColor: "#D97706" },
-  roleBtnText: { color: "#94A3B8", fontSize: 11, fontWeight: "700" },
-  roleBtnTextActive: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
-  restrictedCard: {
-    backgroundColor: "#FEF2F2",
+  primaryScanBtn: {
+    flex: 2,
+    backgroundColor: mobileColors.terracotta[500],
     borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#FECACA",
-    marginBottom: 18
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: mobileColors.terracotta[500],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3
   },
-  viewportCard: {
+  btnTextCol: {
+    marginLeft: 10
+  },
+  scanBtnTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  scanBtnSubtitle: {
+    color: "rgba(255, 255, 255, 0.85)",
+    fontSize: 10,
+    fontWeight: "500"
+  },
+  secondaryIntakeBtn: {
+    flex: 1,
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 14,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    marginBottom: 18
+    borderColor: mobileColors.sand[300]
   },
-  interactiveBox: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    marginTop: 8
-  },
-  boxTitle: {
-    fontSize: 13,
+  intakeBtnText: {
+    color: mobileColors.navy[900],
+    fontSize: 12,
     fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 8
+    marginTop: 4
   },
-  invariantNote: {
-    fontSize: 11,
-    color: "#475569",
-    marginBottom: 10,
-    lineHeight: 16
-  },
-  rowGap: { flexDirection: "row", gap: 8 },
-  approveBtn: {
-    flex: 1,
-    backgroundColor: "#059669",
-    paddingVertical: 9,
-    borderRadius: 8,
-    alignItems: "center"
-  },
-  declineBtn: {
-    flex: 1,
-    backgroundColor: "#DC2626",
-    paddingVertical: 9,
-    borderRadius: 8,
-    alignItems: "center"
-  },
-  btnWhiteText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
-  input: {
-    backgroundColor: "#FFFFFF",
+  overdueAlertCard: {
+    backgroundColor: "#FEF2F2",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: "#0F172A"
+    borderColor: "#FECACA",
+    padding: 14,
+    marginBottom: 14
   },
-  primaryCta: {
-    marginTop: 8,
-    backgroundColor: "#2563EB",
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: "center"
-  },
-  primaryCtaText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
-  quickRoutesRow: {
+  overdueHeaderRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6
   },
-  secondaryBtn: {
-    backgroundColor: "#F1F5F9",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#CBD5E1"
+  overdueAlertTitle: {
+    color: "#991B1B",
+    fontSize: 12,
+    fontWeight: "800"
   },
-  secondaryBtnText: { fontSize: 11, fontWeight: "700", color: "#1E293B" },
-  sectionHeader: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#0F172A",
-    marginBottom: 8
+  overdueAlertBody: {
+    color: "#7F1D1D",
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 10
   },
-  categoryScroll: { gap: 8, paddingBottom: 12 },
-  catTab: {
+  overdueActionsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end"
+  },
+  overdueActionBtn: {
+    backgroundColor: "#DC2626",
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#E2E8F0"
+    borderRadius: 8
   },
-  catTabActive: { backgroundColor: "#0F172A" },
-  catTabText: { fontSize: 11, fontWeight: "600", color: "#475569" },
-  catTabTextActive: { fontSize: 11, fontWeight: "700", color: "#FFFFFF" },
-  screenGrid: { gap: 8 },
-  screenCard: {
+  overdueActionText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700"
+  },
+  capacityCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
-    borderColor: "#E2E8F0"
+    borderColor: mobileColors.sand[200],
+    marginBottom: 14
   },
-  screenCardActive: { borderColor: "#2563EB", backgroundColor: "#EFF6FF" },
-  screenCardTop: {
+  capacityHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 4
+    alignItems: "flex-start",
+    marginBottom: 10
   },
-  screenIdBadge: { fontSize: 11, fontWeight: "800", color: "#2563EB" },
-  screenScopeText: { fontSize: 10, color: "#64748B", fontWeight: "700" },
-  screenName: {
-    fontSize: 13,
+  sectionLabel: {
+    fontSize: 11,
     fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 2
+    color: mobileColors.sand[600],
+    textTransform: "uppercase",
+    letterSpacing: 0.5
   },
-  screenDesc: { fontSize: 11, color: "#475569" }
+  capacityHeadline: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: mobileColors.navy[950],
+    marginTop: 2
+  },
+  capacityPercentage: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: mobileColors.terracotta[600]
+  },
+  progressBarTrack: {
+    height: 8,
+    backgroundColor: mobileColors.sand[200],
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 12
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: mobileColors.terracotta[500],
+    borderRadius: 4
+  },
+  zonesRow: {
+    flexDirection: "row",
+    gap: 8
+  },
+  zoneChip: {
+    flex: 1,
+    backgroundColor: mobileColors.sand[100],
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    alignItems: "center"
+  },
+  zoneCodeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  zoneUtilText: {
+    fontSize: 9,
+    color: mobileColors.sand[600],
+    marginTop: 1
+  },
+  kpiGrid: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14
+  },
+  kpiCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[200],
+    alignItems: "center"
+  },
+  kpiLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: mobileColors.sand[600],
+    textAlign: "center"
+  },
+  kpiNumber: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: mobileColors.terracotta[600],
+    marginVertical: 4
+  },
+  kpiSub: {
+    fontSize: 9,
+    color: mobileColors.sand[600],
+    textAlign: "center"
+  },
+  queueCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[200],
+    marginBottom: 14
+  },
+  queueHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: mobileColors.navy[950]
+  },
+  viewAllLink: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: mobileColors.terracotta[600]
+  },
+  queueList: {
+    gap: 10
+  },
+  queueItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: mobileColors.sand[100]
+  },
+  queueItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1
+  },
+  avatarCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: mobileColors.navy[900],
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10
+  },
+  avatarLetter: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  travellerName: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.navy[950]
+  },
+  bookingRef: {
+    fontSize: 10,
+    fontFamily: "monospace",
+    color: mobileColors.sand[600],
+    marginTop: 1
+  },
+  timingText: {
+    fontSize: 10,
+    color: mobileColors.sand[600],
+    marginTop: 1
+  },
+  queueItemRight: {
+    marginLeft: 8
+  },
+  statusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6
+  },
+  statusOverdue: {
+    backgroundColor: "#FEF2F2"
+  },
+  statusInStorage: {
+    backgroundColor: "#EFF6FF"
+  },
+  statusConfirmed: {
+    backgroundColor: "#ECFDF5"
+  },
+  statusCompleted: {
+    backgroundColor: mobileColors.sand[100]
+  },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: "700"
+  },
+  textOverdue: {
+    color: "#DC2626"
+  },
+  textInStorage: {
+    color: "#2563EB"
+  },
+  textConfirmed: {
+    color: "#059669"
+  },
+  textCompleted: {
+    color: mobileColors.sand[600]
+  },
+  prototypeNoticeCard: {
+    backgroundColor: mobileColors.sand[200],
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 4
+  },
+  prototypeNoticeText: {
+    fontSize: 10,
+    color: mobileColors.navy[800],
+    lineHeight: 15,
+    flex: 1
+  },
+  boldText: {
+    fontWeight: "700"
+  }
 });
