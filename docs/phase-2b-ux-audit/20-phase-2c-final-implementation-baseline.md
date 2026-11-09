@@ -94,7 +94,15 @@ Every screen in the marketplace is evaluated independently across eight distinct
 - **Backend:** `IMPLEMENTED`: 12 (10.6%), `NOT_IMPLEMENTED`: 98 (86.7%), `NOT_REQUIRED`: 3 (2.7%)
 - **Database:** `IMPLEMENTED`: 12 (10.6%), `NOT_IMPLEMENTED`: 98 (86.7%), `NOT_REQUIRED`: 3 (2.7%)
 - **End-to-End:** `VERIFIED`: 3 (2.7%), `PARTIALLY_VERIFIED`: 109 (96.5%), `BLOCKED`: 1 (0.9%)
-- **Evidence:** `SCREENSHOT_CAPTURED`: 113 (100%), `AUTOMATED_TESTED`: 113 (100%), `DEVICE_VERIFIED`: 0 (0% — physical hardware unverified)
+- **Evidence Breakdown:**
+  - `SCREENSHOT_CAPTURED`: 107 genuine screenshot PNG files exist on disk across `docs/phase-2b-ux-audit/evidence/` (26 baseline) and `evidence/current/` (81 current). These 107 image captures provide verified visual evidence for 74 unique catalogued screens (several captured across dual desktop $1280\times 900$ and mobile $390\times 844$ viewports, or multi-state captures). The remaining 39 screens have source code and server route verification, with dedicated visual screenshots scheduled in their respective surface workstreams (WS-2 through WS-6).
+  - `AUTOMATED_TESTED`: 185 automated tests in the monorepo Vitest suite currently verify contracts, Zod schemas, API endpoints, identity auth flows, and mock catalog data, not 113 individual behavioral UI component tests. Surface-level component tests are to be established iteratively per workstream.
+  - `DEVICE_VERIFIED`: 0 (0% — physical hardware runtime unverified)
+
+#### Sprint 1 Preflight Resolutions (`DEC-008`, `DEC-009` & Diagnostics Boundary)
+- **`DEC-008` (Mascot Boundary & Asset Safety):** Officially adopted for Sprint 1 / WS-1. The 20 original mascot PNG files are strictly immutable. Kiri is bounded to friendly guidance, onboarding, and celebratory empty states; strictly prohibited in payments, security, dispute benches, and admin views. A derivative WebP pipeline generates optimized assets in a separate directory.
+- **`DEC-009` (Accessible Terracotta Re-tune):** Officially adopted for Sprint 1 / WS-1. Re-tuned from failing `#E86F2C` (2.95:1) to accessible Ceylon Terracotta `#C85316` (4.62:1 contrast with white text `#FFFFFF`), satisfying WCAG 2.2 AA.
+- **Developer Diagnostics Boundary:** A development-only compilation guard (`import.meta.env.DEV` on Web, `__DEV__` on Mobile) ensures that developer drawers, status switchers, debug flags, and internal tracking codes (`PW-xxx`, `HD-xxx`, `WF-xxx`) are completely excluded from production bundles and customer-facing DOM.
 
 ---
 

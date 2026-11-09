@@ -76,14 +76,14 @@ Every agent assigned to a Phase 2C task must read, acknowledge, and strictly adh
 ---
 
 #### Protocol 6: Mascot Asset Protection Guarantee (`RULE-06`)
-- **Mandate:** All 20 original mascot PNG files located in `Assets/` and `apps/web/public/assets/mascot/` must remain completely untouched, byte-for-byte.
+- **Mandate:** All 20 original mascot PNG files located in `Assets/` and `apps/web/public/assets/mascot/` must remain completely untouched, byte-for-byte. Derivative WebP assets must be generated in a dedicated derivative directory (`webp/`) via automated script verifying SHA-256 checksums before and after execution.
 - **Violation:** Renaming, compressing, modifying, moving, or deleting any original mascot PNG asset.
 
 ---
 
-#### Protocol 7: Work Strictly Within Assigned Scope (`RULE-07`)
-- **Mandate:** The agent must only modify files directly relevant to its assigned task and workstream.
-- **Violation:** Modifying host dashboard code during a public web task, or modifying backend API routes during a frontend styling task.
+#### Protocol 7: Work Strictly Within Assigned Scope & Enforce Production Boundaries (`RULE-07`)
+- **Mandate:** The agent must only modify files directly relevant to its assigned task and workstream. Internal developer tracking codes (`PW-xxx`, `HD-xxx`, `WF-xxx`) and developer debug switchers must be strictly guarded behind compile-time dev checks (`import.meta.env.DEV` on Web, `__DEV__` on Mobile) to prevent leakage into production customer DOM.
+- **Violation:** Modifying host dashboard code during a public web task, modifying backend API routes during a frontend styling task, or leaking internal tracking IDs into customer-facing production bundles.
 
 ---
 

@@ -39,15 +39,16 @@ Phase 2C executes across **seven independently deliverable workstreams** organiz
 #### Workstream 1: Shared Design Foundation (`WS-1-FOUNDATION`)
 - **Objective:** Establish shared CWCP design tokens, accessible color palette, automated WebP mascot derivative assets, and universal developer code suppression.
 - **Included Applications:** `packages/contracts`, `apps/web`, `apps/mobile`, `scripts/`.
-- **Scope:** Define tokens in `packages/contracts/src/tokens.ts`; configure Tailwind presets; write `scripts/optimize-mascot-assets.mjs`; implement `DeveloperDrawer` component.
+- **Scope:** Define tokens in `packages/contracts/src/tokens.ts` (or `@luggage-storage/contracts` / shared token exports); configure Tailwind presets; write `scripts/optimize-mascot-assets.mjs`; implement dev-only developer drawer with strict `import.meta.env.DEV` / `__DEV__` exclusion.
+- **Preflight Resolutions:** Unblocked by adoption of `DEC-008` (Mascot boundary & asset preservation) and `DEC-009` (Accessible Terracotta `#C85316` $\ge 4.5:1$). Reconciles baseline: 107 genuine PNGs on disk covering 74 unique catalogued screens; 185 Vitest monorepo tests covering contracts, auth, schemas, and catalog registry.
 - **Dependencies:** None.
 - **Backlog References:** `TSK-2C-001`, `TSK-2C-002`, `TSK-2C-003`.
-- **Deliverables:** Shared token exports, build script for WebP derivatives, Developer Debug Drawer.
+- **Deliverables:** Shared token exports, build script for WebP derivatives, dev-only Developer Drawer, shared UI primitives.
 - **Acceptance Criteria:**
   1. Contrast ratio between primary button text (`#FFFFFF`) and Terracotta (`#C85316`) is $\ge 4.5:1$.
   2. All 20 original mascot PNG files remain 100% byte-identical.
   3. Zero developer tracking codes (`PW-xxx`, `HD-xxx`, `WF-xxx`) appear in customer-facing DOM.
-- **Required Evidence:** Checksum verification log of original PNGs; token contrast test report.
+- **Required Evidence:** Checksum verification log of original PNGs; token contrast test report; foundation preview captures.
 - **Exit Criteria:** Green CI pipeline for contracts and linting; signed off by Design Systems Architect.
 
 ---

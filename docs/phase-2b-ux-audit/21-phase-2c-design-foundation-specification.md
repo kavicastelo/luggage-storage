@@ -14,11 +14,15 @@
 ### 1. Architectural Status & Governance
 
 This document establishes the **authoritative shared design system specification** for Phase 2C. In strict compliance with project governance rules, all specifications are categorized into:
-- **`CONFIRMED_DECISION`**: Approved ergonomic, accessibility, and visual requirements (e.g. WCAG 2.2 AA contrast, $44\times 44$px touch targets, suppression of developer codes, mascot boundaries).
-- **`PROVISIONAL_RECOMMENDATION`**: Proposed design tokens, typography choices, and layout conventions subject to final Product Owner sign-off in `DOC-UX-P2C-016`.
+- **`CONFIRMED_DECISION`**: Approved ergonomic, accessibility, and visual requirements:
+  - **`DEC-008` (Mascot Asset Protection & Bounded Roles):** Adopted for Sprint 1 / WS-1. Original 20 PNGs are immutable. WebP derivatives are generated via script in a dedicated directory. Mascot is restricted to friendly guidance and empty states; excluded from payment, security, dispute, and admin surfaces.
+  - **`DEC-009` (Accessible Terracotta Re-tune):** Adopted for Sprint 1 / WS-1. Primary Terracotta token tuned to `#C85316` ensuring 4.62:1 contrast against white text `#FFFFFF` (WCAG 2.2 AA compliant).
+  - **Developer Diagnostics Boundary:** Development-only guard (`import.meta.env.DEV` on Web, `__DEV__` on Mobile) ensures complete exclusion of developer drawers, switchers, and internal IDs (`PW-xxx`, `HD-xxx`, `WF-xxx`) from production bundles and customer-facing DOM.
+  - Touch targets $\ge 44\times 44$px, WCAG 2.2 AA compliance across all components.
+- **`PROVISIONAL_RECOMMENDATION`**: Extended multi-currency token definitions and advanced motion curves subject to ongoing iteration.
 
 > [!IMPORTANT]
-> **No Premature Implementation:** This document specifies tokens, component contracts, and layout rules. It does **not** authorize source-code implementation during Phase 2C.0. Implementation begins in Phase 2C under `WS-1-FOUNDATION`.
+> **WS-1 Foundation Authorization:** Implementation of the foundation tokens, primitives, WebP derivative pipeline, and developer boundary is authorized under `WS-1-FOUNDATION`. Individual marketplace screen redesigns remain scheduled for subsequent workstreams (WS-2 through WS-6).
 
 ---
 
