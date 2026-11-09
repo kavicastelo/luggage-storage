@@ -185,8 +185,8 @@ export default function HostVaultScreen() {
                     </View>
                     <Text style={styles.overdueDisclaimer}>
                       Scheduled for {item.scheduledPickupTime}. Estimated overdue charge LKR{" "}
-                      {item.estimatedLateFeeLkr?.toLocaleString() || "600"}. Platform policy (DEC-002):
-                      Baggage release is never withheld for fee settlement.
+                      {item.estimatedLateFeeLkr?.toLocaleString() || "600"}. Policy Notice (DEC-002 Pending Sign-Off):
+                      Overdue fee handling is illustrative only. No payment is collected in this prototype, and baggage release proceeds without payment gating.
                     </Text>
                   </View>
                 )}
@@ -230,7 +230,13 @@ export default function HostVaultScreen() {
                   <View style={styles.gridCell}>
                     <Text style={styles.cellLabel}>Photo Evidence</Text>
                     <Text style={styles.cellValue}>
-                      {item.photoEvidenceCaptured ? "Captured at Intake" : "Bypassed (DEC-001)"}
+                      {item.photoEvidenceStatus === "CAPTURED_LOCAL"
+                        ? "Captured at Intake"
+                        : item.photoEvidenceStatus === "SKIPPED_PENDING_POLICY"
+                        ? "Skipped (DEC-001)"
+                        : item.photoEvidenceCaptured
+                        ? "Captured at Intake"
+                        : "Not Provided"}
                     </Text>
                   </View>
                 </View>
@@ -311,10 +317,9 @@ export default function HostVaultScreen() {
                   <View style={styles.modalOverdueWarning}>
                     <MobileIcon name="info" size={16} color="#DC2626" />
                     <Text style={styles.modalOverdueText}>
-                      Late pickup detected. Platform policy: Never withhold physical luggage.
-                      Estimated overdue fee (LKR{" "}
-                      {selectedBookingForRelease.estimatedLateFeeLkr || "600"}) will be processed
-                      automatically to guest's payment method.
+                      Late pickup detected. Policy notice (DEC-002 Pending Sign-Off): Overdue fee handling
+                      is not configured. In this demonstration prototype, no late payment will be collected
+                      or charged to the guest. Handover proceeds without payment collection gating.
                     </Text>
                   </View>
                 )}

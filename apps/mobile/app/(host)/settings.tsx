@@ -7,14 +7,43 @@ import {
   StyleSheet
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useAuthStore } from "../../src/store/useAuthStore";
 import { useHostStore } from "../../src/store/useHostStore";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
 
 export default function HostSettingsScreen() {
   const router = useRouter();
-  const { hub, resetToDefaults } = useHostStore();
+  const { user, isAuthenticated } = useAuthStore();
+  const { activeDemoRole, hub, resetToDefaults } = useHostStore();
   const [resetSuccess, setResetSuccess] = useState(false);
+
+  const isOwner = isAuthenticated
+    ? Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"))
+    : activeDemoRole === "HOST_OWNER";
+
+  // Role Guard for Host Staff
+  if (!isOwner) {
+    return (
+      <View style={styles.deniedContainer}>
+        <View style={styles.deniedCard}>
+          <Text style={styles.deniedBadge}>RBAC Guard • 403 Forbidden</Text>
+          <Text style={styles.deniedTitle}>Host Owner Access Required</Text>
+          <Text style={styles.deniedBody}>
+            Partner profile settings, business compliance records, and session configuration
+            are restricted to Host Owner accounts. Staff members have operational access only
+            (Live Desk, Requests, Scanner, Intake, and Vault).
+          </Text>
+          <TouchableOpacity
+            style={styles.returnDeskBtn}
+            onPress={() => router.replace("/(host)")}
+          >
+            <Text style={styles.returnDeskBtnText}>Return to Live Desk</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   const handleReset = () => {
     resetToDefaults();
@@ -380,5 +409,55 @@ const styles = StyleSheet.create({
   },
   boldText: {
     fontWeight: "700"
+  },
+  deniedContainer: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24
+  },
+  deniedCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 380,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    alignItems: "center"
+  },
+  deniedBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#dc2626",
+    textTransform: "uppercase",
+    marginBottom: 8
+  },
+  deniedTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#0f172a",
+    marginBottom: 8
+  },
+  deniedBody: {
+    fontSize: 13,
+    color: "#475569",
+    textAlign: "center",
+    lineHeight: 19,
+    marginBottom: 20
+  },
+  returnDeskBtn: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    width: "100%",
+    alignItems: "center"
+  },
+  returnDeskBtnText: {
+    color: "#ffffff",
+    fontWeight: "600",
+    fontSize: 14
   }
 });

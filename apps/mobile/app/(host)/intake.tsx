@@ -5,9 +5,11 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  Image,
   StyleSheet
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { useHostStore } from "../../src/store/useHostStore";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
@@ -48,6 +50,11 @@ export default function HostIntakeWizardScreen() {
 
   const booking = intakeSession.booking;
 
+  const [photoActionError, setPhotoActionError] = useState<string | null>(null);
+
+  const SAMPLE_EVIDENCE_PHOTO_URI =
+    "https://images.unsplash.com/photo-1581553680321-4fffae59fccd?auto=format&fit=crop&w=600&q=80";
+
   const handleNextFromStep1 = () => {
     setCurrentStep(2);
   };
@@ -67,12 +74,86 @@ export default function HostIntakeWizardScreen() {
     setCurrentStep(3);
   };
 
-  const handleNextFromStep3 = (bypassed = false) => {
-    if (bypassed) {
-      updateIntake({ photoBypassed: true, photoCaptured: false });
-    } else {
-      updateIntake({ photoCaptured: true, photoBypassed: false });
+  const handleTakePhoto = async () => {
+    try {
+      setPhotoActionError(null);
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        setPhotoActionError("Camera permission denied. You can choose an image from your library or use a sample photo.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        quality: 0.7
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const uri = result.assets[0].uri;
+        updateIntake({
+          photoUri: uri,
+          photoCaptured: true,
+          photoEvidenceStatus: "CAPTURED_LOCAL",
+          photoBypassed: false
+        });
+      }
+    } catch {
+      setPhotoActionError("Camera could not be opened. You may choose an image or use a sample photo.");
     }
+  };
+
+  const handlePickImage = async () => {
+    try {
+      setPhotoActionError(null);
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        setPhotoActionError("Media library permission denied.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        quality: 0.7
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const uri = result.assets[0].uri;
+        updateIntake({
+          photoUri: uri,
+          photoCaptured: true,
+          photoEvidenceStatus: "CAPTURED_LOCAL",
+          photoBypassed: false
+        });
+      }
+    } catch {
+      setPhotoActionError("Media library could not be opened.");
+    }
+  };
+
+  const handleUseSamplePhoto = () => {
+    setPhotoActionError(null);
+    updateIntake({
+      photoUri: SAMPLE_EVIDENCE_PHOTO_URI,
+      photoCaptured: true,
+      photoEvidenceStatus: "CAPTURED_LOCAL",
+      photoBypassed: false
+    });
+  };
+
+  const handleRemovePhoto = () => {
+    updateIntake({
+      photoUri: null,
+      photoCaptured: false,
+      photoEvidenceStatus: "NOT_PROVIDED",
+      photoBypassed: false
+    });
+  };
+
+  const handleSkipPhotoEvidence = () => {
+    updateIntake({
+      photoUri: null,
+      photoCaptured: false,
+      photoEvidenceStatus: "SKIPPED_PENDING_POLICY",
+      photoBypassed: true
+    });
     setCurrentStep(4);
   };
 
@@ -86,7 +167,7 @@ export default function HostIntakeWizardScreen() {
   const handleGenerateSeal = () => {
     const rand = Math.floor(10000 + Math.random() * 90000);
     const generated = `SEAL-LK-${rand}`;
-    updateIntake({ sealNumber: generated });
+    updateIntake({ sealNumber: generated, sealIsDemoPlaceholder: true });
     setSealInputError(null);
   };
 
@@ -134,7 +215,17 @@ export default function HostIntakeWizardScreen() {
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Tamper Seal:</Text>
-              <Text style={styles.summaryValCode}>{intakeSession.sealNumber}</Text>
+              <Text style={styles.summaryValCode}>
+                {intakeSession.sealNumber}{intakeSession.sealIsDemoPlaceholder ? " (Demo Tag)" : " (Physical Seal)"}
+              </Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Condition Photo:</Text>
+              <Text style={styles.summaryVal}>
+                {intakeSession.photoEvidenceStatus === "CAPTURED_LOCAL"
+                  ? "Recorded (Local Image)"
+                  : "Skipped (DEC-001)"}
+              </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Vault Zone:</Text>
@@ -304,15 +395,15 @@ export default function HostIntakeWizardScreen() {
 
           <TouchableOpacity style={styles.generateBtn} onPress={handleGenerateSeal}>
             <MobileIcon name="refresh" size={16} color={mobileColors.terracotta[600]} />
-            <Text style={styles.generateBtnText}>Generate Fresh Serial Number</Text>
+            <Text style={styles.generateBtnText}>Generate Demo Placeholder Tag (Local Simulation Only)</Text>
           </TouchableOpacity>
 
           {/* DEC-007 Compliance Disclosure */}
           <View style={styles.decCallout}>
             <Text style={styles.decCalloutText}>
-              <Text style={styles.boldText}>Tamper Seal Logging (DEC-007):</Text> Serial tags are
-              recorded in the local prototype session for custody verification. Barcode scanning and
-              hardware seal integration will be added in Phase 3+.
+              <Text style={styles.boldText}>Security Tagging Policy (DEC-007):</Text> Physical numbered
+              tamper seals must be attached to luggage zippers in production. Generated serials in this
+              prototype are local demonstration placeholders pending physical seal logistics sign-off.
             </Text>
           </View>
 
@@ -337,34 +428,79 @@ export default function HostIntakeWizardScreen() {
             Capture photo evidence of pre-existing scuffs, tears, or broken zippers if observed.
           </Text>
 
-          <View style={styles.photoViewport}>
-            <MobileIcon name="camera" size={48} color={mobileColors.sand[400]} />
-            <Text style={styles.photoViewportTitle}>
-              {intakeSession.photoCaptured ? "Condition Photo Recorded" : "Camera Viewfinder Ready"}
-            </Text>
-            <Text style={styles.photoViewportSub}>
-              Ensure luggage seal and condition are in focus.
-            </Text>
+          {photoActionError && (
+            <View style={styles.photoErrorBanner}>
+              <MobileIcon name="alert-triangle" size={14} color="#DC2626" />
+              <Text style={styles.photoErrorText}>{photoActionError}</Text>
+            </View>
+          )}
 
-            <TouchableOpacity
-              style={styles.captureBtn}
-              onPress={() => handleNextFromStep3(false)}
-            >
-              <MobileIcon name="camera" size={16} color="#FFFFFF" />
-              <Text style={styles.captureBtnText}>Capture & Save Photo</Text>
-            </TouchableOpacity>
-          </View>
+          {intakeSession.photoUri ? (
+            <View style={styles.photoPreviewCard}>
+              <Image source={{ uri: intakeSession.photoUri }} style={styles.photoPreviewImage} />
+              <View style={styles.photoPreviewBadge}>
+                <MobileIcon name="check-circle" size={14} color="#15803D" />
+                <Text style={styles.photoPreviewBadgeText}>Photo Evidence Attached (Local URI)</Text>
+              </View>
+              <View style={styles.photoPreviewActions}>
+                <TouchableOpacity style={styles.retakeBtn} onPress={handleTakePhoto}>
+                  <MobileIcon name="camera" size={14} color={mobileColors.navy[800]} />
+                  <Text style={styles.retakeBtnText}>Retake</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.retakeBtn} onPress={handlePickImage}>
+                  <MobileIcon name="layers" size={14} color={mobileColors.navy[800]} />
+                  <Text style={styles.retakeBtnText}>Library</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.removePhotoBtn} onPress={handleRemovePhoto}>
+                  <MobileIcon name="x" size={14} color="#DC2626" />
+                  <Text style={styles.removePhotoBtnText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={styles.primaryNextBtnFull}
+                onPress={() => setCurrentStep(4)}
+              >
+                <Text style={styles.primaryNextBtnText}>Proceed with Photo Evidence (Step 4)</Text>
+                <MobileIcon name="arrow-right" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.photoViewport}>
+              <MobileIcon name="camera" size={44} color={mobileColors.sand[400]} />
+              <Text style={styles.photoViewportTitle}>Attach Condition Photo</Text>
+              <Text style={styles.photoViewportSub}>
+                Capture camera photo or select from photo library for intake evidence.
+              </Text>
+
+              <View style={styles.photoCaptureRow}>
+                <TouchableOpacity style={styles.captureBtn} onPress={handleTakePhoto}>
+                  <MobileIcon name="camera" size={16} color="#FFFFFF" />
+                  <Text style={styles.captureBtnText}>Take Photo</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.secondaryPhotoBtn} onPress={handlePickImage}>
+                  <MobileIcon name="layers" size={16} color={mobileColors.navy[800]} />
+                  <Text style={styles.secondaryPhotoBtnText}>Photo Library</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity style={styles.samplePhotoBtn} onPress={handleUseSamplePhoto}>
+                <Text style={styles.samplePhotoBtnText}>Use Sample Evidence Photo (Simulator Fallback)</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* 1-Tap Bypass Option (DEC-001) */}
           <TouchableOpacity
             style={styles.bypassBtn}
-            onPress={() => handleNextFromStep3(true)}
+            onPress={handleSkipPhotoEvidence}
           >
             <Text style={styles.bypassBtnTitle}>
               Skip Photo Evidence (DEC-001 Prototype Option)
             </Text>
             <Text style={styles.bypassBtnSub}>
-              No visible pre-existing damage — Fast 1-tap counter intake bypass.
+              No visible pre-existing damage — fast 1-tap counter intake bypass.
             </Text>
           </TouchableOpacity>
 
@@ -372,8 +508,9 @@ export default function HostIntakeWizardScreen() {
           <View style={styles.decCallout}>
             <Text style={styles.decCalloutText}>
               <Text style={styles.boldText}>Photo Policy Invariant (DEC-001):</Text> Pre-existing
-              condition photos are optional when no damage is detected. Skipping photo records an
-              affirmative staff confirmation of pristine condition.
+              condition photos are optional when no damage is detected. Skipping photo records that photo
+              evidence was skipped; it does NOT verify pristine condition or affirm damage-free status
+              pending DEC-001 policy sign-off.
             </Text>
           </View>
 
@@ -451,12 +588,16 @@ export default function HostIntakeWizardScreen() {
             </View>
             <View style={styles.finalSummaryRow}>
               <Text style={styles.summaryLabel}>Security Seal:</Text>
-              <Text style={styles.summaryValCode}>{intakeSession.sealNumber}</Text>
+              <Text style={styles.summaryValCode}>
+                {intakeSession.sealNumber}{intakeSession.sealIsDemoPlaceholder ? " (Demo Tag)" : " (Physical Seal)"}
+              </Text>
             </View>
             <View style={styles.finalSummaryRow}>
               <Text style={styles.summaryLabel}>Condition Photo:</Text>
               <Text style={styles.summaryVal}>
-                {intakeSession.photoCaptured ? "Recorded" : "Bypassed (Pristine)"}
+                {intakeSession.photoEvidenceStatus === "CAPTURED_LOCAL"
+                  ? "Recorded (Local Image)"
+                  : "Skipped (DEC-001 Pending Sign-Off)"}
               </Text>
             </View>
             <View style={styles.finalSummaryRow}>
@@ -830,6 +971,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 12
   },
+  photoCaptureRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 8
+  },
   captureBtn: {
     flexDirection: "row",
     backgroundColor: mobileColors.navy[900],
@@ -843,6 +989,121 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#FFFFFF"
+  },
+  secondaryPhotoBtn: {
+    flexDirection: "row",
+    backgroundColor: mobileColors.sand[200],
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    alignItems: "center",
+    gap: 6
+  },
+  secondaryPhotoBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileColors.navy[800]
+  },
+  samplePhotoBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8
+  },
+  samplePhotoBtnText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: mobileColors.terracotta[600],
+    textDecorationLine: "underline"
+  },
+  photoErrorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+    gap: 6
+  },
+  photoErrorText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#DC2626"
+  },
+  photoPreviewCard: {
+    backgroundColor: mobileColors.sand[100],
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    padding: 12,
+    alignItems: "center",
+    marginBottom: 16
+  },
+  photoPreviewImage: {
+    width: "100%",
+    height: 180,
+    borderRadius: 8,
+    backgroundColor: mobileColors.sand[200]
+  },
+  photoPreviewBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginTop: 8,
+    gap: 4
+  },
+  photoPreviewBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#15803D"
+  },
+  photoPreviewActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+    marginBottom: 10
+  },
+  retakeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    gap: 4
+  },
+  retakeBtnText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: mobileColors.navy[800]
+  },
+  removePhotoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    gap: 4
+  },
+  removePhotoBtnText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#DC2626"
+  },
+  primaryNextBtnFull: {
+    flexDirection: "row",
+    backgroundColor: mobileColors.terracotta[600],
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%"
   },
   bypassBtn: {
     backgroundColor: "#FEF3C7",

@@ -2,14 +2,19 @@ import { describe, it, expect, beforeEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { useHostStore } from "../src/store/useHostStore";
-import { DEMO_HOST_TRANSACTIONS } from "../src/data/mock-host-data";
+import {
+  DEMO_HOST_TRANSACTIONS,
+  DEMO_SCANNER_FIXTURES,
+  DEMO_PIN_LOOKUPS,
+  DEMO_QR_LOOKUPS
+} from "../src/data/mock-host-data";
 
 describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (WS-5-HOST-MOB)", () => {
   beforeEach(() => {
     useHostStore.getState().resetToDefaults();
   });
 
-  describe("Task TSK-2C-021: 5-Tab Operational Shell & Navigation (_layout.tsx, index.tsx)", () => {
+  describe("Task TSK-2C-021: 5-Tab Operational Shell, Role RBAC & Navigation (_layout.tsx, index.tsx)", () => {
     it("registers all 5 bottom tabs and modal sub-routes in _layout.tsx", () => {
       const layoutPath = path.resolve(__dirname, "../app/(host)/_layout.tsx");
       expect(fs.existsSync(layoutPath)).toBe(true);
@@ -49,6 +54,48 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(content).toContain("RBAC Guard • 403 Forbidden");
     });
 
+    it("restricts Earnings and Settings tabs for Host Staff role and provides role toggle", () => {
+      const layoutPath = path.resolve(__dirname, "../app/(host)/_layout.tsx");
+      const content = fs.readFileSync(layoutPath, "utf-8");
+
+      // Verifies conditional tab availability
+      expect(content).toContain('href: isOwner ? "/(host)/earnings" : null');
+      expect(content).toContain('href: isOwner ? "/(host)/settings" : null');
+
+      // Verifies role toggle controls
+      expect(content).toContain('setActiveDemoRole("HOST_OWNER")');
+      expect(content).toContain('setActiveDemoRole("HOST_STAFF")');
+    });
+
+    it("enforces direct route guards on earnings.tsx and settings.tsx for non-owners", () => {
+      const earningsContent = fs.readFileSync(
+        path.resolve(__dirname, "../app/(host)/earnings.tsx"),
+        "utf-8"
+      );
+      expect(earningsContent).toContain("RBAC Guard • 403 Forbidden");
+      expect(earningsContent).toContain("Host Owner Access Required");
+      expect(earningsContent).toContain("Return to Live Desk");
+
+      const settingsContent = fs.readFileSync(
+        path.resolve(__dirname, "../app/(host)/settings.tsx"),
+        "utf-8"
+      );
+      expect(settingsContent).toContain("RBAC Guard • 403 Forbidden");
+      expect(settingsContent).toContain("Host Owner Access Required");
+      expect(settingsContent).toContain("Return to Live Desk");
+    });
+
+    it("allows dynamic demo role switching via useHostStore", () => {
+      const store = useHostStore.getState();
+      expect(store.activeDemoRole).toBe("HOST_OWNER");
+
+      store.setActiveDemoRole("HOST_STAFF");
+      expect(useHostStore.getState().activeDemoRole).toBe("HOST_STAFF");
+
+      store.setActiveDemoRole("HOST_OWNER");
+      expect(useHostStore.getState().activeDemoRole).toBe("HOST_OWNER");
+    });
+
     it("renders Live Desk counter hub with venue profile, capacity bar, and queue movements", () => {
       const indexPath = path.resolve(__dirname, "../app/(host)/index.tsx");
       expect(fs.existsSync(indexPath)).toBe(true);
@@ -65,7 +112,7 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
   });
 
   describe("Task TSK-2C-022: Scanner & PIN Fallback (scanner.tsx)", () => {
-    it("provides camera viewfinder, torch control, and quick pass simulator", () => {
+    it("provides camera viewfinder, torch control, and quick pass simulator mapped from fixtures", () => {
       const scannerPath = path.resolve(__dirname, "../app/(host)/scanner.tsx");
       expect(fs.existsSync(scannerPath)).toBe(true);
       const content = fs.readFileSync(scannerPath, "utf-8");
@@ -75,37 +122,66 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(content).toContain("useCameraPermissions");
       expect(content).toContain("CameraView");
       expect(content).toContain("enableTorch");
+      expect(content).toContain("DEMO_SCANNER_FIXTURES");
       expect(content).toContain("Quick Pass Simulator");
-      expect(content).toContain("Pass #8841 (Amaya - 2 Bags)");
     });
 
-    it("verifies passes by PIN and QR code from the reactive store", () => {
+    it("resolves EVERY booking in DEMO_SCANNER_FIXTURES by PIN and QR code", () => {
       const store = useHostStore.getState();
 
-      // Test PIN lookup
-      const foundByPin = store.lookupByPin("482910");
-      expect(foundByPin).not.toBeNull();
-      expect(foundByPin?.reference).toBe("LS-2026-8841");
-      expect(foundByPin?.travellerName).toBe("Amaya Perera");
+      for (const fixture of DEMO_SCANNER_FIXTURES) {
+        // PIN resolution
+        const byPin = store.lookupByPin(fixture.pinCode);
+        expect(byPin, `Booking ${fixture.reference} should resolve by PIN ${fixture.pinCode}`).not.toBeNull();
+        expect(byPin?.reference).toBe(fixture.reference);
+        expect(byPin?.travellerName).toBe(fixture.travellerName);
 
-      // Test QR lookup
-      const foundByQr = store.lookupByQr("LS-CUSTODY://LS-2026-8842/HMAC-4D2A91E");
-      expect(foundByQr).not.toBeNull();
-      expect(foundByQr?.reference).toBe("LS-2026-8842");
-      expect(foundByQr?.travellerName).toBe("Liam O'Connor");
-
-      // Test invalid code
-      const invalid = store.lookupByPin("000000");
-      expect(invalid).toBeNull();
+        // QR resolution
+        const byQr = store.lookupByQr(fixture.qrPayload);
+        expect(byQr, `Booking ${fixture.reference} should resolve by QR payload`).not.toBeNull();
+        expect(byQr?.reference).toBe(fixture.reference);
+        expect(byQr?.travellerName).toBe(fixture.travellerName);
+      }
     });
 
-    it("strictly labels pass matches as Demo Session Match under DEC-005", () => {
+    it("verifies dictionary completeness of DEMO_PIN_LOOKUPS and DEMO_QR_LOOKUPS", () => {
+      expect(Object.keys(DEMO_PIN_LOOKUPS).length).toBeGreaterThanOrEqual(4);
+      expect(Object.keys(DEMO_QR_LOOKUPS).length).toBeGreaterThanOrEqual(4);
+
+      for (const [pin, bkg] of Object.entries(DEMO_PIN_LOOKUPS)) {
+        expect(pin).toMatch(/^\d{6}$/);
+        expect(bkg.reference).toMatch(/^LS-2026-\d{4}$/);
+      }
+    });
+
+    it("handles whitespace, lowercase, and invalid PIN lookups safely", () => {
+      const store = useHostStore.getState();
+
+      // Whitespace trimming
+      const withSpaces = store.lookupByPin("  482910  ");
+      expect(withSpaces?.reference).toBe("LS-2026-8841");
+
+      // Non-existent PIN
+      const invalid = store.lookupByPin("000000");
+      expect(invalid).toBeNull();
+
+      // Malformed short PIN
+      const tooShort = store.lookupByPin("123");
+      expect(tooShort).toBeNull();
+
+      // Empty string
+      const empty = store.lookupByPin("");
+      expect(empty).toBeNull();
+    });
+
+    it("strictly labels pass matches as Demo booking lookup matched under DEC-005 Pending Sign-Off", () => {
       const scannerPath = path.resolve(__dirname, "../app/(host)/scanner.tsx");
       const content = fs.readFileSync(scannerPath, "utf-8");
-      expect(content).toContain("Demo Session Match (DEC-005 Verified)");
-      expect(content).toContain("Scanner Invariant (DEC-005)");
+      expect(content).toContain("Demo booking lookup matched (DEC-005 Pending Sign-Off)");
+      expect(content).toContain("Pass Verification Scope (DEC-005)");
       expect(content).not.toContain("Server-Verified Booking");
       expect(content).not.toContain("Cryptographically Verified");
+      expect(content).not.toContain("DEC-005 Verified");
     });
   });
 
@@ -125,36 +201,53 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(content).toContain("Step 4: Zone Allocation & Confirmation");
     });
 
-    it("validates tamper seal serial format #SEAL-LK-XXXXX and logs DEC-007 disclosure", () => {
+    it("validates tamper seal serial format #SEAL-LK-XXXXX and marks generated seals as demo placeholders (DEC-007)", () => {
       const intakePath = path.resolve(__dirname, "../app/(host)/intake.tsx");
       const content = fs.readFileSync(intakePath, "utf-8");
 
       expect(content).toContain("/^SEAL-LK-\\d{5}$/");
-      expect(content).toContain("Tamper Seal Logging (DEC-007)");
-      expect(content).toContain("Generate Fresh Serial Number");
+      expect(content).toContain("Generate Demo Placeholder Tag (Local Simulation Only)");
+      expect(content).toContain("Security Tagging Policy (DEC-007)");
     });
 
-    it("offers prominent 1-tap photo bypass adhering to invariant DEC-001", () => {
+    it("integrates expo-image-picker and manages local photo evidence state", () => {
+      const intakePath = path.resolve(__dirname, "../app/(host)/intake.tsx");
+      const content = fs.readFileSync(intakePath, "utf-8");
+
+      expect(content).toContain("expo-image-picker");
+      expect(content).toContain("launchCameraAsync");
+      expect(content).toContain("launchImageLibraryAsync");
+      expect(content).toContain("SAMPLE_EVIDENCE_PHOTO_URI");
+      expect(content).toContain("photoUri");
+      expect(content).toContain("photoEvidenceStatus");
+    });
+
+    it("offers prominent 1-tap photo bypass adhering to invariant DEC-001 without falsely claiming pristine condition", () => {
       const intakePath = path.resolve(__dirname, "../app/(host)/intake.tsx");
       const content = fs.readFileSync(intakePath, "utf-8");
 
       expect(content).toContain("Skip Photo Evidence (DEC-001 Prototype Option)");
-      expect(content).toContain("No visible pre-existing damage");
       expect(content).toContain("Photo Policy Invariant (DEC-001)");
+      expect(content).toContain("does NOT verify pristine condition");
     });
 
-    it("updates store state when intake is confirmed", () => {
-      const target = useHostStore.getState().bookings.find((b) => b.status === "CONFIRMED");
+    it("updates store state when intake is confirmed with local photo evidence", () => {
+      const store = useHostStore.getState();
+      const target = store.bookings.find((b) => b.status === "CONFIRMED");
       expect(target).toBeDefined();
 
       if (target) {
-        useHostStore.getState().startIntake(target);
+        store.startIntake(target);
         expect(useHostStore.getState().intakeSession.booking?.id).toBe(target.id);
 
         useHostStore.getState().updateIntake({
           reconciledBags: target.totalBags,
           sealNumber: "SEAL-LK-77112",
-          photoBypassed: true,
+          sealIsDemoPlaceholder: true,
+          photoCaptured: true,
+          photoUri: "file:///mock-evidence.jpg",
+          photoEvidenceStatus: "CAPTURED_LOCAL",
+          photoBypassed: false,
           assignedZone: "LOCKER-B"
         });
 
@@ -166,6 +259,45 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
         expect(updated?.status).toBe("IN_STORAGE");
         expect(updated?.zoneCode).toBe("LOCKER-B");
         expect(updated?.sealNumbers).toContain("SEAL-LK-77112");
+        expect(updated?.photoEvidenceCaptured).toBe(true);
+        expect(updated?.photoEvidenceStatus).toBe("CAPTURED_LOCAL");
+        expect(updated?.photoUri).toBe("file:///mock-evidence.jpg");
+      }
+    });
+
+    it("guards confirmIntake against duplicate submissions or invalid bookings", () => {
+      const store = useHostStore.getState();
+
+      // Attempt confirm with no active booking
+      store.cancelIntake();
+      const noBookingRes = store.confirmIntake();
+      expect(noBookingRes?.success).toBe(false);
+      expect(noBookingRes?.message).toContain("No active intake session");
+
+      // Attempt confirm for already completed booking
+      const completed = store.bookings.find((b) => b.status === "COMPLETED");
+      if (completed) {
+        store.startIntake(completed);
+        const completedRes = store.confirmIntake();
+        expect(completedRes?.success).toBe(false);
+        expect(completedRes?.message).toContain("already been completed");
+      }
+    });
+
+    it("resets intake session state when cancelIntake is triggered", () => {
+      const store = useHostStore.getState();
+      const target = store.bookings.find((b) => b.status === "CONFIRMED");
+      if (target) {
+        store.startIntake(target);
+        store.updateIntake({ sealNumber: "SEAL-LK-99999", photoUri: "file:///test.png" });
+        expect(useHostStore.getState().intakeSession.sealNumber).toBe("SEAL-LK-99999");
+
+        store.cancelIntake();
+        const resetSession = useHostStore.getState().intakeSession;
+        expect(resetSession.booking).toBeNull();
+        expect(resetSession.sealNumber).toBe("");
+        expect(resetSession.photoUri).toBeNull();
+        expect(resetSession.photoEvidenceStatus).toBe("NOT_PROVIDED");
       }
     });
   });
@@ -186,14 +318,16 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(content).toContain("Released");
     });
 
-    it("identifies overdue baggage and adheres strictly to invariant DEC-002", () => {
+    it("identifies overdue baggage and adheres strictly to invariant DEC-002 without false settlement claims", () => {
       const vaultPath = path.resolve(__dirname, "../app/(host)/vault.tsx");
       const content = fs.readFileSync(vaultPath, "utf-8");
 
       expect(content).toContain("Baggage Overdue");
-      expect(content).toContain("Platform policy (DEC-002):");
-      expect(content).toContain("Baggage release is never withheld for fee settlement");
-      expect(content).toContain("Never withhold physical luggage");
+      expect(content).toContain("DEC-002 Pending Sign-Off");
+      expect(content).toContain("Overdue fee handling is illustrative only");
+      expect(content).toContain("No payment is collected in this prototype");
+      expect(content).not.toContain("will be processed automatically to guest's payment method");
+      expect(content).not.toContain("Baggage release is never withheld for fee settlement");
     });
 
     it("executes baggage release handover transitioning status to COMPLETED", () => {
@@ -209,6 +343,22 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
         expect(cleared?.status).toBe("COMPLETED");
       }
     });
+
+    it("guards releaseLuggage against releasing non-stored, cancelled, or already completed items", () => {
+      const store = useHostStore.getState();
+
+      // Non-existent ID
+      const notFound = store.releaseLuggage("bkg-non-existent");
+      expect(notFound.success).toBe(false);
+
+      // Already completed booking
+      const completed = store.bookings.find((b) => b.status === "COMPLETED");
+      if (completed) {
+        const alreadyDone = store.releaseLuggage(completed.id);
+        expect(alreadyDone.success).toBe(false);
+        expect(alreadyDone.message).toContain("already been released");
+      }
+    });
   });
 
   describe("Task TSK-2C-025: Mobile Earnings & Settlement Ledger (earnings.tsx)", () => {
@@ -222,7 +372,8 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(content).toContain("Gross Paid Guest Volume (100%)");
       expect(content).toContain("Platform Service Fee (15%)");
       expect(content).toContain("Policy Note (DEC-006)");
-      expect(content).toContain("Commercial Bank of Ceylon");
+      expect(content).toContain("Demonstration Financial Surface");
+      expect(content).toContain("Illustrative Payout Schedule — Not Connected");
       expect(content).toContain("Transaction History");
     });
 
@@ -306,13 +457,42 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
     });
 
     it("verifies honest prototype disclosure on every screen", () => {
-      const screens = ["index.tsx", "requests.tsx", "vault.tsx", "earnings.tsx", "settings.tsx", "scanner.tsx", "intake.tsx"];
+      const screens = [
+        "index.tsx",
+        "requests.tsx",
+        "vault.tsx",
+        "earnings.tsx",
+        "settings.tsx",
+        "scanner.tsx",
+        "intake.tsx"
+      ];
       for (const screen of screens) {
         const content = fs.readFileSync(path.join(hostDir, screen), "utf-8");
         expect(
-          content.includes("prototypeNotice") || content.includes("Prototype") || content.includes("Simulation"),
+          content.includes("prototypeNotice") ||
+            content.includes("Prototype") ||
+            content.includes("Simulation"),
           `Screen ${screen} must contain honest prototype disclosure.`
         ).toBe(true);
+      }
+    });
+
+    it("verifies suppression of false promises across all host screens", () => {
+      const screens = [
+        "index.tsx",
+        "requests.tsx",
+        "vault.tsx",
+        "earnings.tsx",
+        "settings.tsx",
+        "scanner.tsx",
+        "intake.tsx"
+      ];
+      for (const screen of screens) {
+        const content = fs.readFileSync(path.join(hostDir, screen), "utf-8");
+        expect(content).not.toContain("payout will occur");
+        expect(content).not.toContain("Cryptographically Verified");
+        expect(content).not.toContain("Server-Verified Booking");
+        expect(content).not.toContain("affirmative staff confirmation of pristine condition");
       }
     });
   });

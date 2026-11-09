@@ -11,7 +11,7 @@ import {
 import { useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useHostStore } from "../../src/store/useHostStore";
-import { DemoHostBooking } from "../../src/data/mock-host-data";
+import { DemoHostBooking, DEMO_SCANNER_FIXTURES } from "../../src/data/mock-host-data";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
 
@@ -186,49 +186,17 @@ export default function HostScannerScreen() {
           <View style={styles.simulatorCard}>
             <Text style={styles.simulatorLabel}>Quick Pass Simulator (Local Testing):</Text>
             <View style={styles.simButtonsRow}>
-              <TouchableOpacity
-                style={styles.simBtn}
-                onPress={() =>
-                  handleQuickSimulate(
-                    "https://luggage.lk/pass/LS-2026-8841?pin=482910&h=demo-fort-01"
-                  )
-                }
-              >
-                <Text style={styles.simBtnText}>Pass #8841 (Amaya - 2 Bags)</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.simBtn}
-                onPress={() =>
-                  handleQuickSimulate(
-                    "https://luggage.lk/pass/LS-2026-8842?pin=739104&h=demo-fort-01"
-                  )
-                }
-              >
-                <Text style={styles.simBtnText}>Pass #8842 (Liam - 1 Bag)</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.simBtn}
-                onPress={() =>
-                  handleQuickSimulate(
-                    "https://luggage.lk/pass/LS-2026-8843?pin=918234&h=demo-fort-01"
-                  )
-                }
-              >
-                <Text style={styles.simBtnText}>Pass #8843 (Nadeesha - 3 Bags)</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.simBtn}
-                onPress={() =>
-                  handleQuickSimulate(
-                    "https://luggage.lk/pass/LS-2026-8835?pin=602819&h=demo-fort-01"
-                  )
-                }
-              >
-                <Text style={styles.simBtnText}>Pass #8835 (Henrik - Overdue)</Text>
-              </TouchableOpacity>
+              {DEMO_SCANNER_FIXTURES.map((fixture) => (
+                <TouchableOpacity
+                  key={fixture.reference}
+                  style={styles.simBtn}
+                  onPress={() => handleQuickSimulate(fixture.qrPayload)}
+                >
+                  <Text style={styles.simBtnText}>
+                    Pass #{fixture.reference.replace("LS-2026-", "")} ({fixture.travellerName.split(" ")[0]} - {fixture.totalBags} {fixture.totalBags === 1 ? "Bag" : "Bags"})
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
         </View>
@@ -269,24 +237,20 @@ export default function HostScannerScreen() {
 
             <View style={styles.quickPinRow}>
               <Text style={styles.quickPinLabel}>Sample PINs:</Text>
-              <TouchableOpacity
-                style={styles.quickPinChip}
-                onPress={() => {
-                  setPinDigits("482910");
-                  handleVerifyPin("482910");
-                }}
-              >
-                <Text style={styles.quickPinChipText}>482910 (Amaya)</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.quickPinChip}
-                onPress={() => {
-                  setPinDigits("739104");
-                  handleVerifyPin("739104");
-                }}
-              >
-                <Text style={styles.quickPinChipText}>739104 (Liam)</Text>
-              </TouchableOpacity>
+              {DEMO_SCANNER_FIXTURES.map((fixture) => (
+                <TouchableOpacity
+                  key={fixture.pinCode}
+                  style={styles.quickPinChip}
+                  onPress={() => {
+                    setPinDigits(fixture.pinCode);
+                    handleVerifyPin(fixture.pinCode);
+                  }}
+                >
+                  <Text style={styles.quickPinChipText}>
+                    {fixture.pinCode} ({fixture.travellerName.split(" ")[0]})
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
         </View>
@@ -309,7 +273,7 @@ export default function HostScannerScreen() {
             </View>
             <View style={styles.resultTitleCol}>
               <Text style={styles.resultTitle}>Booking Matched</Text>
-              <Text style={styles.resultSub}>Demo Session Match (DEC-005 Verified)</Text>
+              <Text style={styles.resultSub}>Demo booking lookup matched (DEC-005 Pending Sign-Off)</Text>
             </View>
           </View>
 
@@ -384,9 +348,10 @@ export default function HostScannerScreen() {
       <View style={styles.prototypeNoticeCard}>
         <MobileIcon name="info" size={16} color={mobileColors.terracotta[600]} />
         <Text style={styles.prototypeNoticeText}>
-          <Text style={styles.boldText}>Scanner Invariant (DEC-005):</Text> Pass verification
-          matches local demo session records. Real asymmetric cryptographic JWT signatures and offline
-          HMAC validation will be provisioned in Phase 3+.
+          <Text style={styles.boldText}>Pass Verification Scope (DEC-005):</Text> Pass verification
+          checks local demo fixtures in memory. QR scanning extracts plain text identifiers, and PIN
+          entry performs client-side dictionary lookup. Production offline cryptographic signature validation
+          (DEC-005) remains pending sign-off.
         </Text>
       </View>
     </ScrollView>
