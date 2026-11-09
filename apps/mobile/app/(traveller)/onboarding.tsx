@@ -34,11 +34,11 @@ const SLIDES: OnboardingSlide[] = [
     caption: "Walk freely through tea trails, coastal ramparts, and cultural temples."
   },
   {
-    title: "Insured, Sealed & Digital Passes",
+    title: "Sealed & Digital Passes",
     subtitle:
-      "Tamper-evident seals on every zipper, up to LKR 250,000 platform guarantee, and offline QR passes with 6-digit PIN fallback.",
+      "Tamper-evident seals on every zipper, verified partner counters, and offline QR passes with 6-digit PIN fallback.",
     mascot: "jump",
-    caption: "Safe custody guaranteed so you can immerse in island wonders."
+    caption: "Safe, hassle-free luggage storage across Sri Lanka."
   }
 ];
 

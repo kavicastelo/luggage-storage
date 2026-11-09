@@ -13,7 +13,7 @@ import { mobileColors, mobileRadius, mobileTypography } from "../../src/lib/them
 const FAQS = [
   {
     q: "How are my bags physically secured?",
-    a: "Every bag stored through our network receives a tamper-evident serialized seal tag (e.g. #SEAL-LK-90211). Bags are placed in locked vaults or monitored steel racks under 24/7 CCTV surveillance with up to LKR 250,000 platform guarantee."
+    a: "Every bag stored through our network receives a tamper-evident serialized seal tag (e.g. #SEAL-LK-90211). Bags are placed in locked vaults or monitored steel racks under CCTV surveillance with verified partner custody."
   },
   {
     q: "What if my Sri Lankan train or flight is delayed?",
@@ -46,7 +46,7 @@ export default function TravellerSupportScreen() {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Help & Support Centre</Text>
           <Text style={styles.headerSubtitle}>
-            24/7 Traveller Assistance & Custody Escalation
+            Traveller Assistance & Custody Escalation (Prototype)
           </Text>
         </View>
 
@@ -57,14 +57,14 @@ export default function TravellerSupportScreen() {
               <MobileIcon name="phone" size={20} color={mobileColors.terracotta[500]} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.hotlineTitle}>24/7 Dedicated Custody Hotline</Text>
+              <Text style={styles.hotlineTitle}>Custody Support Helpline</Text>
               <Text style={styles.hotlineSubtitle}>
-                Immediate assistance for late arrivals or partner counter inquiries
+                Assistance for late arrivals or partner counter inquiries (Demo Hotline)
               </Text>
             </View>
           </View>
           <Button
-            title="Call +94 11 234 5678"
+            title="Call Helpline (+94 11 234 5678)"
             variant="primary"
             onPress={() => alert("Calling platform custody helpline: +94 11 234 5678")}
             style={{ marginTop: 12 }}

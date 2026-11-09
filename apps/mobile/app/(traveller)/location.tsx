@@ -150,9 +150,9 @@ export default function TravellerLocationDetailScreen() {
                 <MobileIcon name="check" size={14} color={mobileColors.emerald[700]} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkTitle}>LKR 250,000 Platform Guarantee</Text>
+                <Text style={styles.checkTitle}>Illustrative Custody Guarantee (Demo)</Text>
                 <Text style={styles.checkDesc}>
-                  Complimentary protection included with every verified booking.
+                  Complimentary protection included with verified booking tier.
                 </Text>
               </View>
             </View>
@@ -162,7 +162,7 @@ export default function TravellerLocationDetailScreen() {
                 <MobileIcon name="check" size={14} color={mobileColors.emerald[700]} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.checkTitle}>Server-Verified QR & PIN Custody</Text>
+                <Text style={styles.checkTitle}>Digital QR & PIN Pass Verification</Text>
                 <Text style={styles.checkDesc}>
                   Dual verification token ensures only you can release your bags.
                 </Text>

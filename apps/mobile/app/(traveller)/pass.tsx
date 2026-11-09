@@ -64,7 +64,7 @@ export default function TravellerCustodyPassScreen() {
               <MobileIcon name="qr-code" size={160} color={mobileColors.navy[950]} />
             </View>
             <Text style={styles.qrSubtext}>
-              Server-Verified HMAC Token • Dynamic Refresh
+              Digital Custody QR Pass • Prototype Display
             </Text>
           </View>
 
@@ -132,7 +132,7 @@ export default function TravellerCustodyPassScreen() {
             </View>
           </View>
           <Button
-            title={savedOffline ? "Saved to Device Storage ✓" : "Save Pass Offline (SecureStore)"}
+            title={savedOffline ? "Saved to Device Storage ✓" : "Cache Pass Offline (Prototype)"}
             variant={savedOffline ? "outline" : "secondary"}
             size="sm"
             onPress={() => setSavedOffline(true)}
