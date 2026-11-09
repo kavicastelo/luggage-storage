@@ -17,6 +17,8 @@ import { ProfilePage } from "@/pages/ProfilePage";
 import { SecurityPage } from "@/pages/SecurityPage";
 import { SessionsPage } from "@/pages/SessionsPage";
 import { ForbiddenPage } from "@/pages/ForbiddenPage";
+import { FoundationPreviewPage } from "@/pages/FoundationPreviewPage";
+
 
 import {
   PublicLandingPage,
@@ -180,9 +182,15 @@ function AppRoutes() {
           <Route path="settings/sessions" element={<SessionsPage />} />
         </Route>
 
+        {/* Development-Only Foundation Preview Route */}
+        {import.meta.env.DEV && (
+          <Route path="dev/foundation-preview" element={<FoundationPreviewPage />} />
+        )}
+
         {/* Error & Not Found routes */}
         <Route path="forbidden" element={<ForbiddenPage />} />
         <Route path="*" element={<NotFoundPage />} />
+
       </Route>
     </Routes>
   );

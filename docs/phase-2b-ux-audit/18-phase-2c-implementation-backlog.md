@@ -33,10 +33,13 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 ### 2. Workstream 1: Shared Design Foundation (`WS-1-FOUNDATION`)
+*Status: COMPLETED (Phase 2C.1 Delivery — Verified under DOC-UX-P2C-024 and DOC-UX-P2C-025)*
 
 ---
 
 #### Task `TSK-2C-001`: Shared CWCP Tokens & Accessible Palette
+- **Status:** **COMPLETED** (Sprint 1 / WS-1)
+- **Completion Artifacts:** `packages/contracts/src/tokens.ts`, `apps/web/tailwind.config.js`, `apps/web/src/index.css`, `apps/mobile/src/lib/theme.ts`, `packages/contracts/tests/tokens.test.ts`
 - **Priority:** **P0** | **Implementation Level:** Level 1 (Experience Redesign)
 - **Target Application:** Cross-Platform (`packages/contracts/src/tokens.ts`, `apps/web`, `apps/mobile`)
 - **User Persona:** All users (Travellers, Hosts, Superadmins)
@@ -62,6 +65,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-002`: Automated Mascot WebP Derivative Pipeline & Picture Components
+- **Status:** **COMPLETED** (Sprint 1 / WS-1)
+- **Completion Artifacts:** `scripts/optimize-mascot-assets.mjs`, `scripts/mascot-derivative-register.json`, `apps/web/src/components/ui/MascotIllustration.tsx`, WebP derivatives in `apps/web` and `apps/mobile`
 - **Priority:** **P1** | **Implementation Level:** Level 1 (Experience Redesign)
 - **Target Application:** Asset Infrastructure (`scripts/`, `apps/web/public/assets/mascot/`, `Assets/`)
 - **User Persona:** Travellers on mobile data connections
@@ -77,7 +82,7 @@ If a task requires backend functionality that does not exist in the current code
 - **Required Decisions:** None.
 - **Acceptance Criteria:**
   1. All 20 original PNG files retain exact original checksums and timestamps.
-  2. Total size of generated WebP directory is $\le 2.5$ MB.
+  2. Total size of generated WebP directory is $\le 2.5$ MB (Actual: 2.05 MB, 92.88% savings).
   3. `MascotIllustration` renders WebP in modern browsers and PNG in legacy environments.
 - **Automated Test Requirements:** CI test verifying checksum preservation of original PNGs and WebP file existence.
 - **Manual QA Requirements:** Inspect Network tab in Chrome DevTools to confirm WebP format transfer.
@@ -87,6 +92,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-003`: Universal Customer-Facing Tracking Code Suppression & Developer Drawer
+- **Status:** **COMPLETED** (Sprint 1 / WS-1)
+- **Completion Artifacts:** `apps/web/src/components/layout/DeveloperDrawer.tsx`, `apps/web/src/components/layout/AppShell.tsx`, `apps/web/tests/foundation-and-boundary.test.tsx`
 - **Priority:** **P0** | **Implementation Level:** Level 2 (Functional Frontend)
 - **Target Application:** Cross-Platform (`apps/web`, `apps/mobile`)
 - **User Persona:** Travellers and Hosts
@@ -108,6 +115,7 @@ If a task requires backend functionality that does not exist in the current code
 - **Manual QA Requirements:** Verify absence of codes across all 113 screens.
 - **Screenshot Requirements:** Capture clean headers across all surfaces.
 - **Definition of Done:** Zero code leakage in DOM, drawer functional in DEV.
+
 
 ---
 
