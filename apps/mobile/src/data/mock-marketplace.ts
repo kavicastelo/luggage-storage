@@ -878,3 +878,367 @@ export const ALL_MOBILE_SCREENS: MobileScreenSpec[] = [
   ...HOST_MOBILE_SCREENS
 ];
 
+export interface StorageLocationItem {
+  id: string;
+  slug: string;
+  name: string;
+  city: string;
+  district: string;
+  landmark: string;
+  distanceKm: number;
+  rating: number;
+  reviewCount: number;
+  verifiedHost: string;
+  openHours: string;
+  is24Hours: boolean;
+  hasCctv: boolean;
+  hasClimateControl: boolean;
+  hasInsurance: boolean;
+  insuranceLimitLkr: number;
+  photoEvidencePolicy: "OPTIONAL_BY_DEFAULT" | "CONFIGURED_MANDATORY";
+  gracePeriodMinutes: number;
+  lateFeePolicyLabel: string;
+  hourlyRateLkr: {
+    SMALL: number;
+    MEDIUM: number;
+    LARGE: number;
+    OVERSIZED: number;
+  };
+  dailyCapLkr: {
+    SMALL: number;
+    MEDIUM: number;
+    LARGE: number;
+    OVERSIZED: number;
+  };
+  totalCapacity: number;
+  availableCapacity: number;
+  coordinates: { lat: number; lng: number };
+  addressMasked: string;
+  addressExact: string;
+  zones: { id: string; code: string; name: string; capacity: number; occupied: number }[];
+  description: string;
+}
+
+export const DEMO_LOCATIONS: StorageLocationItem[] = [
+  {
+    id: "loc-cmb-fort-01",
+    slug: "colombo-fort-railway-hub",
+    name: "Colombo Fort Station Heritage Vault",
+    city: "Colombo",
+    district: "Colombo 01",
+    landmark: "120m from Colombo Fort Railway Main Entrance",
+    distanceKm: 0.12,
+    rating: 4.9,
+    reviewCount: 214,
+    verifiedHost: "Ceylon Transit Hospitality (Pvt) Ltd",
+    openHours: "24 Hours (Daily)",
+    is24Hours: true,
+    hasCctv: true,
+    hasClimateControl: true,
+    hasInsurance: true,
+    insuranceLimitLkr: 250000,
+    photoEvidencePolicy: "CONFIGURED_MANDATORY",
+    gracePeriodMinutes: 30,
+    lateFeePolicyLabel: "Illustrative Location Policy: 30m grace period, then configurable hourly/daily late rate (e.g. 1.5x daily rate)",
+    hourlyRateLkr: { SMALL: 150, MEDIUM: 250, LARGE: 350, OVERSIZED: 500 },
+    dailyCapLkr: { SMALL: 900, MEDIUM: 1450, LARGE: 1950, OVERSIZED: 2800 },
+    totalCapacity: 80,
+    availableCapacity: 52,
+    coordinates: { lat: 6.9344, lng: 79.8501 },
+    addressMasked: "Olcott Mawatha, Near Fort Clock Tower, Colombo 01",
+    addressExact: "No. 48B Olcott Mawatha, Ground Floor Vault, Colombo 01",
+    zones: [
+      { id: "z-1", code: "RACK-A", name: "Main Locked Steel Rack A", capacity: 40, occupied: 18 },
+      { id: "z-2", code: "VAULT-B", name: "Climate-Controlled Back Vault", capacity: 30, occupied: 8 },
+      { id: "z-3", code: "SURF-C", name: "Oversized Surfboard & Gear Bay", capacity: 10, occupied: 2 }
+    ],
+    description:
+      "Dedicated 24/7 CCTV-monitored luggage vault steps from Colombo Fort Railway Station and Lotus Tower shuttle terminal. Ideal for intercity rail travellers and Pettah market explorers."
+  },
+  {
+    id: "loc-ella-02",
+    slug: "ella-station-tea-trail-lockers",
+    name: "Ella Railway & Nine Arch Trail Hub",
+    city: "Ella",
+    district: "Badulla",
+    landmark: "80m from Ella Railway Station Platform 1 Exit",
+    distanceKm: 0.08,
+    rating: 4.8,
+    reviewCount: 168,
+    verifiedHost: "Hill Country Boutique Stays",
+    openHours: "05:30 – 22:30",
+    is24Hours: false,
+    hasCctv: true,
+    hasClimateControl: false,
+    hasInsurance: true,
+    insuranceLimitLkr: 250000,
+    photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
+    gracePeriodMinutes: 45,
+    lateFeePolicyLabel: "Illustrative Location Policy: 45m train-delay grace period, then standard hourly rate per bag",
+    hourlyRateLkr: { SMALL: 140, MEDIUM: 220, LARGE: 320, OVERSIZED: 450 },
+    dailyCapLkr: { SMALL: 850, MEDIUM: 1300, LARGE: 1800, OVERSIZED: 2500 },
+    totalCapacity: 45,
+    availableCapacity: 19,
+    coordinates: { lat: 6.8756, lng: 81.0463 },
+    addressMasked: "Station Road, Ella Town Centre",
+    addressExact: "No. 14 Station Road, Opposite Railway Ticket Plaza, Ella",
+    zones: [
+      { id: "z-4", code: "TRAIL-A", name: "Hiker Daypack Shelving", capacity: 25, occupied: 16 },
+      { id: "z-5", code: "TRUNK-B", name: "Hard-Shell Suitcase Room", capacity: 20, occupied: 10 }
+    ],
+    description:
+      "Hike Little Adam's Peak and Nine Arch Bridge hands-free before catching the Kandy-Badulla scenic train. Tamper-evident security seals applied to every zipper."
+  },
+  {
+    id: "loc-kandy-03",
+    slug: "kandy-temple-quarter-concierge",
+    name: "Kandy Lake & Temple Quarter Concierge",
+    city: "Kandy",
+    district: "Kandy Central",
+    landmark: "200m from Sri Dalada Maligawa (Temple of the Tooth)",
+    distanceKm: 0.2,
+    rating: 4.9,
+    reviewCount: 142,
+    verifiedHost: "Kandy Royal Heritage Lounge",
+    openHours: "06:00 – 21:30",
+    is24Hours: false,
+    hasCctv: true,
+    hasClimateControl: true,
+    hasInsurance: true,
+    insuranceLimitLkr: 250000,
+    photoEvidencePolicy: "CONFIGURED_MANDATORY",
+    gracePeriodMinutes: 30,
+    lateFeePolicyLabel: "Illustrative Location Policy: 30m grace period, then configurable daily extension tier",
+    hourlyRateLkr: { SMALL: 150, MEDIUM: 240, LARGE: 340, OVERSIZED: 480 },
+    dailyCapLkr: { SMALL: 880, MEDIUM: 1400, LARGE: 1900, OVERSIZED: 2600 },
+    totalCapacity: 60,
+    availableCapacity: 41,
+    coordinates: { lat: 7.2936, lng: 80.6413 },
+    addressMasked: "Dalada Veediya, Kandy Cultural Precinct",
+    addressExact: "No. 22 Dalada Veediya, Queen's Arcade Suite 3, Kandy",
+    zones: [
+      { id: "z-6", code: "SANCTUARY-A", name: "Ground Floor Concierge Vault", capacity: 40, occupied: 14 },
+      { id: "z-7", code: "VIP-B", name: "Electronics & Camera Locker Bay", capacity: 20, occupied: 5 }
+    ],
+    description:
+      "Since large backpacks and suitcases are prohibited inside the Temple of the Sacred Tooth Relic security perimeter, store your bags safely with server-verified QR or backup PIN custody."
+  },
+  {
+    id: "loc-galle-04",
+    slug: "galle-fort-pedlar-street-vault",
+    name: "Galle Fort Dutch Hospital Safe Keep",
+    city: "Galle",
+    district: "Galle Fort UNESCO Zone",
+    landmark: "150m from Galle Fort Main Gate & Ramparts",
+    distanceKm: 0.15,
+    rating: 4.7,
+    reviewCount: 97,
+    verifiedHost: "Southern Coast Surf & Stay Co.",
+    openHours: "07:00 – 23:00",
+    is24Hours: false,
+    hasCctv: true,
+    hasClimateControl: true,
+    hasInsurance: true,
+    insuranceLimitLkr: 250000,
+    photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
+    gracePeriodMinutes: 30,
+    lateFeePolicyLabel: "Illustrative Location Policy: 30m grace period, then configurable late collection surcharge (e.g. 1.5x daily rate)",
+    hourlyRateLkr: { SMALL: 160, MEDIUM: 260, LARGE: 360, OVERSIZED: 520 },
+    dailyCapLkr: { SMALL: 950, MEDIUM: 1500, LARGE: 2100, OVERSIZED: 2950 },
+    totalCapacity: 50,
+    availableCapacity: 33,
+    coordinates: { lat: 6.0269, lng: 80.217 },
+    addressMasked: "Hospital Street, Galle Fort",
+    addressExact: "No. 9 Hospital Street, Old Courtyard Annex, Galle Fort",
+    zones: [
+      { id: "z-8", code: "FORT-A", name: "Dehumidified Heritage Room", capacity: 35, occupied: 12 },
+      { id: "z-9", code: "BOARD-B", name: "Padded Surfboard & Dive Gear Rack", capacity: 15, occupied: 5 }
+    ],
+    description:
+      "Stroll the cobbled streets of Galle Fort, lighthouse, and cafes without dragging wheeled bags or surfboards across historic ramparts."
+  },
+  {
+    id: "loc-cmb-bia-05",
+    slug: "katunayake-airport-express-lounge",
+    name: "Bandaranaike Airport (CMB) Transit Storage",
+    city: "Katunayake",
+    district: "Gampaha",
+    landmark: "450m from BIA Arrival Terminal Exit Gate",
+    distanceKm: 0.45,
+    rating: 4.9,
+    reviewCount: 310,
+    verifiedHost: "AeroLanka Ground Concierge",
+    openHours: "24 Hours (Daily)",
+    is24Hours: true,
+    hasCctv: true,
+    hasClimateControl: true,
+    hasInsurance: true,
+    insuranceLimitLkr: 250000,
+    photoEvidencePolicy: "CONFIGURED_MANDATORY",
+    gracePeriodMinutes: 60,
+    lateFeePolicyLabel: "Illustrative Location Policy: 60m flight-delay grace period, then standard hourly rate per bag",
+    hourlyRateLkr: { SMALL: 175, MEDIUM: 275, LARGE: 380, OVERSIZED: 550 },
+    dailyCapLkr: { SMALL: 1050, MEDIUM: 1650, LARGE: 2250, OVERSIZED: 3200 },
+    totalCapacity: 120,
+    availableCapacity: 84,
+    coordinates: { lat: 7.1808, lng: 79.8841 },
+    addressMasked: "Airport Access Highway, Katunayake",
+    addressExact: "Airside Gateway Building, 2nd Floor, Katunayake",
+    zones: [
+      { id: "z-10", code: "AIR-A", name: "Oversized Aviation Baggage Zone", capacity: 60, occupied: 22 },
+      { id: "z-11", code: "AIR-B", name: "Express Layover Lockers", capacity: 60, occupied: 14 }
+    ],
+    description:
+      "Arriving early or facing a late night departure from Colombo BIA? Drop luggage safely 5 minutes from check-in desks and explore Negombo beaches hands-free."
+  },
+  {
+    id: "loc-mirissa-06",
+    slug: "mirissa-harbour-beach-lockers",
+    name: "Mirissa Harbour & Whale Watch Storage",
+    city: "Mirissa",
+    district: "Matara",
+    landmark: "50m from Mirissa Fishery Harbour Pier",
+    distanceKm: 0.05,
+    rating: 4.8,
+    reviewCount: 88,
+    verifiedHost: "Blue Horizon Expeditions",
+    openHours: "05:00 – 21:00",
+    is24Hours: false,
+    hasCctv: true,
+    hasClimateControl: false,
+    hasInsurance: true,
+    insuranceLimitLkr: 250000,
+    photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
+    gracePeriodMinutes: 30,
+    lateFeePolicyLabel: "Illustrative Location Policy: 30m grace period, then standard hourly rate per bag",
+    hourlyRateLkr: { SMALL: 130, MEDIUM: 210, LARGE: 300, OVERSIZED: 420 },
+    dailyCapLkr: { SMALL: 800, MEDIUM: 1250, LARGE: 1750, OVERSIZED: 2400 },
+    totalCapacity: 40,
+    availableCapacity: 26,
+    coordinates: { lat: 5.9482, lng: 80.4578 },
+    addressMasked: "Harbour Road, Mirissa",
+    addressExact: "Pier Side Locker Unit 4, Mirissa Fisheries Complex, Mirissa",
+    zones: [
+      { id: "z-12", code: "BEACH-A", name: "Waterproof Locker Cubicles", capacity: 25, occupied: 9 },
+      { id: "z-13", code: "BOARD-B", name: "Surfboard & Snorkel Locker", capacity: 15, occupied: 5 }
+    ],
+    description:
+      "Embark on 6:00 AM whale watching tours or surf Coconut Tree Hill without keeping bags in your tuk-tuk or wet beach cabana."
+  }
+];
+
+export interface TravellerBookingItem {
+  id: string;
+  reference: string;
+  locationId: string;
+  locationName: string;
+  city: string;
+  landmark: string;
+  status: "IN_STORAGE" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
+  dropOffTime: string;
+  pickUpTime: string;
+  bags: { SMALL: number; MEDIUM: number; LARGE: number; OVERSIZED: number };
+  totalBags: number;
+  totalLkr: number;
+  qrPayload: string;
+  pinFallback: string;
+  seals: string[];
+  zoneCode: string;
+  photoLogged: boolean;
+  hostPhone: string;
+  exactAddress: string;
+  refundStage?: number;
+  refundAmountLkr?: number;
+}
+
+export const DEMO_BOOKINGS: TravellerBookingItem[] = [
+  {
+    id: "bk-8841",
+    reference: "#LS-2026-8841",
+    locationId: "loc-cmb-fort-01",
+    locationName: "Colombo Fort Station Heritage Vault",
+    city: "Colombo",
+    landmark: "120m from Colombo Fort Railway Main Entrance",
+    status: "IN_STORAGE",
+    dropOffTime: "Today • 09:30 AM",
+    pickUpTime: "Today • 18:30 PM",
+    bags: { SMALL: 0, MEDIUM: 1, LARGE: 1, OVERSIZED: 0 },
+    totalBags: 2,
+    totalLkr: 3400,
+    qrPayload: "LS-CUSTODY://LS-2026-8841/HMAC-9F8A72B",
+    pinFallback: "482 910",
+    seals: ["SEAL-LK-90211", "SEAL-LK-90212"],
+    zoneCode: "RACK-A",
+    photoLogged: true,
+    hostPhone: "+94 11 234 5678",
+    exactAddress: "No. 48B Olcott Mawatha, Ground Floor Vault, Colombo 01"
+  },
+  {
+    id: "bk-7712",
+    reference: "#LS-2026-7712",
+    locationId: "loc-ella-02",
+    locationName: "Ella Railway & Nine Arch Trail Hub",
+    city: "Ella",
+    landmark: "80m from Ella Railway Station Platform 1 Exit",
+    status: "CONFIRMED",
+    dropOffTime: "Tomorrow • 08:30 AM",
+    pickUpTime: "Tomorrow • 17:00 PM",
+    bags: { SMALL: 2, MEDIUM: 0, LARGE: 0, OVERSIZED: 0 },
+    totalBags: 2,
+    totalLkr: 1700,
+    qrPayload: "LS-CUSTODY://LS-2026-7712/HMAC-4D2A91E",
+    pinFallback: "194 820",
+    seals: ["SEAL-LK-88301", "SEAL-LK-88302"],
+    zoneCode: "TRAIL-A",
+    photoLogged: false,
+    hostPhone: "+94 57 222 8400",
+    exactAddress: "No. 14 Station Road, Opposite Railway Ticket Plaza, Ella"
+  },
+  {
+    id: "bk-6540",
+    reference: "#LS-2026-6540",
+    locationId: "loc-kandy-03",
+    locationName: "Kandy Lake & Temple Quarter Concierge",
+    city: "Kandy",
+    landmark: "200m from Temple of the Sacred Tooth Relic",
+    status: "COMPLETED",
+    dropOffTime: "04 Nov • 10:00 AM",
+    pickUpTime: "04 Nov • 16:30 PM",
+    bags: { SMALL: 0, MEDIUM: 1, LARGE: 1, OVERSIZED: 0 },
+    totalBags: 2,
+    totalLkr: 3300,
+    qrPayload: "LS-CUSTODY://LS-2026-6540/HMAC-7F1B34C",
+    pinFallback: "671 204",
+    seals: ["SEAL-LK-76120", "SEAL-LK-76121"],
+    zoneCode: "SANCTUARY-A",
+    photoLogged: true,
+    hostPhone: "+94 81 223 4567",
+    exactAddress: "No. 22 Dalada Veediya, Queen's Arcade Suite 3, Kandy"
+  },
+  {
+    id: "bk-5120",
+    reference: "#LS-2026-5120",
+    locationId: "loc-galle-04",
+    locationName: "Galle Fort Dutch Hospital Safe Keep",
+    city: "Galle",
+    landmark: "150m from Galle Fort Main Gate",
+    status: "CANCELLED",
+    dropOffTime: "01 Nov • 11:00 AM",
+    pickUpTime: "01 Nov • 18:00 PM",
+    bags: { SMALL: 1, MEDIUM: 1, LARGE: 0, OVERSIZED: 0 },
+    totalBags: 2,
+    totalLkr: 2450,
+    qrPayload: "LS-CUSTODY://LS-2026-5120/CANCELLED",
+    pinFallback: "000 000",
+    seals: [],
+    zoneCode: "FORT-A",
+    photoLogged: false,
+    hostPhone: "+94 91 224 8900",
+    exactAddress: "No. 9 Hospital Street, Old Courtyard Annex, Galle Fort",
+    refundStage: 7,
+    refundAmountLkr: 2450
+  }
+];
+
+
+

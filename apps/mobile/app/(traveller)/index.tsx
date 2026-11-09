@@ -5,690 +5,855 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  StyleSheet
+  StyleSheet,
+  Modal
 } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { MascotIllustration } from "../../src/components/MascotIllustration";
+import { useRouter } from "expo-router";
 import {
-  TRAVELLER_MOBILE_SCREENS,
-  MobileScreenSpec
+  DEMO_LOCATIONS,
+  DEMO_BOOKINGS,
+  StorageLocationItem
 } from "../../src/data/mock-marketplace";
-import { authApi } from "../../src/services/auth-api";
+import { Card, Button, Badge, MobileIcon, MobileDevDrawer } from "../../src/components";
+import { mobileColors, mobileRadius, mobileTypography } from "../../src/lib/theme";
 
-const CATEGORIES = [
-  "ALL",
-  "Onboarding & Auth",
-  "Discovery & Search",
-  "Booking & Checkout",
-  "Active Custody & Refunds",
-  "Profile, Support & Settings"
+const DESTINATION_CHIPS = [
+  "All",
+  "Colombo",
+  "Ella",
+  "Kandy",
+  "Galle",
+  "Katunayake",
+  "Mirissa"
 ] as const;
 
-export default function TravellerMobileHubScreen() {
+export default function TravellerExploreHubScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ screen?: string; token?: string; email?: string }>();
-  const initialScreenId = params.screen || "TM-011";
 
-  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
-  const [activeScreenId, setActiveScreenId] = useState<string>(initialScreenId);
+  // Search & Filter State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedDestination, setSelectedDestination] = useState<string>("All");
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [filter24HoursOnly, setFilter24HoursOnly] = useState(false);
+  const [filterCctvOnly, setFilterCctvOnly] = useState(false);
+  const [filterClimateOnly, setFilterClimateOnly] = useState(false);
+  const [filterMaxDailyPrice, setFilterMaxDailyPrice] = useState<number | null>(null);
 
-  // Interactive states across Traveller Mobile workflows
-  const [selectedLang, setSelectedLang] = useState<"EN" | "SI" | "TA">("EN");
-  const [otpValue, setOtpValue] = useState(params.token || "");
-  const [verifyEmailAddr, setVerifyEmailAddr] = useState(params.email || "");
-  const [verifyFeedback, setVerifyFeedback] = useState<string | null>(null);
-  const [verifySubmitting, setVerifySubmitting] = useState(false);
-  const [bagCounts, setBagCounts] = useState({ SMALL: 1, MEDIUM: 2, LARGE: 0, OVERSIZED: 0 });
-  const [starRating, setStarRating] = useState(5);
-  const [ticketDraft, setTicketDraft] = useState(
-    "Need 1-hour extension on Colombo Fort Vault booking #LS-2026-8841"
-  );
+  // Active custody booking reference
+  const activeBooking = useMemo(() => {
+    return DEMO_BOOKINGS.find((b) => b.status === "IN_STORAGE");
+  }, []);
 
-  const activeScreen: MobileScreenSpec = useMemo(() => {
-    return (
-      TRAVELLER_MOBILE_SCREENS.find((s) => s.id === activeScreenId) ||
-      TRAVELLER_MOBILE_SCREENS.find((s) => s.id === "TM-011") ||
-      TRAVELLER_MOBILE_SCREENS[0]
-    );
-  }, [activeScreenId]);
+  // Filtered storage locations
+  const filteredLocations = useMemo(() => {
+    return DEMO_LOCATIONS.filter((loc) => {
+      // Destination Chip
+      if (selectedDestination !== "All" && loc.city !== selectedDestination) {
+        return false;
+      }
+      // Text Search Query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesCity = loc.city.toLowerCase().includes(q);
+        const matchesName = loc.name.toLowerCase().includes(q);
+        const matchesLandmark = loc.landmark.toLowerCase().includes(q);
+        if (!matchesCity && !matchesName && !matchesLandmark) return false;
+      }
+      // Modals Filters
+      if (filter24HoursOnly && !loc.is24Hours) return false;
+      if (filterCctvOnly && !loc.hasCctv) return false;
+      if (filterClimateOnly && !loc.hasClimateControl) return false;
+      if (filterMaxDailyPrice && loc.dailyCapLkr.MEDIUM > filterMaxDailyPrice) return false;
 
-  const filteredScreens = useMemo(() => {
-    if (selectedCategory === "ALL") return TRAVELLER_MOBILE_SCREENS;
-    return TRAVELLER_MOBILE_SCREENS.filter((s) => s.category === selectedCategory);
-  }, [selectedCategory]);
-
-  const totalBags =
-    bagCounts.SMALL + bagCounts.MEDIUM + bagCounts.LARGE + bagCounts.OVERSIZED;
-  const totalLkr =
-    bagCounts.SMALL * 900 +
-    bagCounts.MEDIUM * 1450 +
-    bagCounts.LARGE * 1950 +
-    bagCounts.OVERSIZED * 2800;
+      return true;
+    });
+  }, [
+    selectedDestination,
+    searchQuery,
+    filter24HoursOnly,
+    filterCctvOnly,
+    filterClimateOnly,
+    filterMaxDailyPrice
+  ]);
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      {/* Top Surface Bar */}
-      <View style={styles.headerBanner}>
-        <View style={styles.headerRow}>
-          <Text style={styles.surfaceTag}>TRAVELLER MOBILE • 39 ACTIVE SCREENS</Text>
-          <TouchableOpacity
-            style={styles.switchBtn}
-            onPress={() => router.push("/")}
-          >
-            <Text style={styles.switchBtnText}>Switch Role</Text>
-          </TouchableOpacity>
+    <View style={styles.screenWrapper}>
+      <ScrollView contentContainerStyle={styles.container}>
+        {/* Coastal Hero Header */}
+        <View style={styles.heroHeader}>
+          <View style={styles.heroTopRow}>
+            <View>
+              <Text style={styles.brandTitle}>Ayubowan!</Text>
+              <Text style={styles.brandSubtitle}>
+                Verified Luggage Storage Across Sri Lanka
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.mapIconBtn}
+              onPress={() => router.push("/(traveller)/explore")}
+              accessibilityLabel="Open Map Discovery"
+            >
+              <MobileIcon name="map" size={20} color={mobileColors.white} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Bar */}
+          <View style={styles.searchBar}>
+            <MobileIcon name="search" size={18} color={mobileColors.sand[600]} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search railway stations, cities, landmarks..."
+              placeholderTextColor={mobileColors.sand[600]}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <MobileIcon name="x" size={16} color={mobileColors.sand[600]} />
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={styles.filterBtn}
+              onPress={() => setFilterModalOpen(true)}
+              accessibilityLabel="Filter Storage Spots"
+            >
+              <MobileIcon name="filter" size={18} color={mobileColors.navy[900]} />
+            </TouchableOpacity>
+          </View>
         </View>
-        <Text style={styles.headerTitle}>
-          {activeScreen.id} — {activeScreen.name}
-        </Text>
-        <Text style={styles.headerSubtitle}>{activeScreen.summary}</Text>
 
-        <View style={styles.metaRow}>
-          <View style={styles.metaChip}>
-            <Text style={styles.metaChipText}>Scope: {activeScreen.actorScope}</Text>
-          </View>
-          <View style={styles.metaChip}>
-            <Text style={styles.metaChipText}>
-              Workflows: {activeScreen.workflows.join(", ")}
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.metaChip,
-              activeScreen.backendDependency === "LIVE_PHASE_1B"
-                ? styles.liveChip
-                : styles.previewChip
-            ]}
-          >
-            <Text style={styles.metaChipText}>{activeScreen.backendDependency}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Active Screen Interactive Viewport */}
-      <View style={styles.viewportCard}>
-        <MascotIllustration
-          mascot={activeScreen.mascot}
-          size="md"
-          badgeText={`${activeScreen.id} • ${activeScreen.category}`}
-          caption={activeScreen.summary}
-        />
-
-        {/* Contextual Interactive Controls per Screen Family */}
-        {activeScreen.id === "TM-004" && (
-          <View style={styles.interactiveBox}>
-            <Text style={styles.boxTitle}>Select Language & Currency (LKR Default)</Text>
-            <View style={styles.rowGap}>
-              {(["EN", "SI", "TA"] as const).map((lng) => (
-                <TouchableOpacity
-                  key={lng}
+        {/* Destination Quick-Chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsScroll}
+        >
+          {DESTINATION_CHIPS.map((dest) => {
+            const isSelected = selectedDestination === dest;
+            return (
+              <TouchableOpacity
+                key={dest}
+                style={[styles.chip, isSelected ? styles.chipActive : null]}
+                onPress={() => setSelectedDestination(dest)}
+              >
+                <Text
                   style={[
-                    styles.pillBtn,
-                    selectedLang === lng ? styles.pillBtnActive : null
+                    styles.chipText,
+                    isSelected ? styles.chipTextActive : null
                   ]}
-                  onPress={() => setSelectedLang(lng)}
                 >
-                  <Text
-                    style={
-                      selectedLang === lng
-                        ? styles.pillBtnTextActive
-                        : styles.pillBtnText
-                    }
-                  >
-                    {lng === "EN" ? "English" : lng === "SI" ? "සිංහල (SI)" : "தமிழ் (TA)"}
+                  {dest}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Active Custody Quick Banner (if active storage exists) */}
+        {activeBooking && (
+          <TouchableOpacity
+            style={styles.activeBanner}
+            onPress={() => router.push("/(traveller)/bookings")}
+            activeOpacity={0.85}
+          >
+            <View style={styles.activeBannerIcon}>
+              <MobileIcon name="clock" size={20} color={mobileColors.emerald[700]} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.activeBannerTop}>
+                <Text style={styles.activeBannerTitle}>Active Storage in Progress</Text>
+                <Badge label="IN CUSTODY" variant="success" size="sm" />
+              </View>
+              <Text style={styles.activeBannerDesc}>
+                {activeBooking.locationName} • Zone {activeBooking.zoneCode}
+              </Text>
+              <Text style={styles.activeBannerAction}>
+                Remaining: 02h 15m • Tap to View Digital Pass →
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Map Preview Banner */}
+        <Card style={styles.mapCard} variant="outlined">
+          <View style={styles.mapCardHeader}>
+            <View>
+              <Text style={styles.mapCardTitle}>Interactive Sri Lanka Map</Text>
+              <Text style={styles.mapCardDesc}>
+                {filteredLocations.length} storage hubs near major rail & transit stops
+              </Text>
+            </View>
+            <Button
+              title="Full Map"
+              size="sm"
+              variant="outline"
+              leftIcon={<MobileIcon name="compass" size={14} color={mobileColors.navy[900]} />}
+              onPress={() => router.push("/(traveller)/explore")}
+            />
+          </View>
+          <View style={styles.mapCanvasPreview}>
+            <View style={styles.mapPinGrid}>
+              {filteredLocations.slice(0, 4).map((loc) => (
+                <TouchableOpacity
+                  key={loc.id}
+                  style={styles.mapPinPill}
+                  onPress={() => router.push({ pathname: "/(traveller)/location", params: { id: loc.id } })}
+                >
+                  <MobileIcon name="map-pin" size={12} color={mobileColors.terracotta[500]} />
+                  <Text style={styles.mapPinText}>
+                    {loc.city}: LKR {loc.hourlyRateLkr.MEDIUM}/hr
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
-        )}
+        </Card>
 
-        {activeScreen.id === "TM-008" && (
-          <View style={styles.interactiveBox}>
-            <Text style={styles.boxTitle}>Self-Service Email Verification (TM-008)</Text>
-            <Text style={styles.sealText}>
-              Paste your single-use verification token sent on registration to activate your account.
+        {/* Location Listings Header */}
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>
+            Available Storage Locations ({filteredLocations.length})
+          </Text>
+          <Text style={styles.sectionSubtitle}>Verified Ceylon Hospitality Partners</Text>
+        </View>
+
+        {/* Storage Location Listing Cards */}
+        {filteredLocations.length === 0 ? (
+          <Card style={styles.emptyCard}>
+            <MobileIcon name="search" size={32} color={mobileColors.sand[500]} />
+            <Text style={styles.emptyTitle}>No Storage Spots Found</Text>
+            <Text style={styles.emptySubtitle}>
+              Try adjusting your search query or reset your filters.
             </Text>
-            <TextInput
-              style={styles.input}
-              value={otpValue}
-              onChangeText={setOtpValue}
-              placeholder="Paste verification token..."
-              autoCapitalize="none"
-            />
-            <TouchableOpacity
-              style={[styles.primaryCta, verifySubmitting ? { opacity: 0.7 } : null]}
-              disabled={verifySubmitting}
-              onPress={async () => {
-                if (!otpValue.trim()) {
-                  setVerifyFeedback("Please enter a valid verification token.");
-                  return;
-                }
-                setVerifySubmitting(true);
-                setVerifyFeedback(null);
-                try {
-                  const res = await authApi.verifyEmail({ token: otpValue.trim() });
-                  setVerifyFeedback(`${res.message} (${res.user?.status ?? "ACTIVE"})`);
-                } catch (err) {
-                  setVerifyFeedback(
-                    err instanceof Error ? err.message : "Verification token invalid or expired."
-                  );
-                } finally {
-                  setVerifySubmitting(false);
-                }
+            <Button
+              title="Reset Filters"
+              variant="outline"
+              size="sm"
+              onPress={() => {
+                setSearchQuery("");
+                setSelectedDestination("All");
+                setFilter24HoursOnly(false);
+                setFilterCctvOnly(false);
+                setFilterClimateOnly(false);
+                setFilterMaxDailyPrice(null);
               }}
-            >
-              <Text style={styles.primaryCtaText}>
-                {verifySubmitting ? "Verifying..." : "Verify Email Token"}
-              </Text>
-            </TouchableOpacity>
-
-            <Text style={[styles.boxTitle, { marginTop: 12 }]}>
-              Resend Verification Instructions
-            </Text>
-            <TextInput
-              style={styles.input}
-              value={verifyEmailAddr}
-              onChangeText={setVerifyEmailAddr}
-              placeholder="you@example.com"
-              autoCapitalize="none"
-              keyboardType="email-address"
+              style={{ marginTop: 12 }}
             />
-            <TouchableOpacity
-              style={[styles.secondaryBtn, { marginTop: 8 }]}
-              disabled={verifySubmitting}
-              onPress={async () => {
-                if (!verifyEmailAddr.trim()) {
-                  setVerifyFeedback("Please enter your registered email address.");
-                  return;
-                }
-                setVerifySubmitting(true);
-                setVerifyFeedback(null);
-                try {
-                  const res = await authApi.resendVerification({
-                    email: verifyEmailAddr.trim()
-                  });
-                  setVerifyFeedback(res.message);
-                } catch (err) {
-                  setVerifyFeedback(
-                    err instanceof Error ? err.message : "Failed to resend verification email."
-                  );
-                } finally {
-                  setVerifySubmitting(false);
-                }
-              }}
-            >
-              <Text style={styles.secondaryBtnText}>Resend Verification Email</Text>
-            </TouchableOpacity>
-            {verifyFeedback && (
-              <Text style={[styles.sealText, { marginTop: 8, fontWeight: "600" }]}>
-                {verifyFeedback}
-              </Text>
-            )}
-          </View>
-        )}
-
-        {(activeScreen.id === "TM-018" || activeScreen.id === "TM-019") && (
-          <View style={styles.interactiveBox}>
-            <Text style={styles.boxTitle}>
-              Bag Category Counter ({totalBags} Bags • LKR {totalLkr})
-            </Text>
-            {(["SMALL", "MEDIUM", "LARGE", "OVERSIZED"] as const).map((tier) => (
-              <View key={tier} style={styles.counterRow}>
-                <Text style={styles.counterLabel}>{tier}</Text>
-                <View style={styles.counterActions}>
-                  <TouchableOpacity
-                    style={styles.counterBtn}
-                    onPress={() =>
-                      setBagCounts((p) => ({ ...p, [tier]: Math.max(0, p[tier] - 1) }))
-                    }
-                  >
-                    <Text style={styles.counterBtnText}>-</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.counterVal}>{bagCounts[tier]}</Text>
-                  <TouchableOpacity
-                    style={styles.counterBtn}
-                    onPress={() => setBagCounts((p) => ({ ...p, [tier]: p[tier] + 1 }))}
-                  >
-                    <Text style={styles.counterBtnText}>+</Text>
-                  </TouchableOpacity>
+          </Card>
+        ) : (
+          filteredLocations.map((loc: StorageLocationItem) => (
+            <Card key={loc.id} style={styles.locationCard}>
+              <View style={styles.cardHeader}>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.badgeRow}>
+                    <Badge label={loc.city} variant="navy" size="sm" />
+                    {loc.is24Hours ? (
+                      <Badge label="24/7 OPEN" variant="success" size="sm" />
+                    ) : (
+                      <Badge label={loc.openHours} variant="neutral" size="sm" />
+                    )}
+                    <Badge
+                      label={`${loc.availableCapacity} / ${loc.totalCapacity} Open`}
+                      variant="info"
+                      size="sm"
+                    />
+                  </View>
+                  <Text style={styles.locationName}>{loc.name}</Text>
+                  <Text style={styles.landmarkText}>
+                    <MobileIcon name="map-pin" size={12} color={mobileColors.sand[600]} />{" "}
+                    {loc.landmark}
+                  </Text>
                 </View>
               </View>
-            ))}
-            <Text style={styles.sealText}>
-              Pre-Checkout Late Collection Policy Disclosure (OQ-015): Configurable per location
-              (illustrative demo: 30m grace, then disclosed late rate). In-app payment only; no
-              silent charges; never blocks luggage return.
-            </Text>
-            <TouchableOpacity
-              style={styles.primaryCta}
-              onPress={() => setActiveScreenId("TM-024")}
-            >
-              <Text style={styles.primaryCtaText}>
-                Proceed to Confirmed Custody Pass (TM-024)
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
 
-        {(activeScreen.id === "TM-024" ||
-          activeScreen.id === "TM-027" ||
-          activeScreen.id === "TM-028" ||
-          activeScreen.id === "TM-029" ||
-          activeScreen.id === "TM-030") && (
-          <View style={styles.interactiveBox}>
-            <Text style={styles.boxTitle}>
-              Server-Verified QR Pass & 6-Digit PIN Fallback (OQ-014) • Ref #LS-2026-8841
-            </Text>
-            <Text style={styles.qrPayloadText}>
-              Primary QR Token: LS-CUSTODY://LS-2026-8841/HMAC-9F8A72B
-            </Text>
-            <Text style={styles.pinHighlight}>
-              Fallback PIN (When QR Unavailable): 482 910
-            </Text>
-            <Text style={styles.sealText}>
-              Reconciled Bags: 3 • Seals: SEAL-LK-90211, SEAL-LK-90212 • Zone RACK-A • Photo
-              Evidence: Configurable per Location
-            </Text>
-          </View>
-        )}
-
-        {activeScreen.id === "TM-033" && (
-          <View style={styles.interactiveBox}>
-            <Text style={styles.boxTitle}>7-Stage Refund Settlement Tracker</Text>
-            <Text style={styles.sealText}>
-              1. Requested ✓ → 2. Policy Window (100%) ✓ → 3. Capacity Released ✓ → 4. Ledger
-              Reversed ✓ → 5. PayHere Dispatched ✓ → 6. Bank Processing ✓ → 7. Card Credit
-              (Pending)
-            </Text>
-          </View>
-        )}
-
-        {activeScreen.id === "TM-034" && (
-          <View style={styles.interactiveBox}>
-            <Text style={styles.boxTitle}>Rate Your Storage Experience ({starRating}/5 ★)</Text>
-            <View style={styles.rowGap}>
-              {[1, 2, 3, 4, 5].map((st) => (
-                <TouchableOpacity
-                  key={st}
-                  style={[styles.pillBtn, starRating >= st ? styles.pillBtnActive : null]}
-                  onPress={() => setStarRating(st)}
-                >
-                  <Text
-                    style={
-                      starRating >= st ? styles.pillBtnTextActive : styles.pillBtnText
-                    }
-                  >
-                    {st} ★
+              {/* Verified Host & Rating */}
+              <View style={styles.hostRow}>
+                <View style={styles.verifiedHostPill}>
+                  <MobileIcon name="shield" size={13} color={mobileColors.emerald[700]} />
+                  <Text style={styles.verifiedHostText}>{loc.verifiedHost}</Text>
+                </View>
+                <View style={styles.ratingPill}>
+                  <MobileIcon name="star" size={13} color={mobileColors.amber[600]} />
+                  <Text style={styles.ratingText}>
+                    {loc.rating} ({loc.reviewCount})
                   </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
+                </View>
+              </View>
+
+              {/* Amenities & Security Checklist */}
+              <View style={styles.amenitiesRow}>
+                {loc.hasCctv ? (
+                  <View style={styles.amenityItem}>
+                    <MobileIcon name="check" size={12} color={mobileColors.emerald[600]} />
+                    <Text style={styles.amenityText}>CCTV 24/7</Text>
+                  </View>
+                ) : null}
+                {loc.hasClimateControl ? (
+                  <View style={styles.amenityItem}>
+                    <MobileIcon name="check" size={12} color={mobileColors.emerald[600]} />
+                    <Text style={styles.amenityText}>Climate Controlled</Text>
+                  </View>
+                ) : null}
+                <View style={styles.amenityItem}>
+                  <MobileIcon name="check" size={12} color={mobileColors.emerald[600]} />
+                  <Text style={styles.amenityText}>LKR 250k Guarantee</Text>
+                </View>
+              </View>
+
+              {/* Pricing & Booking Actions */}
+              <View style={styles.pricingRow}>
+                <View>
+                  <Text style={styles.rateLabel}>Standard Cabin Bag</Text>
+                  <Text style={styles.rateValue}>
+                    LKR {loc.hourlyRateLkr.MEDIUM}
+                    <Text style={styles.rateUnit}> / hr</Text>
+                  </Text>
+                  <Text style={styles.dailyCapText}>
+                    Max LKR {loc.dailyCapLkr.MEDIUM} / day
+                  </Text>
+                </View>
+                <View style={styles.actionButtons}>
+                  <Button
+                    title="Details"
+                    variant="outline"
+                    size="sm"
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(traveller)/location",
+                        params: { id: loc.id }
+                      })
+                    }
+                  />
+                  <Button
+                    title="Book Spot"
+                    variant="primary"
+                    size="sm"
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(traveller)/checkout",
+                        params: { locId: loc.id }
+                      })
+                    }
+                  />
+                </View>
+              </View>
+            </Card>
+          ))
         )}
 
-        {(activeScreen.id === "TM-040" || activeScreen.id === "TM-041") && (
-          <View style={styles.interactiveBox}>
-            <Text style={styles.boxTitle}>Support Ticket #TKT-9042</Text>
-            <TextInput
-              style={styles.input}
-              value={ticketDraft}
-              onChangeText={setTicketDraft}
-            />
-          </View>
-        )}
-
-        {/* Direct Route Launchers for Dedicated Auth / Account / Map Screens */}
-        <View style={styles.quickRoutesRow}>
-          <TouchableOpacity
-            style={styles.secondaryBtn}
-            onPress={() => router.push("/(traveller)/explore")}
-          >
-            <Text style={styles.secondaryBtnText}>Open Map View (TM-012)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.secondaryBtn}
-            onPress={() => router.push("/(auth)/login")}
-          >
-            <Text style={styles.secondaryBtnText}>Live Auth (TM-005)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.secondaryBtn}
-            onPress={() => router.push("/(account)/profile")}
-          >
-            <Text style={styles.secondaryBtnText}>Live Profile (TM-042)</Text>
-          </TouchableOpacity>
+        {/* Footer Brand Seal */}
+        <View style={styles.footerNote}>
+          <Text style={styles.footerText}>
+            Official Partner Network • Powered by Ceylon Warmth & Coastal Precision
+          </Text>
         </View>
-      </View>
-
-      {/* Category Filter Tabs */}
-      <Text style={styles.sectionHeader}>
-        Browse All 39 Registered Traveller Mobile Screens
-      </Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categoryScroll}
-      >
-        {CATEGORIES.map((cat) => (
-          <TouchableOpacity
-            key={cat}
-            style={[
-              styles.catTab,
-              selectedCategory === cat ? styles.catTabActive : null
-            ]}
-            onPress={() => setSelectedCategory(cat)}
-          >
-            <Text
-              style={
-                selectedCategory === cat ? styles.catTabTextActive : styles.catTabText
-              }
-            >
-              {cat}
-            </Text>
-          </TouchableOpacity>
-        ))}
       </ScrollView>
 
-      {/* Screen Registry Cards */}
-      <View style={styles.screenGrid}>
-        {filteredScreens.map((scr) => {
-          const isSelected = scr.id === activeScreen.id;
-          return (
-            <TouchableOpacity
-              key={scr.id}
-              style={[styles.screenCard, isSelected ? styles.screenCardActive : null]}
-              onPress={() => setActiveScreenId(scr.id)}
-            >
-              <View style={styles.screenCardTop}>
-                <Text style={styles.screenIdBadge}>{scr.id}</Text>
-                <Text style={styles.screenCategoryText}>{scr.category}</Text>
-              </View>
-              <Text style={styles.screenName}>{scr.name}</Text>
-              <Text style={styles.screenDesc} numberOfLines={2}>
-                {scr.summary}
+      {/* Filter Sheet Modal (TM-014) */}
+      <Modal visible={filterModalOpen} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filter Storage Hubs</Text>
+              <TouchableOpacity onPress={() => setFilterModalOpen(false)}>
+                <MobileIcon name="x" size={20} color={mobileColors.navy[900]} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 380 }}>
+              <Text style={styles.filterSectionTitle}>Amenities & Access</Text>
+              <TouchableOpacity
+                style={styles.filterCheckRow}
+                onPress={() => setFilter24HoursOnly((p) => !p)}
+              >
+                <View style={[styles.checkbox, filter24HoursOnly && styles.checkboxActive]}>
+                  {filter24HoursOnly ? (
+                    <MobileIcon name="check" size={14} color={mobileColors.white} />
+                  ) : null}
+                </View>
+                <Text style={styles.filterCheckLabel}>24/7 Access Only</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.filterCheckRow}
+                onPress={() => setFilterCctvOnly((p) => !p)}
+              >
+                <View style={[styles.checkbox, filterCctvOnly && styles.checkboxActive]}>
+                  {filterCctvOnly ? (
+                    <MobileIcon name="check" size={14} color={mobileColors.white} />
+                  ) : null}
+                </View>
+                <Text style={styles.filterCheckLabel}>24/7 CCTV Surveillance</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.filterCheckRow}
+                onPress={() => setFilterClimateOnly((p) => !p)}
+              >
+                <View style={[styles.checkbox, filterClimateOnly && styles.checkboxActive]}>
+                  {filterClimateOnly ? (
+                    <MobileIcon name="check" size={14} color={mobileColors.white} />
+                  ) : null}
+                </View>
+                <Text style={styles.filterCheckLabel}>Climate Control / AC Vault</Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.filterSectionTitle, { marginTop: 16 }]}>
+                Maximum Daily Price (Cabin Bag)
               </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </ScrollView>
+              <View style={styles.priceFilterRow}>
+                {[1400, 1800, 2200].map((pr) => (
+                  <TouchableOpacity
+                    key={pr}
+                    style={[
+                      styles.priceChip,
+                      filterMaxDailyPrice === pr && styles.priceChipActive
+                    ]}
+                    onPress={() =>
+                      setFilterMaxDailyPrice((prev) => (prev === pr ? null : pr))
+                    }
+                  >
+                    <Text
+                      style={[
+                        styles.priceChipText,
+                        filterMaxDailyPrice === pr && styles.priceChipTextActive
+                      ]}
+                    >
+                      ≤ LKR {pr}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <Button
+                title="Reset All"
+                variant="ghost"
+                size="md"
+                onPress={() => {
+                  setFilter24HoursOnly(false);
+                  setFilterCctvOnly(false);
+                  setFilterClimateOnly(false);
+                  setFilterMaxDailyPrice(null);
+                }}
+              />
+              <Button
+                title="Apply Filters"
+                variant="primary"
+                size="md"
+                onPress={() => setFilterModalOpen(false)}
+                style={{ flex: 1, marginLeft: 12 }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Developer Drawer (Strictly sequestered behind __DEV__) */}
+      <MobileDevDrawer />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screenWrapper: {
+    flex: 1,
+    backgroundColor: mobileColors.canvas
+  },
   container: {
-    padding: 16,
-    backgroundColor: "#F8FAFC",
-    paddingBottom: 40
+    paddingBottom: 32
   },
-  headerBanner: {
-    backgroundColor: "#0F172A",
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14
+  heroHeader: {
+    backgroundColor: mobileColors.navy[900],
+    paddingTop: 48,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24
   },
-  headerRow: {
+  heroTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 6
+    marginBottom: 16
   },
-  surfaceTag: {
-    color: "#FBBF24",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.6
+  brandTitle: {
+    ...mobileTypography.displaySm,
+    color: mobileColors.white
   },
-  switchBtn: {
-    backgroundColor: "#1E293B",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8
+  brandSubtitle: {
+    ...mobileTypography.bodySm,
+    color: mobileColors.sand[400],
+    marginTop: 2
   },
-  switchBtnText: {
-    color: "#E2E8F0",
-    fontSize: 11,
-    fontWeight: "600"
-  },
-  headerTitle: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 4
-  },
-  headerSubtitle: {
-    color: "#CBD5E1",
-    fontSize: 12,
-    lineHeight: 17,
-    marginBottom: 10
-  },
-  metaRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6
-  },
-  metaChip: {
-    backgroundColor: "#1E293B",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6
-  },
-  liveChip: {
-    backgroundColor: "#065F46"
-  },
-  previewChip: {
-    backgroundColor: "#1E40AF"
-  },
-  metaChipText: {
-    color: "#F8FAFC",
-    fontSize: 10,
-    fontWeight: "700"
-  },
-  viewportCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 14,
+  mapIconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: mobileColors.navy[800],
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    marginBottom: 18
+    borderColor: mobileColors.navy[700]
   },
-  interactiveBox: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    marginTop: 8
-  },
-  boxTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 8
-  },
-  rowGap: {
+  searchBar: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
+    backgroundColor: mobileColors.white,
+    borderRadius: mobileRadius.lg,
+    paddingHorizontal: 14,
+    height: 50,
     gap: 8
   },
-  pillBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "#E2E8F0"
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: mobileColors.navy[950]
   },
-  pillBtnActive: {
-    backgroundColor: "#2563EB"
+  filterBtn: {
+    padding: 6,
+    borderLeftWidth: 1,
+    borderLeftColor: mobileColors.sand[200],
+    paddingLeft: 10
   },
-  pillBtnText: {
+  chipsScroll: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    gap: 8
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 1,
+    borderColor: mobileColors.sand[200]
+  },
+  chipActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  chipText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#334155"
+    color: mobileColors.sand[800]
   },
-  pillBtnTextActive: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#FFFFFF"
+  chipTextActive: {
+    color: mobileColors.white
   },
-  input: {
-    backgroundColor: "#FFFFFF",
+  activeBanner: {
+    flexDirection: "row",
+    backgroundColor: mobileColors.emerald[50],
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: "#0F172A"
-  },
-  counterRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    borderColor: mobileColors.emerald[100],
+    borderRadius: mobileRadius.xl,
+    padding: 14,
+    marginHorizontal: 20,
+    marginBottom: 14,
     alignItems: "center",
-    paddingVertical: 6
+    gap: 12
   },
-  counterLabel: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#334155"
-  },
-  counterActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10
-  },
-  counterBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: "#2563EB",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  counterBtnText: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-    fontSize: 14
-  },
-  counterVal: {
-    fontSize: 13,
-    fontWeight: "700",
-    minWidth: 18,
-    textAlign: "center"
-  },
-  primaryCta: {
-    marginTop: 10,
-    backgroundColor: "#2563EB",
-    paddingVertical: 10,
-    borderRadius: 10,
+  activeBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: mobileColors.emerald[100],
+    justifyContent: "center",
     alignItems: "center"
   },
-  primaryCtaText: {
-    color: "#FFFFFF",
+  activeBannerTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 2
+  },
+  activeBannerTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  activeBannerDesc: {
     fontSize: 12,
-    fontWeight: "700"
+    color: mobileColors.sand[700]
   },
-  pinHighlight: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#1E40AF",
-    marginBottom: 4
-  },
-  qrPayloadText: {
+  activeBannerAction: {
     fontSize: 11,
-    color: "#475569",
-    marginBottom: 4
+    fontWeight: "600",
+    color: mobileColors.emerald[700],
+    marginTop: 4
   },
-  sealText: {
+  mapCard: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 14
+  },
+  mapCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10
+  },
+  mapCardTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  mapCardDesc: {
     fontSize: 11,
-    color: "#0F172A",
-    lineHeight: 16
+    color: mobileColors.sand[600],
+    marginTop: 2
   },
-  quickRoutesRow: {
+  mapCanvasPreview: {
+    height: 90,
+    backgroundColor: mobileColors.navy[950],
+    borderRadius: mobileRadius.lg,
+    padding: 10,
+    justifyContent: "center"
+  },
+  mapPinGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 12
+    justifyContent: "center"
   },
-  secondaryBtn: {
-    backgroundColor: "#F1F5F9",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#CBD5E1"
-  },
-  secondaryBtnText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#1E293B"
-  },
-  sectionHeader: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#0F172A",
-    marginBottom: 8
-  },
-  categoryScroll: {
-    gap: 8,
-    paddingBottom: 12
-  },
-  catTab: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#E2E8F0"
-  },
-  catTabActive: {
-    backgroundColor: "#0F172A"
-  },
-  catTabText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#475569"
-  },
-  catTabTextActive: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#FFFFFF"
-  },
-  screenGrid: {
-    gap: 8
-  },
-  screenCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0"
-  },
-  screenCardActive: {
-    borderColor: "#2563EB",
-    backgroundColor: "#EFF6FF"
-  },
-  screenCardTop: {
+  mapPinPill: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 4
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: mobileRadius.full,
+    gap: 4
   },
-  screenIdBadge: {
+  mapPinText: {
+    color: mobileColors.sand[100],
     fontSize: 11,
-    fontWeight: "800",
-    color: "#2563EB"
-  },
-  screenCategoryText: {
-    fontSize: 10,
-    color: "#64748B",
     fontWeight: "600"
   },
-  screenName: {
+  sectionHeaderRow: {
+    paddingHorizontal: 20,
+    marginBottom: 12
+  },
+  sectionTitle: {
+    ...mobileTypography.headingSm,
+    color: mobileColors.navy[900]
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: mobileColors.sand[600],
+    marginTop: 2
+  },
+  locationCard: {
+    marginHorizontal: 20,
+    marginBottom: 16
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8
+  },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 8
+  },
+  locationName: {
+    ...mobileTypography.headingSm,
+    color: mobileColors.navy[900],
+    marginBottom: 4
+  },
+  landmarkText: {
+    fontSize: 12,
+    color: mobileColors.sand[700]
+  },
+  hostRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginVertical: 10,
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: mobileColors.sand[100]
+  },
+  verifiedHostPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
+  verifiedHostText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: mobileColors.navy[900]
+  },
+  ratingPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4
+  },
+  ratingText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  amenitiesRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12
+  },
+  amenityItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4
+  },
+  amenityText: {
+    fontSize: 11,
+    color: mobileColors.sand[700]
+  },
+  pricingRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    paddingTop: 8
+  },
+  rateLabel: {
+    fontSize: 11,
+    color: mobileColors.sand[600]
+  },
+  rateValue: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: mobileColors.terracotta[500]
+  },
+  rateUnit: {
+    fontSize: 12,
+    color: mobileColors.sand[700],
+    fontWeight: "500"
+  },
+  dailyCapText: {
+    fontSize: 11,
+    color: mobileColors.sand[600]
+  },
+  actionButtons: {
+    flexDirection: "row",
+    gap: 8
+  },
+  emptyCard: {
+    marginHorizontal: 20,
+    padding: 32,
+    alignItems: "center"
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: mobileColors.navy[900],
+    marginTop: 8
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: mobileColors.sand[600],
+    textAlign: "center",
+    marginTop: 4
+  },
+  footerNote: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    alignItems: "center"
+  },
+  footerText: {
+    fontSize: 11,
+    color: mobileColors.sand[500],
+    textAlign: "center"
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(10, 25, 47, 0.6)",
+    justifyContent: "flex-end"
+  },
+  modalContent: {
+    backgroundColor: mobileColors.white,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: "80%"
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: mobileColors.sand[200],
+    paddingBottom: 12,
+    marginBottom: 12
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  filterSectionTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 2
+    color: mobileColors.navy[900],
+    marginBottom: 8
   },
-  screenDesc: {
-    fontSize: 11,
-    color: "#475569"
+  filterCheckRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    gap: 12
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: mobileColors.sand[300],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  checkboxActive: {
+    backgroundColor: mobileColors.terracotta[500],
+    borderColor: mobileColors.terracotta[500]
+  },
+  filterCheckLabel: {
+    fontSize: 14,
+    color: mobileColors.navy[900]
+  },
+  priceFilterRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 6
+  },
+  priceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: mobileRadius.md,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    backgroundColor: mobileColors.sand[50]
+  },
+  priceChipActive: {
+    borderColor: mobileColors.terracotta[500],
+    backgroundColor: mobileColors.terracotta[50]
+  },
+  priceChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileColors.sand[800]
+  },
+  priceChipTextActive: {
+    color: mobileColors.terracotta[600]
+  },
+  modalActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: mobileColors.sand[200],
+    paddingTop: 16,
+    marginTop: 12
   }
 });

@@ -70,19 +70,20 @@ Phase 2C executes across **seven independently deliverable workstreams** organiz
 
 ---
 
-#### Workstream 3: Traveller Mobile Application (`WS-3-TRAVELLER-MOB`)
+#### Workstream 3: Traveller Mobile Application (`WS-3-TRAVELLER-MOB`) [COMPLETED]
+- **Status:** **COMPLETED** (Verified in `DOC-UX-P2C-028` & `DOC-UX-P2C-029`, Branch `feat/phase-2c-traveller-mobile`)
 - **Objective:** Restructure traveller mobile app from screen-switcher hub into a standard 5-tab mobile application with native map, pass, and active timer.
-- **Included Applications:** `apps/mobile` (`apps/mobile/app/(traveller)/`).
-- **Scope:** 5-tab router shell (`Explore`, `My Storage`, `Saved`, `Help`, `Profile`); native map exploration with draggable bottom sheet; high-contrast digital custody ticket; active storage countdown timer.
+- **Included Applications:** `apps/mobile` (`apps/mobile/app/(traveller)/`, `apps/mobile/src/components/`).
+- **Scope:** 5-tab router shell (`Explore`, `My Storage`, `Saved`, `Support`, `Account`); interactive map discovery with quick destination chips (`explore.tsx`); location dossier (`location.tsx`); 3-step checkout wizard (`checkout.tsx`); high-contrast digital custody ticket (`pass.tsx`); active storage countdown timer with progressive color shift (`bookings.tsx`).
 - **Dependencies:** `WS-1-FOUNDATION`.
 - **Backlog References:** `TSK-2C-011` through `TSK-2C-015`.
-- **Deliverables:** Expo Router tab layout (`_layout.tsx`), pass view with offline caching in AsyncStorage.
+- **Deliverables:** Expo Router tab layout (`_layout.tsx`), reusable mobile UI primitives (`Button`, `Card`, `Badge`, `MobileIcon`, `MobileDevDrawer`), pass view with offline caching, journey test suite.
 - **Acceptance Criteria:**
   1. Bottom tab bar navigates smoothly between primary views.
   2. Custody pass renders full QR code and PIN even when browser offline mode is toggled.
   3. Active storage timer updates every second and shifts color progressively.
-- **Required Evidence:** Mobile screenshots ($390\times 844$) of tab layout, map sheet, and custody ticket.
-- **Exit Criteria:** Mobile navigation tests passing 100%; signed off by Mobile Lead.
+- **Required Evidence:** Mobile screenshots ($390\times 844$), small mobile ($375\times 812$), and tablet ($768\times 1024$) of tab layout, map, dossier, checkout, pass, and active storage.
+- **Exit Criteria:** Mobile navigation tests passing 100% (56/56); signed off by Mobile Lead.
 
 ---
 
