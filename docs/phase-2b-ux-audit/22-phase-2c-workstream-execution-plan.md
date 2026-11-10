@@ -105,7 +105,8 @@ Phase 2C executes across **seven independently deliverable workstreams** organiz
 ---
 
 #### Workstream 5: Host Mobile Application (`WS-5-HOST-MOB`)
-- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`).
+- **Status:** **ACCEPTED WITH CONDITIONS** (Phase 2C.5 Delivery & Phase 2C.5.1 Independent Audit — Verified under `DOC-UX-P2C-038`, `DOC-UX-P2C-039`, `DOC-UX-P2C-040`, and `DOC-UX-P2C-041` on audit branch `audit/phase-2c-host-mobile-verification`).
+- **Remediations Applied:** Integrated real camera/library photo capture via `expo-image-picker` with local URI storage, added Host Staff vs Owner RBAC tab suppression and direct route 403 guards, unified `DEMO_SCANNER_FIXTURES` single source of truth, and updated disclaimers for DEC-001/002/005/006/007/010.
 - **Objective:** Restructure host mobile app into a 5-tab operational utility with hardware camera scanner and guided intake wizard.
 - **Included Applications:** `apps/mobile` (`apps/mobile/app/(host)/`).
 - **Scope:** 5-tab router shell (`Live Desk`, `Requests`, `Vault`, `Earnings`, `Settings`); `expo-camera` barcode scanner with numeric PIN fallback; 3-step intake wizard; visual vault monitor.

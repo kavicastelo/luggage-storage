@@ -10,4 +10,10 @@ export * from "./common/identifiers.js";
 export * from "./common/currency.js";
 export * from "./common/dates.js";
 export * from "./tokens.js";
+export * from "./hosts/index.js";
+export * from "./locations/index.js";
+export * from "./capacity/index.js";
+export * from "./pricing/index.js";
+export * from "./uploads/index.js";
+export * from "./discovery/index.js";
 

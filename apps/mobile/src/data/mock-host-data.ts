@@ -5,8 +5,15 @@
  * Clearly separated from production data structures.
  *
  * NOTE: Payout schedule (DEC-006), Overdue fee policy (DEC-002),
- * and Photo evidence policy (DEC-001) remain PENDING PRODUCT OWNER SIGN-OFF.
+ * Tamper seal workflow (DEC-007), and Photo evidence policy (DEC-001)
+ * remain PENDING PRODUCT OWNER SIGN-OFF.
  */
+
+export type PhotoEvidenceStatus =
+  | "NOT_PROVIDED"
+  | "CAPTURED_LOCAL"
+  | "SKIPPED_PENDING_POLICY"
+  | "CAPTURE_FAILED";
 
 export interface DemoHostBooking {
   id: string;
@@ -34,6 +41,8 @@ export interface DemoHostBooking {
   sealNumbers: string[];
   zoneCode: string;
   photoEvidenceCaptured: boolean;
+  photoEvidenceStatus?: PhotoEvidenceStatus;
+  photoUri?: string | null;
   notes?: string;
   overdueMinutes?: number;
   lateFeeLkr?: number;
@@ -78,6 +87,17 @@ export interface DemoHostTransaction {
   payoutStatus?: "CLEARED_BATCH" | "PENDING_SETTLEMENT";
 }
 
+export interface DemoScannerFixture {
+  bookingId: string;
+  reference: string;
+  travellerName: string;
+  totalBags: number;
+  status: DemoHostBooking["status"];
+  pinCode: string;
+  qrPayload: string;
+  label: string;
+}
+
 export const DEMO_HOST_HUB: DemoHostHubInfo = {
   id: "loc-cmb-fort-01",
   name: "Colombo Fort Station Heritage Vault",
@@ -120,6 +140,8 @@ export const DEMO_HOST_BOOKINGS: DemoHostBooking[] = [
     sealNumbers: ["SEAL-LK-90211", "SEAL-LK-90212", "SEAL-LK-90213"],
     zoneCode: "RACK-A",
     photoEvidenceCaptured: true,
+    photoEvidenceStatus: "CAPTURED_LOCAL",
+    photoUri: "file:///demo/evidence/bkg-1001-luggage.jpg",
     notes: "Fragile tea parcels inside medium suitcase."
   },
   {
@@ -142,7 +164,9 @@ export const DEMO_HOST_BOOKINGS: DemoHostBooking[] = [
     pinCode: "739204",
     sealNumbers: ["SEAL-LK-90214", "SEAL-LK-90215"],
     zoneCode: "LOCKER-B",
-    photoEvidenceCaptured: true,
+    photoEvidenceCaptured: false,
+    photoEvidenceStatus: "SKIPPED_PENDING_POLICY",
+    photoUri: null,
     overdueMinutes: 90,
     lateFeeLkr: 650,
     estimatedLateFeeLkr: 650,
@@ -169,6 +193,8 @@ export const DEMO_HOST_BOOKINGS: DemoHostBooking[] = [
     sealNumbers: [],
     zoneCode: "RACK-A",
     photoEvidenceCaptured: false,
+    photoEvidenceStatus: "NOT_PROVIDED",
+    photoUri: null,
     notes: "Two compact backpacks."
   },
   {
@@ -192,6 +218,8 @@ export const DEMO_HOST_BOOKINGS: DemoHostBooking[] = [
     sealNumbers: [],
     zoneCode: "FLOOR-C",
     photoEvidenceCaptured: false,
+    photoEvidenceStatus: "NOT_PROVIDED",
+    photoUri: null,
     notes: "Oversized surfboard bag included."
   },
   {
@@ -214,7 +242,9 @@ export const DEMO_HOST_BOOKINGS: DemoHostBooking[] = [
     pinCode: "552109",
     sealNumbers: ["SEAL-LK-90209"],
     zoneCode: "RACK-A",
-    photoEvidenceCaptured: true,
+    photoEvidenceCaptured: false,
+    photoEvidenceStatus: "SKIPPED_PENDING_POLICY",
+    photoUri: null,
     notes: "Released to guest in good condition."
   },
   {
@@ -237,7 +267,9 @@ export const DEMO_HOST_BOOKINGS: DemoHostBooking[] = [
     pinCode: "992814",
     sealNumbers: ["SEAL-LK-90188", "SEAL-LK-90189", "SEAL-LK-90190"],
     zoneCode: "LOCKER-B",
-    photoEvidenceCaptured: true,
+    photoEvidenceCaptured: false,
+    photoEvidenceStatus: "SKIPPED_PENDING_POLICY",
+    photoUri: null,
     notes: "Multi-day storage completed."
   }
 ];
@@ -325,16 +357,21 @@ export const DEMO_HOST_TRANSACTIONS: DemoHostTransaction[] = [
   }
 ];
 
-export const DEMO_PIN_LOOKUPS: Record<string, DemoHostBooking> = {
-  "482910": DEMO_HOST_BOOKINGS[0],
-  "739204": DEMO_HOST_BOOKINGS[1],
-  "661928": DEMO_HOST_BOOKINGS[2],
-  "194820": DEMO_HOST_BOOKINGS[3]
-};
+export const DEMO_SCANNER_FIXTURES: DemoScannerFixture[] = DEMO_HOST_BOOKINGS.map((b) => ({
+  bookingId: b.id,
+  reference: b.reference,
+  travellerName: b.travellerName,
+  totalBags: b.totalBags,
+  status: b.status,
+  pinCode: b.pinCode,
+  qrPayload: b.qrPayload,
+  label: `Pass #${b.reference.replace("LS-2026-", "")} (${b.travellerName.split(" ")[0]} — ${b.totalBags} ${b.totalBags === 1 ? "Bag" : "Bags"}${b.status === "OVERDUE" ? " • Overdue" : ""})`
+}));
 
-export const DEMO_QR_LOOKUPS: Record<string, DemoHostBooking> = {
-  "LS-CUSTODY://LS-2026-8841/HMAC-9F8A72B": DEMO_HOST_BOOKINGS[0],
-  "LS-CUSTODY://LS-2026-8842/HMAC-4D2A91E": DEMO_HOST_BOOKINGS[1],
-  "LS-CUSTODY://LS-2026-8843/HMAC-1A8C93F": DEMO_HOST_BOOKINGS[2],
-  "LS-CUSTODY://LS-2026-8835/HMAC-7F1B34C": DEMO_HOST_BOOKINGS[3]
-};
+export const DEMO_PIN_LOOKUPS: Record<string, DemoHostBooking> = Object.fromEntries(
+  DEMO_HOST_BOOKINGS.map((b) => [b.pinCode, b])
+);
+
+export const DEMO_QR_LOOKUPS: Record<string, DemoHostBooking> = Object.fromEntries(
+  DEMO_HOST_BOOKINGS.map((b) => [b.qrPayload, b])
+);

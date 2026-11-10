@@ -590,7 +590,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-021`: Host Mobile Navigation Shell: 5-Tab Router
-- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
+- **Status:** **COMPLETED & INDEPENDENTLY REMEDIATED** (Verdict: `ACCEPTED WITH CONDITIONS`; Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`, `DOC-UX-P2C-040`, `DOC-UX-P2C-041` on `audit/phase-2c-host-mobile-verification`)
+- **Remediation Note:** Added Host Staff vs Owner RBAC tab suppression (`options={{ href: isOwner ? ... : null }}`), demo role toggle, and 403 Forbidden direct route guards on `earnings.tsx` and `settings.tsx`.
 - **Priority:** **P0** | **Implementation Level:** Level 2 (Functional Frontend)
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/`)
 - **User Persona:** Storage partner counter staff
@@ -615,7 +616,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-022`: Hardware Camera Scanner with Haptics & PIN Fallback (`HM-021`)
-- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
+- **Status:** **COMPLETED & INDEPENDENTLY REMEDIATED** (Verdict: `ACCEPTED WITH CONDITIONS`; Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`, `DOC-UX-P2C-040`, `DOC-UX-P2C-041` on `audit/phase-2c-host-mobile-verification`)
+- **Remediation Note:** Established `DEMO_SCANNER_FIXTURES` single source of truth, resolving credential mismatches (Liam, Nadeesha, Henrik), and updated match label to `Demo booking lookup matched (DEC-005 Pending Sign-Off)`.
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/scanner.tsx`)
 - **User Persona:** Storage counter staff checking in customer
@@ -641,7 +643,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-023`: Step-by-Step Counter Intake & Seal Tagging Wizard (`HM-013`, `HM-014`, `HM-022`)
-- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
+- **Status:** **COMPLETED & INDEPENDENTLY REMEDIATED** (Verdict: `ACCEPTED WITH CONDITIONS`; Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`, `DOC-UX-P2C-040`, `DOC-UX-P2C-041` on `audit/phase-2c-host-mobile-verification`)
+- **Remediation Note:** Integrated `expo-image-picker` with real camera and photo library capture, stored `photoUri`, eliminated false pristine condition claims on bypass (`DEC-001`), and labeled seal generator as demo placeholder (`DEC-007`).
 - **Priority:** **P0** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/intake.tsx`)
 - **User Persona:** Counter staff handling customer bags
@@ -667,7 +670,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-024`: Host Active Vault Monitor & Overdue Alerts (`HM-006`, `HM-011`, `HM-026`)
-- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
+- **Status:** **COMPLETED & INDEPENDENTLY REMEDIATED** (Verdict: `ACCEPTED WITH CONDITIONS`; Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`, `DOC-UX-P2C-040`, `DOC-UX-P2C-041` on `audit/phase-2c-host-mobile-verification`)
+- **Remediation Note:** Removed false claims of automated card charging and unapproved platform policy; clearly disclaimed that overdue fee handling remains pending sign-off (`DEC-002`) and no fees are collected in the demo.
 - **Priority:** **P1** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/vault.tsx`)
 - **User Persona:** Counter staff managing stored luggage
@@ -692,7 +696,8 @@ If a task requires backend functionality that does not exist in the current code
 ---
 
 #### Task `TSK-2C-025`: Host Mobile Earnings & Payout Ledger (`HM-025`, `HM-026`)
-- **Status:** **COMPLETED** (Verified on `feat/phase-2c-host-mobile`, Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`)
+- **Status:** **COMPLETED & INDEPENDENTLY REMEDIATED** (Verdict: `ACCEPTED WITH CONDITIONS`; Documentation: `DOC-UX-P2C-038`, `DOC-UX-P2C-039`, `DOC-UX-P2C-040`, `DOC-UX-P2C-041` on `audit/phase-2c-host-mobile-verification`)
+- **Remediation Note:** Added screen-level demonstration financial disclaimer banner, updated payout callout to `Illustrative Payout Schedule — Not Connected (DEC-006 Pending Sign-Off)`, and guarded route against Host Staff access.
 - **Priority:** **P2** | **Implementation Level:** Level 1 + Level 2
 - **Target Application:** Host Mobile (`apps/mobile/app/(host)/earnings.tsx`)
 - **User Persona:** Storage partner owner checking income on mobile

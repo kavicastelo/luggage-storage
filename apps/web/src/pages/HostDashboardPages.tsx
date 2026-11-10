@@ -35,6 +35,8 @@ import {
 import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { useAuthStore } from "@/store/useAuthStore";
 import { isDemoPreviewActive } from "@/config/demo-preview";
+import { marketplaceApi } from "@/services/marketplace-api";
+import { StorageLocation, HostBusiness, HostVerification } from "@luggage-storage/contracts";
 import {
   DEMO_LOCATIONS,
   DEMO_BOOKINGS,
@@ -836,18 +838,101 @@ export function HostOverviewDashboardPage() {
 // ============================================================================
 // HD-002: Location Management (/host/locations)
 // ============================================================================
+// HD-002: Storage Location Directory (/host/locations)
+// ============================================================================
 export function HostLocationManagementPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [serverLocations, setServerLocations] = useState<StorageLocation[]>([]);
+  const [businesses, setBusinesses] = useState<HostBusiness[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const filteredLocations = useMemo(() => {
+  // New location form
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string>("");
+  const [hubName, setHubName] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [city, setCity] = useState("Colombo");
+  const [latitude, setLatitude] = useState(6.9344);
+  const [longitude, setLongitude] = useState(79.8428);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [locs, bsns] = await Promise.all([
+        marketplaceApi.getOwnedLocations(),
+        marketplaceApi.getOwnedBusinesses()
+      ]);
+      setServerLocations(locs);
+      setBusinesses(bsns);
+      if (bsns.length > 0 && !selectedBusinessId) {
+        setSelectedBusinessId(bsns[0].id);
+      }
+    } catch {
+      // Fallback silently to mock demo state
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleCreateLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBusinessId) {
+      setErrorMsg("Please establish an active Host Business before registering storage locations.");
+      return;
+    }
+    setCreating(true);
+    setErrorMsg(null);
+    try {
+      const newLoc = await marketplaceApi.createLocation({
+        businessId: selectedBusinessId,
+        name: hubName.trim(),
+        addressLine1: addressLine1.trim(),
+        city: city.trim(),
+        countryCode: "LK",
+        latitude,
+        longitude,
+        timezone: "Asia/Colombo",
+        bookingMode: "INSTANT",
+        acceptsOversized: false,
+        amenities: []
+      });
+      // Submit for review immediately
+      await marketplaceApi.submitLocationForReview(newLoc.id);
+      setSuccessMsg("Location draft registered and submitted to Superadmin moderation.");
+      setShowAddModal(false);
+      setHubName("");
+      setAddressLine1("");
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to register storage location");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const displayLocations = useMemo(() => {
+    if (serverLocations.length > 0) {
+      return serverLocations.filter(
+        (loc) =>
+          loc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          loc.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          loc.addressLine1.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
     return DEMO_LOCATIONS.filter(
       (loc) =>
         loc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         loc.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
         loc.landmark.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [searchTerm]);
+  }, [serverLocations, searchTerm]);
 
   return (
     <div className="space-y-6">
@@ -885,9 +970,21 @@ export function HostLocationManagementPage() {
         </div>
       </div>
 
+      {successMsg && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-xl">
+          {successMsg}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs font-semibold rounded-xl">
+          {errorMsg}
+        </div>
+      )}
+
       {/* Location Directory Cards */}
       <div className="space-y-4">
-        {filteredLocations.map((loc) => (
+        {displayLocations.map((loc: any) => (
           <div
             key={loc.id}
             className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm hover:border-sand-300 transition space-y-4"
@@ -896,31 +993,27 @@ export function HostLocationManagementPage() {
               <div className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold">
-                    Active Storage Venue
+                    {loc.status || "Active Storage Venue"}
                   </span>
-                  <span className="text-xs font-bold text-navy-600">{loc.city} • {loc.district}</span>
-                  <span className="text-xs text-amber-600 font-bold flex items-center gap-1">
-                    ★ {loc.rating} ({loc.reviewCount} reviews)
-                  </span>
+                  <span className="text-xs font-bold text-navy-600">{loc.city}</span>
                 </div>
                 <h2 className="text-lg font-bold text-navy-950">{loc.name}</h2>
                 <p className="text-xs text-navy-600 flex items-center gap-1.5">
                   <MapPin className="h-3.5 w-3.5 text-terracotta-600 flex-shrink-0" />
-                  <span>{loc.landmark}</span>
+                  <span>{loc.addressLine1 || loc.landmark || loc.city}</span>
                 </p>
                 <p className="text-[11px] text-navy-500">
-                  <strong className="text-navy-700">Public Masked Address:</strong> {loc.addressMasked}
+                  <strong className="text-navy-700">Protected Address Mode:</strong> Exact coordinates &amp; address private until booking confirmation.
                 </p>
               </div>
 
-              {/* Status and Capacity */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-4 border-t lg:border-t-0 pt-3 lg:pt-0 border-sand-100">
                 <div className="text-left sm:text-right">
                   <p className="text-xs font-bold text-navy-900">
-                    {loc.availableCapacity} of {loc.totalCapacity} Slots Available
+                    {loc.availableCapacity ? `${loc.availableCapacity} of ${loc.totalCapacity} Slots` : "Standard Shared Pool"}
                   </p>
                   <p className="text-[11px] text-navy-500">
-                    Operating: <span className="font-semibold text-navy-700">{loc.openHours}</span>
+                    Status: <span className="font-semibold text-navy-700">{loc.status || "Active"}</span>
                   </p>
                 </div>
               </div>
@@ -930,10 +1023,10 @@ export function HostLocationManagementPage() {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-sand-100">
               <div className="flex flex-wrap gap-2 text-[11px]">
                 <span className="px-2.5 py-1 rounded-lg bg-sand-100 text-navy-700 font-medium">
-                  {loc.is24Hours ? "24/7 Access" : "Shift Hours"}
+                  {loc.is24Hours ? "24/7 Access" : "Standard Hours"}
                 </span>
                 <span className="px-2.5 py-1 rounded-lg bg-sand-100 text-navy-700 font-medium">
-                  {loc.hasClimateControl ? "Climate Control" : "Standard Vault"}
+                  LKR Pricing Model
                 </span>
                 <span className="px-2.5 py-1 rounded-lg bg-sand-100 text-navy-700 font-medium">
                   LKR 250k Protection
@@ -951,13 +1044,13 @@ export function HostLocationManagementPage() {
                   to={`/host/locations/${loc.id}/schedule`}
                   className="px-3 py-1.5 rounded-lg border border-sand-300 text-xs font-bold text-navy-800 hover:bg-sand-50 transition"
                 >
-                  Hours & Calendar
+                  Hours &amp; Calendar
                 </Link>
                 <Link
                   to={`/host/locations/${loc.id}/capacity`}
                   className="px-3 py-1.5 rounded-lg border border-sand-300 text-xs font-bold text-navy-800 hover:bg-sand-50 transition"
                 >
-                  Capacity & Zones
+                  Capacity &amp; Zones
                 </Link>
                 <Link
                   to={`/host/locations/${loc.id}/pricing`}
@@ -974,7 +1067,10 @@ export function HostLocationManagementPage() {
       {/* Add Location Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-sand-200 max-w-lg w-full p-6 space-y-4 shadow-xl">
+          <form
+            onSubmit={handleCreateLocation}
+            className="bg-white rounded-2xl border border-sand-200 max-w-lg w-full p-6 space-y-4 shadow-xl text-xs"
+          >
             <div className="flex items-center justify-between border-b border-sand-100 pb-3">
               <h3 className="text-base font-bold text-navy-950">Register New Storage Location</h3>
               <button
@@ -988,35 +1084,91 @@ export function HostLocationManagementPage() {
             <p className="text-xs text-navy-600">
               New locations are submitted to platform operations for address verification, CCTV check, and physical security inspection before going live.
             </p>
-            <div className="space-y-3 text-xs">
+
+            <div className="space-y-3">
+              {businesses.length > 0 ? (
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Parent Host Business</label>
+                  <select
+                    value={selectedBusinessId}
+                    onChange={(e) => setSelectedBusinessId(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs bg-white"
+                  >
+                    {businesses.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.tradeName} ({b.status})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs">
+                  <strong>Notice:</strong> Please register a Host Business first on the Business Settings page before submitting storage locations.
+                </div>
+              )}
+
               <div>
                 <label className="block font-bold text-navy-900 mb-1">Proposed Hub Name</label>
                 <input
                   type="text"
+                  required
                   placeholder="e.g. Mirissa Beach Surf & Transit Lounge"
+                  value={hubName}
+                  onChange={(e) => setHubName(e.target.value)}
                   className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">Physical Address Line 1</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. No. 12 Beach Road"
+                  value={addressLine1}
+                  onChange={(e) => setAddressLine1(e.target.value)}
+                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-navy-900 mb-1">City / Town</label>
                   <input
                     type="text"
+                    required
                     placeholder="e.g. Mirissa"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
                     className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-navy-900 mb-1">Initial Slot Capacity</label>
+                  <label className="block font-bold text-navy-900 mb-1">Latitude</label>
                   <input
                     type="number"
-                    defaultValue={40}
+                    step="0.0001"
+                    required
+                    value={latitude}
+                    onChange={(e) => setLatitude(parseFloat(e.target.value))}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Longitude</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    required
+                    value={longitude}
+                    onChange={(e) => setLongitude(parseFloat(e.target.value))}
                     className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
                   />
                 </div>
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-sand-100">
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
@@ -1025,14 +1177,14 @@ export function HostLocationManagementPage() {
                 Cancel
               </button>
               <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold"
+                type="submit"
+                disabled={creating || !selectedBusinessId}
+                className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold transition disabled:opacity-50"
               >
-                Submit for Verification
+                {creating ? "Submitting..." : "Submit for Verification"}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>
@@ -2889,6 +3041,69 @@ export function HostStaffManagementRbacPage() {
 // HD-014: Business Profile & Legal (/host/settings)
 // ============================================================================
 export function HostBusinessProfileLegalPage() {
+  const [businesses, setBusinesses] = useState<HostBusiness[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // New business form state
+  const [legalName, setLegalName] = useState("");
+  const [tradeName, setTradeName] = useState("");
+  const [entityType, setEntityType] = useState<"SOLE_PROPRIETORSHIP" | "PRIVATE_LIMITED" | "HOTEL" | "RETAIL_SHOP" | "PARTNERSHIP" | "OTHER">("PRIVATE_LIMITED");
+  const [brn, setBrn] = useState("");
+  const [tin, setTin] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [city, setCity] = useState("Colombo");
+  const [addressLine1, setAddressLine1] = useState("");
+
+  const loadBusinesses = async () => {
+    setLoading(true);
+    try {
+      const list = await marketplaceApi.getOwnedBusinesses();
+      setBusinesses(list);
+    } catch (err: any) {
+      setErrorMsg(err.message || "Could not load host businesses");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadBusinesses();
+  }, []);
+
+  const handleCreateBusiness = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    setErrorMsg(null);
+    try {
+      await marketplaceApi.createBusiness({
+        legalBusinessName: legalName.trim(),
+        tradeName: tradeName.trim(),
+        entityType,
+        businessRegistrationNumber: brn.trim() || undefined,
+        taxIdentifier: tin.trim() || undefined,
+        contactEmail: contactEmail.trim(),
+        contactPhone: contactPhone.trim(),
+        city: city.trim() || undefined,
+        addressLine1: addressLine1.trim() || undefined,
+        countryCode: "LK"
+      });
+      setSuccessMsg("Host Business established successfully.");
+      setShowCreateModal(false);
+      await loadBusinesses();
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to register host business");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const currentBusiness = businesses[0];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -2902,85 +3117,275 @@ export function HostBusinessProfileLegalPage() {
               Corporate registration certificate (BRN), Sri Lanka TIN/VAT status, and verified insurance compliance.
             </p>
           </div>
-          <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-sand-100 text-navy-800 border border-sand-300 flex items-center gap-1.5">
-            <CheckCircle2 className="h-4 w-4 text-terracotta-600" />
-            <span>KYC Profile Preview (Demo Simulation)</span>
-          </span>
+          <div className="flex items-center gap-2">
+            {currentBusiness ? (
+              <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-sand-100 text-navy-800 border border-sand-300 flex items-center gap-1.5">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                <span>Status: {currentBusiness.status}</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(true)}
+                className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
+              >
+                Register Host Business
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Honest Prototype Notice */}
-      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <strong className="text-navy-950">Business Profile &amp; KYC (Demo Simulation):</strong> Corporate entities, tax identifiers (BRN/TIN), and insurance certificates displayed here are sample fixtures for Fort Hub onboarding demonstration. Production verification and document uploads will connect to Superadmin compliance workflows in Phase 3+.
+      {successMsg && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-xl">
+          {successMsg}
         </div>
-      </div>
+      )}
 
-      {/* Corporate Registration Dossier */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
-        <h2 className="text-sm font-bold text-navy-950">Corporate Registration Certificate</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-          <div>
-            <span className="text-navy-500">Registered Legal Entity:</span>
-            <p className="font-bold text-navy-950">Ceylon Transit Hospitality (Pvt) Ltd</p>
+      {errorMsg && (
+        <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs font-semibold rounded-xl">
+          {errorMsg}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs text-navy-500">
+          Loading business compliance profile...
+        </div>
+      ) : currentBusiness ? (
+        <>
+          {/* Corporate Registration Dossier */}
+          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-navy-950">Corporate Registration Certificate</h2>
+              <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-sand-100 text-navy-800 border border-sand-300">
+                {currentBusiness.entityType.replace(/_/g, " ")}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-navy-500">Registered Legal Entity:</span>
+                <p className="font-bold text-navy-950">{currentBusiness.legalBusinessName}</p>
+              </div>
+              <div>
+                <span className="text-navy-500">Trade / Display Name:</span>
+                <p className="font-bold text-navy-950">{currentBusiness.tradeName}</p>
+              </div>
+              <div>
+                <span className="text-navy-500">Registrar of Companies BRN:</span>
+                <p className="font-mono font-bold text-navy-950">{currentBusiness.businessRegistrationNumber || "Pending submission"}</p>
+              </div>
+              <div>
+                <span className="text-navy-500">Inland Revenue Department TIN:</span>
+                <p className="font-mono font-bold text-navy-950">{currentBusiness.taxIdentifier || "Not registered"}</p>
+              </div>
+              <div>
+                <span className="text-navy-500">Business Contact Email:</span>
+                <p className="font-medium text-navy-900">{currentBusiness.contactEmail}</p>
+              </div>
+              <div>
+                <span className="text-navy-500">Business Contact Phone:</span>
+                <p className="font-medium text-navy-900">{currentBusiness.contactPhone}</p>
+              </div>
+              <div className="sm:col-span-2">
+                <span className="text-navy-500">Registered Office Address:</span>
+                <p className="font-medium text-navy-900">
+                  {currentBusiness.addressLine1 || "Colombo"}, {currentBusiness.city || "Sri Lanka"}
+                </p>
+              </div>
+            </div>
           </div>
-          <div>
-            <span className="text-navy-500">Registrar of Companies BRN:</span>
-            <p className="font-mono font-bold text-navy-950">PV-00294812</p>
+
+          {/* Verified KYC Documents & Status */}
+          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+            <h2 className="text-sm font-bold text-navy-950">Verification &amp; KYC Lifecycle</h2>
+            <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-navy-900">Business Verification State:</span>
+                <span className="px-2.5 py-0.5 rounded font-bold bg-amber-100 text-amber-900">
+                  {currentBusiness.status}
+                </span>
+              </div>
+              <p className="text-navy-600">
+                {currentBusiness.status === "ACTIVE"
+                  ? "Your business entity has been fully approved by Superadmin Compliance. You can publish and activate storage locations."
+                  : currentBusiness.status === "PENDING_VERIFICATION"
+                  ? "Your verification application has been submitted and is currently in the Superadmin compliance queue for review."
+                  : "Your business is currently in draft status. Submit required KYC documentation to initiate verification."}
+              </p>
+            </div>
           </div>
+        </>
+      ) : (
+        <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-4 shadow-sm">
+          <Building2 className="h-10 w-10 text-sand-400 mx-auto" />
           <div>
-            <span className="text-navy-500">Inland Revenue Department TIN:</span>
-            <p className="font-mono font-bold text-navy-950">TIN-10928472-0001</p>
-          </div>
-          <div>
-            <span className="text-navy-500">VAT Status:</span>
-            <p className="font-bold text-emerald-700">Registered (VAT-10928472-7000)</p>
-          </div>
-          <div className="sm:col-span-2">
-            <span className="text-navy-500">Registered Office Address:</span>
-            <p className="font-medium text-navy-900">
-              Level 4, East Tower, World Trade Center, Colombo 01, Sri Lanka
+            <h3 className="text-base font-bold text-navy-950">No Host Business Registered Yet</h3>
+            <p className="text-xs text-navy-600 mt-1 max-w-md mx-auto">
+              To operate storage locations, publish listings, and receive traveller payouts in Sri Lanka (LKR), you must register a Host Business entity.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            className="px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold transition shadow-sm"
+          >
+            Start Business Registration
+          </button>
         </div>
-      </div>
+      )}
 
-      {/* Verified KYC Documents */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
-        <h2 className="text-sm font-bold text-navy-950">Verified Compliance Documentation</h2>
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50 border border-sand-200">
-            <div className="flex items-center gap-2.5">
-              <FileText className="h-4 w-4 text-terracotta-600" />
+      {/* Modal: Register Host Business */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <form
+            onSubmit={handleCreateBusiness}
+            className="bg-white rounded-2xl border border-sand-200 max-w-lg w-full p-6 space-y-4 shadow-xl text-xs"
+          >
+            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
+              <h3 className="text-base font-bold text-navy-950">Register New Host Business</h3>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="p-1 rounded-lg hover:bg-sand-100 text-navy-500"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
               <div>
-                <p className="font-bold text-navy-900">Certificate of Incorporation (Form 1 / Form 20)</p>
-                <p className="text-[10px] text-navy-500">Verified by Superadmin Compliance</p>
+                <label className="block font-bold text-navy-900 mb-1">Legal Registered Entity Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Ceylon Transit Lockers (Pvt) Ltd"
+                  value={legalName}
+                  onChange={(e) => setLegalName(e.target.value)}
+                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Trade / Display Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Fort Station Storage"
+                    value={tradeName}
+                    onChange={(e) => setTradeName(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Business Entity Type</label>
+                  <select
+                    value={entityType}
+                    onChange={(e) => setEntityType(e.target.value as any)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs bg-white"
+                  >
+                    <option value="SOLE_PROPRIETORSHIP">Sole Proprietorship</option>
+                    <option value="PRIVATE_LIMITED">Private Limited (Pvt Ltd)</option>
+                    <option value="HOTEL">Hotel / Guest House</option>
+                    <option value="RETAIL_SHOP">Retail Shop</option>
+                    <option value="PARTNERSHIP">Partnership</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">BRN (Company Reg. Number)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. PV-00294812"
+                    value={brn}
+                    onChange={(e) => setBrn(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Inland Revenue TIN (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 10928472-0001"
+                    value={tin}
+                    onChange={(e) => setTin(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Contact Email</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="contact@business.lk"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Contact Phone</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="+94 77 123 4567"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">City / Town</label>
+                  <input
+                    type="text"
+                    placeholder="Colombo"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-navy-900 mb-1">Address Line 1</label>
+                  <input
+                    type="text"
+                    placeholder="No. 45 Main Street"
+                    value={addressLine1}
+                    onChange={(e) => setAddressLine1(e.target.value)}
+                    className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                  />
+                </div>
               </div>
             </div>
-            <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
-              Sample Verification Status
-            </span>
-          </div>
 
-          <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50 border border-sand-200">
-            <div className="flex items-center gap-2.5">
-              <FileText className="h-4 w-4 text-terracotta-600" />
-              <div>
-                <p className="font-bold text-navy-900">Commercial Premises Lease &amp; Insurance Cover</p>
-                <p className="text-[10px] text-navy-500">LKR 10,000,000 Public Liability Insurance Policy</p>
-              </div>
+            <div className="flex justify-end gap-2 pt-3 border-t border-sand-100">
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="px-4 py-2 rounded-xl border border-sand-300 text-xs font-bold text-navy-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={creating}
+                className="px-5 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold transition disabled:opacity-50"
+              >
+                {creating ? "Establishing Business..." : "Establish Business"}
+              </button>
             </div>
-            <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
-              Sample Verification Status
-            </span>
-          </div>
+          </form>
         </div>
-
-        <div className="p-3.5 rounded-xl bg-sand-100/80 text-[11px] text-navy-700">
-          <strong className="text-navy-900">Compliance Notice:</strong> Corporate registration and bank details are read-only once verified. To request changes, contact Superadmin Compliance Support at <span className="font-semibold text-terracotta-700">compliance@ceylonstorage.lk</span>.
-        </div>
-      </div>
+      )}
     </div>
   );
 }

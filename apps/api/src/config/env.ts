@@ -84,7 +84,14 @@ export const EnvSchema = z
     RATE_LIMIT_VERIFY_RESEND_IP_MAX: z.coerce.number().int().positive().default(10),
     RATE_LIMIT_VERIFICATION_RESEND_MAX: z.coerce.number().int().positive().default(3),
     RATE_LIMIT_RECOVERY_IP_MAX: z.coerce.number().int().positive().default(10),
-    RATE_LIMIT_RECOVERY_MAX: z.coerce.number().int().positive().default(3)
+    RATE_LIMIT_RECOVERY_MAX: z.coerce.number().int().positive().default(3),
+    STORAGE_PROVIDER: z.enum(["r2", "memory", "test"]).optional(),
+    R2_ACCOUNT_ID: z.string().optional(),
+    R2_ACCESS_KEY_ID: z.string().optional(),
+    R2_SECRET_ACCESS_KEY: z.string().optional(),
+    R2_BUCKET_NAME: z.string().default("luggage-storage-dev"),
+    R2_PUBLIC_URL: z.string().optional(),
+    R2_PRESIGNED_TTL_SECONDS: z.coerce.number().int().positive().default(900)
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === "production") {

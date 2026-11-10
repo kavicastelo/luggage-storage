@@ -1,8 +1,9 @@
 import { FastifyError, FastifyReply, FastifyRequest } from "fastify";
+import { ZodError } from "zod";
 import { createErrorResponse } from "@luggage-storage/contracts";
 import { AppError } from "../errors/app-error.js";
 
-export function errorHandler(error: FastifyError | AppError, request: FastifyRequest, reply: FastifyReply) {
+export function errorHandler(error: FastifyError | AppError | Error, request: FastifyRequest, reply: FastifyReply) {
   const correlationId = request.id;
 
   if (error instanceof AppError) {
@@ -12,6 +13,19 @@ export function errorHandler(error: FastifyError | AppError, request: FastifyReq
     }
     return reply.status(error.statusCode).send(
       createErrorResponse(error.code, error.message, error.details, correlationId)
+    );
+  }
+
+  // Zod validation errors
+  if (error instanceof ZodError || (error as any).name === "ZodError") {
+    const zodError = error as ZodError;
+    const details = zodError.issues.map((i) => ({
+      field: i.path.join(".") || undefined,
+      message: i.message,
+      code: "VALIDATION_ERROR"
+    }));
+    return reply.status(400).send(
+      createErrorResponse("VALIDATION_ERROR", "Request validation failed", details, correlationId)
     );
   }
 

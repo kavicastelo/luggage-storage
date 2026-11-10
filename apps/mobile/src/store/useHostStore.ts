@@ -7,13 +7,17 @@ import {
   DEMO_QR_LOOKUPS,
   DemoHostBooking,
   DemoHostHubInfo,
-  DemoHostTransaction
+  DemoHostTransaction,
+  PhotoEvidenceStatus
 } from "../data/mock-host-data";
 
 export interface IntakeSessionState {
   booking: DemoHostBooking | null;
   reconciledBags: number;
   sealNumber: string;
+  sealIsDemoPlaceholder: boolean;
+  photoEvidenceStatus: PhotoEvidenceStatus;
+  photoUri: string | null;
   photoCaptured: boolean;
   photoBypassed: boolean;
   assignedZone: string;
@@ -24,6 +28,9 @@ const DEFAULT_INTAKE_SESSION: IntakeSessionState = {
   booking: null,
   reconciledBags: 1,
   sealNumber: "",
+  sealIsDemoPlaceholder: false,
+  photoEvidenceStatus: "NOT_PROVIDED",
+  photoUri: null,
   photoCaptured: false,
   photoBypassed: false,
   assignedZone: "RACK-A",
@@ -35,13 +42,15 @@ export interface HostStoreState {
   bookings: DemoHostBooking[];
   transactions: DemoHostTransaction[];
   intakeSession: IntakeSessionState;
+  activeDemoRole: "HOST_OWNER" | "HOST_STAFF";
 
   // Actions
+  setActiveDemoRole: (role: "HOST_OWNER" | "HOST_STAFF") => void;
   lookupByPin: (pin: string) => DemoHostBooking | null;
   lookupByQr: (payload: string) => DemoHostBooking | null;
   startIntake: (booking: DemoHostBooking) => void;
   updateIntake: (partial: Partial<IntakeSessionState>) => void;
-  confirmIntake: () => { success: boolean; bookingRef: string; message: string } | null;
+  confirmIntake: () => { success: boolean; bookingRef: string; message: string };
   cancelIntake: () => void;
   releaseLuggage: (bookingId: string) => { success: boolean; message: string };
   approveRequest: (bookingId: string) => void;
@@ -54,23 +63,34 @@ export const useHostStore = create<HostStoreState>((set, get) => ({
   bookings: [...DEMO_HOST_BOOKINGS],
   transactions: [...DEMO_HOST_TRANSACTIONS],
   intakeSession: { ...DEFAULT_INTAKE_SESSION },
+  activeDemoRole: "HOST_OWNER",
+
+  setActiveDemoRole: (role: "HOST_OWNER" | "HOST_STAFF") => {
+    set({ activeDemoRole: role });
+  },
 
   lookupByPin: (pin: string) => {
+    if (!pin) return null;
     const cleaned = pin.replace(/\s+/g, "").trim();
+    if (cleaned.length !== 6 || !/^\d{6}$/.test(cleaned)) {
+      return null;
+    }
     if (DEMO_PIN_LOOKUPS[cleaned]) {
       return DEMO_PIN_LOOKUPS[cleaned];
     }
-    // Also check current store bookings by pinCode
     const found = get().bookings.find((b) => b.pinCode === cleaned);
     return found || null;
   },
 
   lookupByQr: (payload: string) => {
+    if (!payload) return null;
     const trimmed = payload.trim();
+    if (!trimmed) return null;
+
     if (DEMO_QR_LOOKUPS[trimmed]) {
       return DEMO_QR_LOOKUPS[trimmed];
     }
-    // Extract reference if present (e.g. LS-2026-8841)
+    // Match by exact reference if present
     const match = trimmed.match(/LS-\d{4}-\d{4}/);
     if (match) {
       const found = get().bookings.find((b) => b.reference === match[0]);
@@ -85,9 +105,13 @@ export const useHostStore = create<HostStoreState>((set, get) => ({
       intakeSession: {
         booking,
         reconciledBags: booking.totalBags,
-        sealNumber: booking.sealNumbers[0] || `SEAL-LK-${Math.floor(10000 + Math.random() * 90000)}`,
-        photoCaptured: false,
-        photoBypassed: false,
+        // Invariant DEC-007: Do NOT auto-preassign random seal! Require operator action.
+        sealNumber: booking.sealNumbers[0] || "",
+        sealIsDemoPlaceholder: false,
+        photoEvidenceStatus: booking.photoEvidenceCaptured ? "CAPTURED_LOCAL" : "NOT_PROVIDED",
+        photoUri: booking.photoUri || null,
+        photoCaptured: Boolean(booking.photoUri),
+        photoBypassed: booking.photoEvidenceStatus === "SKIPPED_PENDING_POLICY",
         assignedZone: booking.zoneCode || "RACK-A",
         staffNotes: booking.notes || ""
       }
@@ -95,20 +119,70 @@ export const useHostStore = create<HostStoreState>((set, get) => ({
   },
 
   updateIntake: (partial: Partial<IntakeSessionState>) => {
-    set((state) => ({
-      intakeSession: {
+    set((state) => {
+      const merged = {
         ...state.intakeSession,
         ...partial
+      };
+
+      // Strict Invariant: photoCaptured is true ONLY if photoUri exists and status is CAPTURED_LOCAL
+      if (merged.photoUri && merged.photoEvidenceStatus === "CAPTURED_LOCAL") {
+        merged.photoCaptured = true;
+        merged.photoBypassed = false;
+      } else if (merged.photoEvidenceStatus === "SKIPPED_PENDING_POLICY") {
+        merged.photoCaptured = false;
+        merged.photoBypassed = true;
+        merged.photoUri = null;
+      } else {
+        merged.photoCaptured = false;
       }
-    }));
+
+      return { intakeSession: merged };
+    });
   },
 
   confirmIntake: () => {
     const session = get().intakeSession;
-    if (!session.booking) return null;
+    if (!session.booking) {
+      return {
+        success: false,
+        bookingRef: "",
+        message: "No active intake session booking selected."
+      };
+    }
 
     const targetId = session.booking.id;
-    const sealList = session.sealNumber ? [session.sealNumber] : [];
+    const current = get().bookings.find((b) => b.id === targetId);
+
+    // Guard against repeated or invalid transitions
+    if (!current) {
+      return {
+        success: false,
+        bookingRef: session.booking.reference,
+        message: "Booking record does not exist in local database."
+      };
+    }
+
+    if (current.status === "COMPLETED") {
+      return {
+        success: false,
+        bookingRef: session.booking.reference,
+        message: "Cannot perform intake: Booking custody has already been completed and released."
+      };
+    }
+
+    if (current.status === "CANCELLED") {
+      return {
+        success: false,
+        bookingRef: session.booking.reference,
+        message: "Cannot perform intake: Booking was cancelled."
+      };
+    }
+
+    const sealList = session.sealNumber.trim() ? [session.sealNumber.trim()] : [];
+    const isPhotoCaptured = Boolean(
+      session.photoUri && session.photoEvidenceStatus === "CAPTURED_LOCAL"
+    );
 
     set((state) => {
       const updatedBookings = state.bookings.map((b) => {
@@ -119,7 +193,9 @@ export const useHostStore = create<HostStoreState>((set, get) => ({
             totalBags: session.reconciledBags,
             sealNumbers: sealList,
             zoneCode: session.assignedZone,
-            photoEvidenceCaptured: session.photoCaptured,
+            photoEvidenceCaptured: isPhotoCaptured,
+            photoEvidenceStatus: session.photoEvidenceStatus,
+            photoUri: session.photoUri,
             notes: session.staffNotes || b.notes
           };
         }
@@ -132,10 +208,20 @@ export const useHostStore = create<HostStoreState>((set, get) => ({
       };
     });
 
+    const sealDesc = session.sealNumber.trim()
+      ? `Tag ${session.sealNumber} recorded${session.sealIsDemoPlaceholder ? " (Demo placeholder)" : ""}.`
+      : "No seal recorded.";
+
+    const photoDesc = isPhotoCaptured
+      ? "Local photo evidence saved."
+      : session.photoBypassed
+      ? "Photo evidence skipped (DEC-001 Pending Sign-Off)."
+      : "No photo provided.";
+
     return {
       success: true,
       bookingRef: session.booking.reference,
-      message: `Intake Complete: Luggage for booking ${session.booking.reference} logged into Vault Zone ${session.assignedZone}. Tamper seal ${session.sealNumber} applied. (Local Prototype Simulation)`
+      message: `Intake Complete: Luggage for booking ${session.booking.reference} logged into Vault Zone ${session.assignedZone}. ${sealDesc} ${photoDesc} (Local Prototype Simulation)`
     };
   },
 
@@ -147,6 +233,27 @@ export const useHostStore = create<HostStoreState>((set, get) => ({
     const booking = get().bookings.find((b) => b.id === bookingId);
     if (!booking) {
       return { success: false, message: "Booking record not found in vault." };
+    }
+
+    if (booking.status === "COMPLETED") {
+      return {
+        success: false,
+        message: `Luggage for ${booking.reference} has already been released and custody cleared.`
+      };
+    }
+
+    if (booking.status === "CANCELLED") {
+      return {
+        success: false,
+        message: `Cannot release luggage: Booking ${booking.reference} was cancelled.`
+      };
+    }
+
+    if (booking.status === "CONFIRMED") {
+      return {
+        success: false,
+        message: `Cannot release luggage: Booking ${booking.reference} has not completed intake yet.`
+      };
     }
 
     set((state) => ({
@@ -163,7 +270,7 @@ export const useHostStore = create<HostStoreState>((set, get) => ({
 
     return {
       success: true,
-      message: `Baggage Released: Custody cleared for ${booking.reference} (${booking.travellerName}). Returned ${booking.totalBags} bags. (Local Prototype Simulation)`
+      message: `Baggage Released: Custody cleared for ${booking.reference} (${booking.travellerName}). Handed over ${booking.totalBags} bags. (Local Prototype Simulation — DEC-002: No fee collected in demo)`
     };
   },
 
@@ -194,7 +301,8 @@ export const useHostStore = create<HostStoreState>((set, get) => ({
       hub: DEMO_HOST_HUB,
       bookings: [...DEMO_HOST_BOOKINGS],
       transactions: [...DEMO_HOST_TRANSACTIONS],
-      intakeSession: { ...DEFAULT_INTAKE_SESSION }
+      intakeSession: { ...DEFAULT_INTAKE_SESSION },
+      activeDemoRole: "HOST_OWNER"
     });
   }
 }));

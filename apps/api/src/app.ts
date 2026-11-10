@@ -13,6 +13,14 @@ import { errorHandler, notFoundHandler } from "./common/middleware/error-handler
 import { healthRoutes } from "./modules/health/health.routes.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { adminRoutes } from "./modules/admin/admin.routes.js";
+import { uploadRoutes } from "./modules/uploads/uploads.routes.js";
+import { discoveryRoutes } from "./modules/discovery/discovery.routes.js";
+import { hostRoutes } from "./modules/hosts/hosts.routes.js";
+import { hostVerificationRoutes } from "./modules/host-verification/host-verification.routes.js";
+import { locationRoutes } from "./modules/locations/locations.routes.js";
+import { locationModerationRoutes } from "./modules/locations/location-moderation.routes.js";
+import { capacityRoutes } from "./modules/capacity/capacity.routes.js";
+import { pricingRoutes } from "./modules/pricing/pricing.routes.js";
 import { sessionService } from "./modules/auth/session.service.js";
 import { rbacService } from "./modules/auth/rbac.service.js";
 import { auditService, SecurityEventType } from "./modules/audit/audit.service.js";
@@ -302,6 +310,34 @@ export function buildApp(): FastifyInstance {
   // Administration routes (versioned and unversioned aliases)
   app.register(adminRoutes, { prefix: `${env.API_PREFIX}/admin` });
   app.register(adminRoutes, { prefix: "/admin" });
+  app.register(hostVerificationRoutes, { prefix: `${env.API_PREFIX}/admin` });
+  app.register(hostVerificationRoutes, { prefix: "/admin" });
+  app.register(locationModerationRoutes, { prefix: `${env.API_PREFIX}/admin` });
+  app.register(locationModerationRoutes, { prefix: "/admin" });
+
+  // Host Business and Location routes
+  app.register(hostRoutes, { prefix: `${env.API_PREFIX}/hosts` });
+  app.register(hostRoutes, { prefix: "/hosts" });
+  app.register(locationRoutes, { prefix: `${env.API_PREFIX}/hosts` });
+  app.register(locationRoutes, { prefix: `${env.API_PREFIX}` });
+  app.register(locationRoutes, { prefix: "/hosts" });
+  app.register(locationRoutes, { prefix: "" });
+
+  // Capacity & Pricing configuration routes
+  app.register(capacityRoutes, { prefix: `${env.API_PREFIX}/hosts` });
+  app.register(capacityRoutes, { prefix: `${env.API_PREFIX}` });
+  app.register(capacityRoutes, { prefix: "/hosts" });
+  app.register(capacityRoutes, { prefix: "" });
+  app.register(pricingRoutes, { prefix: `${env.API_PREFIX}/hosts` });
+  app.register(pricingRoutes, { prefix: `${env.API_PREFIX}` });
+  app.register(pricingRoutes, { prefix: "/hosts" });
+  app.register(pricingRoutes, { prefix: "" });
+
+  // Uploads & Discovery routes
+  app.register(uploadRoutes, { prefix: `${env.API_PREFIX}/uploads` });
+  app.register(uploadRoutes, { prefix: "/uploads" });
+  app.register(discoveryRoutes, { prefix: `${env.API_PREFIX}/discovery` });
+  app.register(discoveryRoutes, { prefix: "/discovery" });
 
   return app;
 }

@@ -6,14 +6,44 @@ import {
   TouchableOpacity,
   StyleSheet
 } from "react-native";
+import { useRouter } from "expo-router";
+import { useAuthStore } from "../../src/store/useAuthStore";
 import { useHostStore } from "../../src/store/useHostStore";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
 
 export default function HostEarningsScreen() {
-  const { transactions } = useHostStore();
+  const router = useRouter();
+  const { user, isAuthenticated } = useAuthStore();
+  const { activeDemoRole, transactions } = useHostStore();
   const [filterBatch, setFilterBatch] = useState<"ALL" | "CLEARED" | "PENDING">("ALL");
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+
+  const isOwner = isAuthenticated
+    ? Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"))
+    : activeDemoRole === "HOST_OWNER";
+
+  // Role Guard for Host Staff
+  if (!isOwner) {
+    return (
+      <View style={styles.deniedContainer}>
+        <View style={styles.deniedCard}>
+          <Text style={styles.deniedBadge}>RBAC Guard • 403 Forbidden</Text>
+          <Text style={styles.deniedTitle}>Host Owner Access Required</Text>
+          <Text style={styles.deniedBody}>
+            Earnings, payout ledgers, and bank settlement details are restricted to Host Owner
+            accounts. Staff members have operational access only (Live Desk, Requests, Scanner, Intake, and Vault).
+          </Text>
+          <TouchableOpacity
+            style={styles.returnDeskBtn}
+            onPress={() => router.replace("/(host)")}
+          >
+            <Text style={styles.returnDeskBtnText}>Return to Live Desk</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   // Financial aggregates
   const financialSummary = useMemo(() => {
@@ -61,6 +91,16 @@ export default function HostEarningsScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Screen-Level Demonstration Disclaimer */}
+      <View style={styles.demoFinancialNotice}>
+        <MobileIcon name="alert-circle" size={16} color="#92400E" />
+        <Text style={styles.demoFinancialNoticeText}>
+          <Text style={styles.boldText}>Demonstration Financial Surface:</Text> All revenue figures,
+          splits, and payout schedules are simulated demonstration fixtures. No live banking rails or
+          automated disbursements are active.
+        </Text>
+      </View>
+
       {/* Header */}
       <View style={styles.headerCard}>
         <Text style={styles.pageTitle}>Host Earnings & Settlements</Text>
@@ -72,9 +112,9 @@ export default function HostEarningsScreen() {
         <View style={styles.scheduleCallout}>
           <MobileIcon name="clock" size={16} color={mobileColors.navy[700]} />
           <View style={styles.scheduleTextCol}>
-            <Text style={styles.scheduleTitle}>Next Automated Payout: Wednesday Batch</Text>
+            <Text style={styles.scheduleTitle}>Illustrative Payout Schedule — Not Connected</Text>
             <Text style={styles.scheduleSubtitle}>
-              Commercial Bank of Ceylon • Account Ending in 8492
+              Commercial Bank of Ceylon • Simulated settlement schedule (DEC-006 Pending Sign-Off)
             </Text>
           </View>
         </View>
@@ -143,7 +183,7 @@ export default function HostEarningsScreen() {
       <View style={styles.bankCard}>
         <View style={styles.bankHeader}>
           <MobileIcon name="credit-card" size={18} color={mobileColors.navy[900]} />
-          <Text style={styles.bankCardTitle}>Settlement Bank Account</Text>
+          <Text style={styles.bankCardTitle}>Settlement Bank Account (Demo Display)</Text>
         </View>
 
         <View style={styles.bankDetailRow}>
@@ -165,6 +205,10 @@ export default function HostEarningsScreen() {
           <Text style={styles.bankDetailLabel}>Settlement Currency:</Text>
           <Text style={styles.bankDetailValue}>LKR (Sri Lankan Rupee)</Text>
         </View>
+
+        <Text style={styles.bankDisclaimerText}>
+          * Sample settlement profile. Automated bank disbursements require merchant onboarding in production.
+        </Text>
       </View>
 
       {/* Transaction History Filter & Header */}
@@ -312,6 +356,23 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: mobileColors.sand[100],
     paddingBottom: 40
+  },
+  demoFinancialNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFBEB",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    gap: 8
+  },
+  demoFinancialNoticeText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#92400E",
+    lineHeight: 15
   },
   headerCard: {
     backgroundColor: "#FFFFFF",
@@ -507,6 +568,12 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: mobileColors.navy[800]
   },
+  bankDisclaimerText: {
+    fontSize: 11,
+    color: mobileColors.sand[600],
+    fontStyle: "italic",
+    marginTop: 8
+  },
   ledgerHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -663,5 +730,55 @@ const styles = StyleSheet.create({
   },
   boldText: {
     fontWeight: "700"
+  },
+  deniedContainer: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24
+  },
+  deniedCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 380,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    alignItems: "center"
+  },
+  deniedBadge: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#dc2626",
+    textTransform: "uppercase",
+    marginBottom: 8
+  },
+  deniedTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#0f172a",
+    marginBottom: 8
+  },
+  deniedBody: {
+    fontSize: 13,
+    color: "#475569",
+    textAlign: "center",
+    lineHeight: 19,
+    marginBottom: 20
+  },
+  returnDeskBtn: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    width: "100%",
+    alignItems: "center"
+  },
+  returnDeskBtnText: {
+    color: "#ffffff",
+    fontWeight: "600",
+    fontSize: 14
   }
 });

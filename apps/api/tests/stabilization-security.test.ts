@@ -808,7 +808,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
         fs.readFileSync(path.join(metaDir, "_journal.json"), "utf8")
       );
 
-      expect(journal.entries.length).toBe(6);
+      expect(journal.entries.length).toBe(7);
 
       let previousSnapshotId = "00000000-0000-0000-0000-000000000000";
       for (const entry of journal.entries) {
@@ -829,7 +829,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
       const client = await migratorPool.connect();
       try {
         await verifyMigratedSchema(client);
-        expect(REQUIRED_PUBLIC_TABLES.length).toBe(13);
+        expect(REQUIRED_PUBLIC_TABLES.length).toBe(25);
       } finally {
         client.release();
       }
