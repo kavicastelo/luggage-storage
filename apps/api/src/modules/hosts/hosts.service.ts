@@ -15,6 +15,7 @@ import {
   decryptPayoutAccountNumber,
   maskPayoutAccountNumber
 } from "../../common/crypto/payout-encryption.js";
+import { createDatabaseIdentityAssertion } from "../../common/crypto/database-identity.js";
 
 export interface HostContext {
   userId: string;
@@ -64,12 +65,22 @@ export class HostsService {
         })
         .returning();
 
-      // 2. Assign HOST_OWNER role using safe, self-service function (verified by business ownership)
+      // 2. Assign HOST_OWNER role using safe, cryptographically verified self-service function (verified by business ownership)
+      const assertion = createDatabaseIdentityAssertion({
+        actorId: context.userId,
+        action: "SELF_ASSIGN_HOST_OWNER",
+        targetId: context.userId,
+        roleCode: "HOST_OWNER"
+      });
+
       await tx.execute(
         sql`SELECT set_config('app.current_user_id', ${context.userId}, true);`
       );
       await tx.execute(
-        sql`SELECT public.self_assign_host_owner_role(${context.userId}::uuid);`
+        sql`SELECT public.self_assign_host_owner_role(
+              ${context.userId}::uuid,
+              ${JSON.stringify(assertion)}::jsonb
+            );`
       );
 
       // 3. Ensure host_profiles entry exists

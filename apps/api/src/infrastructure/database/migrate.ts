@@ -39,8 +39,29 @@ export const REQUIRED_PUBLIC_TABLES = [
   "storage_capacity_pools",
   "pricing_policies",
   "pricing_tier_rates",
-  "upload_intents"
+  "upload_intents",
+  "trusted_auth_secrets",
+  "consumed_auth_assertions"
 ] as const;
+
+export async function syncTrustedAuthSecret(client: pg.PoolClient): Promise<void> {
+  const tableCheck = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.tables 
+       WHERE table_schema = 'public' AND table_name = 'trusted_auth_secrets'
+     );`
+  );
+  if (!tableCheck.rows[0]?.exists) {
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO public.trusted_auth_secrets (key_id, secret)
+     VALUES ('active', $1)
+     ON CONFLICT (key_id) DO UPDATE SET secret = EXCLUDED.secret;`,
+    [env.DB_IDENTITY_SECRET]
+  );
+}
 
 export async function verifyMigratedSchema(client: pg.PoolClient): Promise<void> {
   const extRes = await client.query<{ extname: string }>(
@@ -79,6 +100,11 @@ export async function backfillPlaintextPayoutRecords(client: pg.PoolClient): Pro
   if (!tableCheck.rows[0]?.exists) {
     return 0;
   }
+
+  // Ensure column is widened to text before writing encrypted envelopes
+  await client.query(
+    `ALTER TABLE public.host_businesses ALTER COLUMN payout_account_number TYPE text;`
+  );
 
   const result = await client.query<{ id: string; payout_account_number: string }>(
     `SELECT id, payout_account_number
@@ -182,6 +208,9 @@ export async function runMigrations(customConnectionString?: string): Promise<nu
     } else {
       logger.info({ appliedCount }, "[Migration Engine] Successfully applied migration(s)");
     }
+
+    // Synchronize configured identity assertion secret into private database storage
+    await syncTrustedAuthSecret(client);
 
     await verifyMigratedSchema(client);
     logger.info(

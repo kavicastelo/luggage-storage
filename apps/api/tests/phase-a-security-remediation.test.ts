@@ -12,6 +12,7 @@ import {
 } from "../src/common/crypto/payout-encryption.js";
 import { loadConfig } from "../src/config/env.js";
 import { rateLimitService } from "../src/modules/auth/rate-limit.service.js";
+import { createDatabaseIdentityAssertion } from "../src/common/crypto/database-identity.js";
 
 const { Pool } = pg;
 
@@ -820,6 +821,72 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       );
       expect(doc1Final.rows[0].status).toBe("CONSUMED");
     });
+
+    it("Scenario 20: Upload confirmation strictly rejects missing / undefined content type from storage adapter", async () => {
+      const initRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/presigned-url",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          purpose: "LOCATION_IMAGE",
+          resourceId: locationAId,
+          fileName: "no-mime.jpg",
+          fileSize: 524288,
+          mimeType: "image/jpeg"
+        }
+      });
+      const initData = JSON.parse(initRes.body).data;
+
+      // Simulate upload where storage adapter does not report contentType (undefined)
+      storageService.simulateUpload?.(initData.fileKey, { size: 1024 });
+
+      const confirmRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/confirm",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          intentId: initData.intentId,
+          fileKey: initData.fileKey,
+          resourceId: locationAId
+        }
+      });
+
+      expect(confirmRes.statusCode).toBe(400);
+      expect(JSON.parse(confirmRes.body).error.message).toMatch(/missing content type metadata/i);
+    });
+
+    it("Scenario 21: Upload confirmation strictly rejects empty content type from storage adapter", async () => {
+      const initRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/presigned-url",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          purpose: "LOCATION_IMAGE",
+          resourceId: locationAId,
+          fileName: "empty-mime.jpg",
+          fileSize: 524288,
+          mimeType: "image/jpeg"
+        }
+      });
+      const initData = JSON.parse(initRes.body).data;
+
+      // Simulate upload with empty string MIME
+      storageService.simulateUpload?.(initData.fileKey, { mimeType: "   ", size: 1024 });
+
+      const confirmRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/confirm",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          intentId: initData.intentId,
+          fileKey: initData.fileKey,
+          resourceId: locationAId
+        }
+      });
+
+      expect(confirmRes.statusCode).toBe(400);
+      expect(JSON.parse(confirmRes.body).error.message).toMatch(/missing content type metadata/i);
+    });
   });
 
   // ==========================================================================
@@ -989,9 +1056,9 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
   });
 
   // ==========================================================================
-  // Priority 3: Harden Database Role Assignment (Section 5.6)
+  // Priority 3: Harden Database Role Assignment & Identity Boundary (Section 2)
   // ==========================================================================
-  describe("Priority 3: Database Role Assignment Hardening", () => {
+  describe("Priority 3: Database Role Assignment & Identity Boundary Hardening", () => {
     let regularUser: { userId: string; accessToken: string };
     let superadmin: { userId: string; accessToken: string };
 
@@ -1000,227 +1067,344 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       superadmin = await createTestUser("SUPERADMIN", "MasterAdmin");
     });
 
-    it("Scenario 1: Invoking assign_user_role without session identity app.current_user_id is rejected", async () => {
+    it("Scenario 1: Invoking assign_user_role without identity assertion is rejected", async () => {
       await expect(
         runtimePool.query(
-          "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $1::uuid)",
+          "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN')",
           [regularUser.userId]
         )
-      ).rejects.toThrow(/database identity context .* not established/i);
+      ).rejects.toThrow(/missing trusted identity assertion/i);
     });
 
-    it("Scenario 2: A non-superadmin cannot assign roles even with session identity established", async () => {
-      const client = await runtimePool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query("SELECT set_config('app.current_user_id', $1, true)", [regularUser.userId]);
-        await expect(
-          client.query(
-            "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $1::uuid)",
-            [regularUser.userId]
-          )
-        ).rejects.toThrow(/requires SUPERADMIN authority/i);
-        await client.query("ROLLBACK");
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
-    });
-
-    it("Scenario 3: Forged p_assigned_by is rejected when it differs from app.current_user_id", async () => {
-      const client = await runtimePool.connect();
-      try {
-        await client.query("BEGIN");
-        // Caller session is regularUser, but passes superadmin.userId as p_assigned_by
-        await client.query("SELECT set_config('app.current_user_id', $1, true)", [regularUser.userId]);
-        await expect(
-          client.query(
-            "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $2::uuid)",
-            [regularUser.userId, superadmin.userId]
-          )
-        ).rejects.toThrow(/supplied actor does not match database identity context|forged assignment/i);
-        await client.query("ROLLBACK");
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
-    });
-
-    it("Scenario 4: Role assignment to invalid/unauthorized role code is rejected", async () => {
-      const client = await runtimePool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
-        await expect(
-          client.query(
-            "SELECT public.assign_user_role($1::uuid, 'INVALID_ROLE', $2::uuid)",
-            [regularUser.userId, superadmin.userId]
-          )
-        ).rejects.toThrow(/unauthorized or unknown role code/i);
-        await client.query("ROLLBACK");
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
-    });
-
-    it("Scenario 5: Normal host onboarding path can self-assign HOST_OWNER via self_assign_host_owner_role", async () => {
-      const newHost = await createTestUser("TRAVELLER", "OnboardingHost");
-
-      // Attempt self-assign before creating business -> should fail
-      const client = await runtimePool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query("SELECT set_config('app.current_user_id', $1, true)", [newHost.userId]);
-        await expect(
-          client.query("SELECT public.self_assign_host_owner_role($1::uuid)", [newHost.userId])
-        ).rejects.toThrow(/does not own a registered host business/i);
-        await client.query("ROLLBACK");
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
-
-      // Create a business
-      const bRes = await app.inject({
-        method: "POST",
-        url: "/api/v1/hosts/businesses",
-        headers: { authorization: `Bearer ${newHost.accessToken}` },
-        payload: {
-          legalBusinessName: "Self Assign Verified Hub",
-          tradeName: "Verified Hub",
-          entityType: "SOLE_PROPRIETORSHIP",
-          contactEmail: "selfassign@hub.lk",
-          contactPhone: "+94770005555",
-          city: "Colombo"
-        }
-      });
-      expect(bRes.statusCode).toBe(201);
-
-      // Verify user now has HOST_OWNER role
-      const userRoles = await runtimePool.query(
-        "SELECT r.code FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = $1",
-        [newHost.userId]
-      );
-      expect(userRoles.rows.some((r) => r.code === "HOST_OWNER")).toBe(true);
-    });
-
-    it("Scenario 6: An authorized SUPERADMIN setting app.current_user_id can assign permitted roles", async () => {
-      const target = await createTestUser("TRAVELLER", "PromotedUser");
-      const client = await runtimePool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
-        await client.query(
-          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::uuid)",
-          [target.userId, superadmin.userId]
-        );
-        await client.query("COMMIT");
-
-        const userRoles = await runtimePool.query(
-          "SELECT r.code FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = $1",
-          [target.userId]
-        );
-        expect(userRoles.rows.some((r) => r.code === "HOST_OWNER")).toBe(true);
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
-    });
-
-    it("Scenario 7: revoke_user_role requires trusted app.current_user_id and SUPERADMIN authority", async () => {
-      const target = await createTestUser("TRAVELLER", "RevokeTarget");
-
-      // Without app.current_user_id -> rejected
+    it("Scenario 2: Invoking assign_user_role with invalid/malformed identity assertion is rejected", async () => {
       await expect(
-        runtimePool.query("SELECT public.revoke_user_role($1::uuid, 'TRAVELLER')", [target.userId])
-      ).rejects.toThrow(/database identity context .* not established/i);
-
-      // With regularUser identity -> rejected
-      const client = await runtimePool.connect();
-      try {
-        await client.query("BEGIN");
-        await client.query("SELECT set_config('app.current_user_id', $1, true)", [regularUser.userId]);
-        await expect(
-          client.query("SELECT public.revoke_user_role($1::uuid, 'TRAVELLER')", [target.userId])
-        ).rejects.toThrow(/requires SUPERADMIN authority/i);
-        await client.query("ROLLBACK");
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw err;
-      } finally {
-        client.release();
-      }
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', '{\"invalid\":\"payload\"}'::jsonb)",
+          [regularUser.userId]
+        )
+      ).rejects.toThrow(/malformed identity assertion/i);
     });
 
-    it("Scenario 8: revoke_user_role prevents self-revocation and stripping user's only role", async () => {
-      // 1. Attempt self-revocation in isolated transaction
+    it("Scenario 3: Invoking assign_user_role with expired assertion is rejected", async () => {
+      const expiredAssertion = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "HOST_OWNER",
+        ttlSeconds: -10 // expired 10 seconds ago
+      });
+
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(expiredAssertion)]
+        )
+      ).rejects.toThrow(/identity assertion has expired/i);
+    });
+
+    it("Scenario 4: Invoking assign_user_role with forged signature is rejected", async () => {
+      const forgedAssertion = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "SUPERADMIN"
+      });
+      // Tamper with signature
+      forgedAssertion.signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(forgedAssertion)]
+        )
+      ).rejects.toThrow(/invalid or forged identity assertion signature/i);
+    });
+
+    it("Scenario 5: Replaying an already-consumed assertion is rejected", async () => {
+      const target = await createTestUser("TRAVELLER", "ReplayTarget");
+      const validAssertion = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: target.userId,
+        roleCode: "HOST_OWNER"
+      });
+
+      // First execution succeeds
+      const res1 = await runtimePool.query(
+        "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+        [target.userId, JSON.stringify(validAssertion)]
+      );
+      expect(res1.rows[0].assign_user_role).toBe(true);
+
+      // Replay attempt with exact same assertion/nonce must fail
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+          [target.userId, JSON.stringify(validAssertion)]
+        )
+      ).rejects.toThrow(/replay detected/i);
+    });
+
+    it("Scenario 6: Normal user attempts to assign SUPERADMIN using their own assertion -> Denied", async () => {
+      const normalUserAssertion = createDatabaseIdentityAssertion({
+        actorId: regularUser.userId,
+        action: "ASSIGN_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "SUPERADMIN"
+      });
+
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(normalUserAssertion)]
+        )
+      ).rejects.toThrow(/requires SUPERADMIN authority/i);
+    });
+
+    it("Scenario 7: Normal user attempts to revoke role using their own assertion -> Denied", async () => {
+      const normalUserRevokeAssertion = createDatabaseIdentityAssertion({
+        actorId: regularUser.userId,
+        action: "REVOKE_ROLE",
+        targetId: superadmin.userId,
+        roleCode: "SUPERADMIN"
+      });
+
+      await expect(
+        runtimePool.query(
+          "SELECT public.revoke_user_role($1::uuid, 'SUPERADMIN', $2::jsonb)",
+          [superadmin.userId, JSON.stringify(normalUserRevokeAssertion)]
+        )
+      ).rejects.toThrow(/requires SUPERADMIN authority/i);
+    });
+
+    it("Scenario 8 (CRITICAL REGRESSION): luggage_user setting app.current_user_id to SUPERADMIN cannot assign roles without valid HMAC assertion", async () => {
+      // Attempt 1: Call without assertion in isolated client transaction -> FAILS
       const client1 = await runtimePool.connect();
       try {
         await client1.query("BEGIN");
         await client1.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
         await expect(
-          client1.query("SELECT public.revoke_user_role($1::uuid, 'SUPERADMIN')", [superadmin.userId])
-        ).rejects.toThrow(/cannot modify roles on their own account|cannot revoke roles from their own account/i);
+          client1.query("SELECT public.assign_user_role($1::uuid, 'SUPERADMIN')", [regularUser.userId])
+        ).rejects.toThrow(/missing trusted identity assertion/i);
         await client1.query("ROLLBACK");
-      } catch {
-        await client1.query("ROLLBACK").catch(() => {});
       } finally {
         client1.release();
       }
 
-      // 2. Attempt revoking only role from a single-role user in isolated transaction
-      const singleRoleUser = await createTestUser("TRAVELLER", "SingleRoleUser");
+      // Attempt 2: Call with forged assertion signed by attacker's fake key in isolated transaction -> FAILS
       const client2 = await runtimePool.connect();
       try {
         await client2.query("BEGIN");
         await client2.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
+        const attackerAssertion = {
+          actorId: superadmin.userId,
+          action: "ASSIGN_ROLE",
+          targetId: regularUser.userId,
+          roleCode: "SUPERADMIN",
+          expiresAt: Math.floor(Date.now() / 1000) + 300,
+          nonce: "attacker_nonce_12345678",
+          signature: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+        };
         await expect(
-          client2.query("SELECT public.revoke_user_role($1::uuid, 'TRAVELLER')", [singleRoleUser.userId])
-        ).rejects.toThrow(/cannot revoke the user's only remaining role/i);
+          client2.query(
+            "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $2::jsonb)",
+            [regularUser.userId, JSON.stringify(attackerAssertion)]
+          )
+        ).rejects.toThrow(/invalid or forged identity assertion signature/i);
         await client2.query("ROLLBACK");
-      } catch {
-        await client2.query("ROLLBACK").catch(() => {});
       } finally {
         client2.release();
       }
+    });
 
-      // 3. Assign second role and then successfully revoke it
-      const client3 = await runtimePool.connect();
+    it("Scenario 9: luggage_user setting app.current_user_id to SUPERADMIN cannot revoke roles without valid assertion", async () => {
+      const client = await runtimePool.connect();
       try {
-        await client3.query("BEGIN");
-        await client3.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
-        await client3.query("SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::uuid)", [
-          singleRoleUser.userId,
-          superadmin.userId
-        ]);
-        await client3.query(
-          "SELECT public.revoke_user_role($1::uuid, 'HOST_OWNER')",
-          [singleRoleUser.userId]
-        );
-        await client3.query("COMMIT");
-
-        const remainingRoles = await runtimePool.query(
-          "SELECT r.code FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = $1",
-          [singleRoleUser.userId]
-        );
-        expect(remainingRoles.rows.some((r) => r.code === "HOST_OWNER")).toBe(false);
-        expect(remainingRoles.rows.some((r) => r.code === "TRAVELLER")).toBe(true);
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
+        await expect(
+          client.query("SELECT public.revoke_user_role($1::uuid, 'TRAVELLER')", [regularUser.userId])
+        ).rejects.toThrow(/missing trusted identity assertion/i);
+        await client.query("ROLLBACK");
       } catch (err) {
-        await client3.query("ROLLBACK").catch(() => {});
+        await client.query("ROLLBACK").catch(() => {});
         throw err;
       } finally {
-        client3.release();
+        client.release();
+      }
+    });
+
+    it("Scenario 10: Missing actor attempts host-owner self-assignment -> Denied", async () => {
+      await expect(
+        runtimePool.query("SELECT public.self_assign_host_owner_role($1::uuid)", [regularUser.userId])
+      ).rejects.toThrow(/missing trusted identity assertion/i);
+    });
+
+    it("Scenario 11: User attempts host-owner self-assignment for another user -> Denied", async () => {
+      const otherUser = await createTestUser("TRAVELLER", "OtherTarget");
+      const mismatchAssertion = createDatabaseIdentityAssertion({
+        actorId: regularUser.userId,
+        action: "SELF_ASSIGN_HOST_OWNER",
+        targetId: otherUser.userId,
+        roleCode: "HOST_OWNER"
+      });
+
+      await expect(
+        runtimePool.query(
+          "SELECT public.self_assign_host_owner_role($1::uuid, $2::jsonb)",
+          [otherUser.userId, JSON.stringify(mismatchAssertion)]
+        )
+      ).rejects.toThrow(/self-assignment actor does not match target user/i);
+    });
+
+    it("Scenario 12: Host-owner self-assignment before registering a business -> Denied", async () => {
+      const newHost = await createTestUser("TRAVELLER", "NoBizHost");
+      const selfAssertion = createDatabaseIdentityAssertion({
+        actorId: newHost.userId,
+        action: "SELF_ASSIGN_HOST_OWNER",
+        targetId: newHost.userId,
+        roleCode: "HOST_OWNER"
+      });
+
+      await expect(
+        runtimePool.query(
+          "SELECT public.self_assign_host_owner_role($1::uuid, $2::jsonb)",
+          [newHost.userId, JSON.stringify(selfAssertion)]
+        )
+      ).rejects.toThrow(/does not own an active or eligible host business/i);
+    });
+
+    it("Scenario 13: Genuine business owner follows authorized host onboarding path -> Allowed", async () => {
+      const validHost = await createTestUser("TRAVELLER", "ValidOnboardingHost");
+
+      const bRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/hosts/businesses",
+        headers: { authorization: `Bearer ${validHost.accessToken}` },
+        payload: {
+          legalBusinessName: "Verified Assertion Hub PVT LTD",
+          tradeName: "Verified Assertion Hub",
+          entityType: "SOLE_PROPRIETORSHIP",
+          contactEmail: "assert@hub.lk",
+          contactPhone: "+94770001234",
+          city: "Colombo"
+        }
+      });
+      expect(bRes.statusCode).toBe(201);
+
+      // Verify user has HOST_OWNER role
+      const userRoles = await runtimePool.query(
+        "SELECT r.code FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = $1",
+        [validHost.userId]
+      );
+      expect(userRoles.rows.some((r) => r.code === "HOST_OWNER")).toBe(true);
+    });
+
+    it("Scenario 14: Valid SUPERADMIN performs authorized assignment via API -> Allowed", async () => {
+      const target = await createTestUser("TRAVELLER", "SuperadminPromotedUser");
+
+      const assignRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/admin/users/${target.userId}/roles`,
+        headers: { authorization: `Bearer ${superadmin.accessToken}` },
+        payload: { roleCode: "SUPPORT" }
+      });
+
+      expect(assignRes.statusCode).toBe(200);
+      const roles = JSON.parse(assignRes.body).data.roles;
+      expect(roles).toContain("SUPPORT");
+    });
+
+    it("Scenario 15: Valid SUPERADMIN performs authorized revocation via API -> Allowed", async () => {
+      const target = await createTestUser("TRAVELLER", "SuperadminRevokeUser");
+
+      // First add SUPPORT
+      await app.inject({
+        method: "POST",
+        url: `/api/v1/admin/users/${target.userId}/roles`,
+        headers: { authorization: `Bearer ${superadmin.accessToken}` },
+        payload: { roleCode: "SUPPORT" }
+      });
+
+      // Now revoke SUPPORT
+      const revokeRes = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/admin/users/${target.userId}/roles/SUPPORT`,
+        headers: { authorization: `Bearer ${superadmin.accessToken}` }
+      });
+
+      expect(revokeRes.statusCode).toBe(200);
+      const remaining = JSON.parse(revokeRes.body).data.roles;
+      expect(remaining).not.toContain("SUPPORT");
+      expect(remaining).toContain("TRAVELLER");
+    });
+
+    it("Scenario 16: Revocation defense: Administrator cannot revoke roles on own account", async () => {
+      const revokeSelfRes = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/admin/users/${superadmin.userId}/roles/SUPERADMIN`,
+        headers: { authorization: `Bearer ${superadmin.accessToken}` }
+      });
+
+      expect(revokeSelfRes.statusCode).toBe(400);
+      expect(JSON.parse(revokeSelfRes.body).error.message).toMatch(/cannot modify roles on their own account/i);
+    });
+
+    it("Scenario 17: Invariant check: Cannot revoke user's only remaining role", async () => {
+      const singleRoleUser = await createTestUser("TRAVELLER", "SingleRoleRevokeTarget");
+
+      const revokeOnlyRes = await app.inject({
+        method: "DELETE",
+        url: `/api/v1/admin/users/${singleRoleUser.userId}/roles/TRAVELLER`,
+        headers: { authorization: `Bearer ${superadmin.accessToken}` }
+      });
+
+      expect(revokeOnlyRes.statusCode).toBe(400);
+      expect(JSON.parse(revokeOnlyRes.body).error.message).toMatch(/only remaining role/i);
+    });
+
+    it("Scenario 18: Direct table access to trusted_auth_secrets is denied to luggage_user", async () => {
+      await expect(
+        runtimePool.query("SELECT * FROM public.trusted_auth_secrets")
+      ).rejects.toThrow(/permission denied for table trusted_auth_secrets/i);
+    });
+
+    it("Scenario 19: Direct table access to consumed_auth_assertions is denied to luggage_user", async () => {
+      await expect(
+        runtimePool.query("SELECT * FROM public.consumed_auth_assertions")
+      ).rejects.toThrow(/permission denied for table consumed_auth_assertions/i);
+    });
+
+    it("Scenario 20: Direct table modification (INSERT) on user_roles is denied to luggage_user", async () => {
+      await expect(
+        runtimePool.query(
+          "INSERT INTO public.user_roles (user_id, role_id) VALUES ($1, $1)",
+          [regularUser.userId]
+        )
+      ).rejects.toThrow(/permission denied for table user_roles/i);
+    });
+
+    it("Scenario 21: Reused pooled connection receives subsequent request from different user with no identity leakage", async () => {
+      // Connect client 1 from runtimePool
+      const client1 = await runtimePool.connect();
+      try {
+        await client1.query("BEGIN");
+        await client1.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
+        const check1 = await client1.query("SELECT current_setting('app.current_user_id', true) as uid");
+        expect(check1.rows[0].uid).toBe(superadmin.userId);
+        await client1.query("ROLLBACK");
+      } finally {
+        client1.release();
+      }
+
+      // Connect client 2 from runtimePool (which might reuse client1 connection)
+      const client2 = await runtimePool.connect();
+      try {
+        const check2 = await client2.query("SELECT current_setting('app.current_user_id', true) as uid");
+        // Transaction setting must not persist across transactions
+        expect(check2.rows[0].uid).toBe("");
+      } finally {
+        client2.release();
       }
     });
   });
@@ -1245,7 +1429,8 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
           ZOHO_SMTP_PORT: "587",
           ZOHO_SMTP_USER: "admin@luggage.lk",
           ZOHO_SMTP_PASSWORD: "RealPassword123!",
-          PAYOUT_ENCRYPTION_KEY: "prod_payout_encryption_key_32_chars_minimum!"
+          PAYOUT_ENCRYPTION_KEY: "prod_payout_encryption_key_32_chars_minimum!",
+          DB_IDENTITY_SECRET: "prod_db_identity_secret_key_32_chars_minimum!"
         });
       }).toThrow(/STORAGE_PROVIDER must be 'r2' in production/i);
     });

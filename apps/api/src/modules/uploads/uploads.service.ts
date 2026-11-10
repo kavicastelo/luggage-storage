@@ -287,9 +287,14 @@ export class UploadsService {
       );
     }
 
-    if (meta.contentLength === undefined || meta.contentLength <= 0) {
+    if (
+      meta.contentLength === undefined ||
+      meta.contentLength === null ||
+      typeof meta.contentLength !== "number" ||
+      meta.contentLength <= 0
+    ) {
       throw AppError.badRequest(
-        "Uploaded object is empty (0 bytes). Uploaded files must have positive length."
+        "Uploaded object is empty (0 bytes) or missing content length. Uploaded files must have positive length."
       );
     }
 
@@ -299,14 +304,23 @@ export class UploadsService {
       );
     }
 
-    if (meta.contentType) {
-      const actualMime = meta.contentType.split(";")[0].trim().toLowerCase();
-      const expectedMime = intent.mimeType.split(";")[0].trim().toLowerCase();
-      if (actualMime !== expectedMime) {
-        throw AppError.badRequest(
-          `Uploaded object content type '${meta.contentType}' does not match the authorized MIME type '${intent.mimeType}' for this upload intent`
-        );
-      }
+    // Fail closed if content type is missing, empty, undefined, or whitespace
+    if (
+      !meta.contentType ||
+      typeof meta.contentType !== "string" ||
+      meta.contentType.trim().length === 0
+    ) {
+      throw AppError.badRequest(
+        "Uploaded object is missing content type metadata. Storage provider must report a valid Content-Type."
+      );
+    }
+
+    const actualMime = meta.contentType.split(";")[0].trim().toLowerCase();
+    const expectedMime = intent.mimeType.split(";")[0].trim().toLowerCase();
+    if (!actualMime || actualMime !== expectedMime) {
+      throw AppError.badRequest(
+        `Uploaded object content type '${meta.contentType}' does not match the authorized MIME type '${intent.mimeType}' for this upload intent`
+      );
     }
 
     // 6. Execute state transition and resource association atomically under row lock

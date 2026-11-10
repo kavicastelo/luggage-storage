@@ -36,7 +36,7 @@ export interface StoragePort {
   objectExists(fileKey: string): Promise<boolean>;
   getObjectMetadata(fileKey: string): Promise<ObjectMetadata>;
   getPublicUrl?(fileKey: string): string | undefined;
-  simulateUpload?(fileKey: string, data: { mimeType: string; size: number }): void;
+  simulateUpload?(fileKey: string, data: { mimeType?: string; size?: number }): void;
 }
 
 export class CloudflareR2StorageAdapter implements StoragePort {
@@ -139,10 +139,10 @@ export class InMemoryStorageAdapter implements StoragePort {
     return { uploadUrl, expiresInSeconds: expiresIn };
   }
 
-  simulateUpload(fileKey: string, data: { mimeType: string; size: number }): void {
+  simulateUpload(fileKey: string, data: { mimeType?: string; size?: number }): void {
     this.storedObjects.set(fileKey, {
-      mimeType: data.mimeType,
-      size: data.size,
+      mimeType: data.mimeType !== undefined ? data.mimeType : "",
+      size: data.size !== undefined ? data.size : 0,
       createdAt: new Date()
     });
   }
@@ -164,7 +164,7 @@ export class InMemoryStorageAdapter implements StoragePort {
     return {
       exists: true,
       contentLength: obj.size,
-      contentType: obj.mimeType
+      contentType: obj.mimeType && obj.mimeType.trim().length > 0 ? obj.mimeType : undefined
     };
   }
 

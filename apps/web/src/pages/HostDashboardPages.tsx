@@ -1003,7 +1003,7 @@ export function HostLocationManagementPage() {
                   <span>{loc.addressLine1 || loc.landmark || loc.city}</span>
                 </p>
                 <p className="text-[11px] text-navy-500">
-                  <strong className="text-navy-700">Protected Address Mode:</strong> Exact coordinates &amp; address private until booking confirmation.
+                  <strong className="text-navy-700">Public Masked Address:</strong> {(loc as any).addressMasked || "Exact coordinates & address private until booking confirmation."}
                 </p>
               </div>
 
@@ -3042,7 +3042,7 @@ export function HostStaffManagementRbacPage() {
 // ============================================================================
 export function HostBusinessProfileLegalPage() {
   const [businesses, setBusinesses] = useState<HostBusiness[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -3124,15 +3124,29 @@ export function HostBusinessProfileLegalPage() {
                 <span>Status: {currentBusiness.status}</span>
               </span>
             ) : (
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(true)}
-                className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
-              >
-                Register Host Business
-              </button>
+              <>
+                <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-sand-100 text-navy-800 border border-sand-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-terracotta-600" />
+                  <span>KYC Profile Preview (Demo Simulation)</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(true)}
+                  className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
+                >
+                  Register Host Business
+                </button>
+              </>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Honest Prototype Notice */}
+      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <strong className="text-navy-950">Business Profile &amp; KYC (Demo Simulation):</strong> Corporate entities, tax identifiers (BRN/TIN), and insurance certificates displayed here are sample fixtures for Fort Hub onboarding demonstration. Production verification and document uploads will connect to Superadmin compliance workflows in Phase 3+.
         </div>
       </div>
 
@@ -3217,22 +3231,89 @@ export function HostBusinessProfileLegalPage() {
           </div>
         </>
       ) : (
-        <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-4 shadow-sm">
-          <Building2 className="h-10 w-10 text-sand-400 mx-auto" />
-          <div>
-            <h3 className="text-base font-bold text-navy-950">No Host Business Registered Yet</h3>
-            <p className="text-xs text-navy-600 mt-1 max-w-md mx-auto">
-              To operate storage locations, publish listings, and receive traveller payouts in Sri Lanka (LKR), you must register a Host Business entity.
-            </p>
+        <>
+          {/* Corporate Registration Dossier (Demo Fixture) */}
+          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+            <h2 className="text-sm font-bold text-navy-950">Corporate Registration Certificate</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-navy-500">Registered Legal Entity:</span>
+                <p className="font-bold text-navy-950">Ceylon Transit Hospitality (Pvt) Ltd</p>
+              </div>
+              <div>
+                <span className="text-navy-500">Registrar of Companies BRN:</span>
+                <p className="font-mono font-bold text-navy-950">PV-00294812</p>
+              </div>
+              <div>
+                <span className="text-navy-500">Inland Revenue Department TIN:</span>
+                <p className="font-mono font-bold text-navy-950">TIN-10928472-0001</p>
+              </div>
+              <div>
+                <span className="text-navy-500">VAT Status:</span>
+                <p className="font-bold text-emerald-700">Registered (VAT-10928472-7000)</p>
+              </div>
+              <div className="sm:col-span-2">
+                <span className="text-navy-500">Registered Office Address:</span>
+                <p className="font-medium text-navy-900">
+                  Level 4, East Tower, World Trade Center, Colombo 01, Sri Lanka
+                </p>
+              </div>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold transition shadow-sm"
-          >
-            Start Business Registration
-          </button>
-        </div>
+
+          {/* Verified KYC Documents (Demo Fixture) */}
+          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+            <h2 className="text-sm font-bold text-navy-950">Verified Compliance Documentation</h2>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50 border border-sand-200">
+                <div className="flex items-center gap-2.5">
+                  <FileText className="h-4 w-4 text-terracotta-600" />
+                  <div>
+                    <p className="font-bold text-navy-900">Certificate of Incorporation (Form 1 / Form 20)</p>
+                    <p className="text-[10px] text-navy-500">Verified by Superadmin Compliance</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
+                  Sample Verification Status
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50 border border-sand-200">
+                <div className="flex items-center gap-2.5">
+                  <FileText className="h-4 w-4 text-terracotta-600" />
+                  <div>
+                    <p className="font-bold text-navy-900">Commercial Premises Lease &amp; Insurance Cover</p>
+                    <p className="text-[10px] text-navy-500">LKR 10,000,000 Public Liability Insurance Policy</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
+                  Sample Verification Status
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-sand-100/80 text-[11px] text-navy-700">
+              <strong className="text-navy-900">Compliance Notice:</strong> Corporate registration and bank details are read-only once verified. To request changes, contact Superadmin Compliance Support at <span className="font-semibold text-terracotta-700">compliance@ceylonstorage.lk</span>.
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-4 shadow-sm">
+            <Building2 className="h-10 w-10 text-sand-400 mx-auto" />
+            <div>
+              <h3 className="text-base font-bold text-navy-950">No Host Business Registered Yet</h3>
+              <p className="text-xs text-navy-600 mt-1 max-w-md mx-auto">
+                To operate storage locations, publish listings, and receive traveller payouts in Sri Lanka (LKR), you must register a Host Business entity.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              className="px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold transition shadow-sm"
+            >
+              Start Business Registration
+            </button>
+          </div>
+        </>
       )}
 
       {/* Modal: Register Host Business */}
