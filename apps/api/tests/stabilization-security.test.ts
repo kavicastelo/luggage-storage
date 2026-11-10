@@ -373,6 +373,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
       R2_SECRET_ACCESS_KEY: "prod_r2_secret_access_key_example",
       R2_BUCKET_NAME: "luggage-storage-production",
       PAYOUT_ENCRYPTION_KEY: "prod_payout_encryption_key_32_chars_minimum!",
+      DB_IDENTITY_SECRET: "prod_db_identity_secret_with_at_least_32_chars_999",
       DATABASE_SSL: "true",
       DATABASE_SSL_REJECT_UNAUTHORIZED: "true",
       CORS_ORIGIN: "https://app.luggagestorage.lk,https://admin.luggagestorage.lk",
@@ -814,7 +815,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
         fs.readFileSync(path.join(metaDir, "_journal.json"), "utf8")
       );
 
-      expect(journal.entries.length).toBe(9);
+      expect(journal.entries.length).toBe(10);
 
       let previousSnapshotId = "00000000-0000-0000-0000-000000000000";
       for (const entry of journal.entries) {
@@ -835,7 +836,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
       const client = await migratorPool.connect();
       try {
         await verifyMigratedSchema(client);
-        expect(REQUIRED_PUBLIC_TABLES.length).toBe(26);
+        expect(REQUIRED_PUBLIC_TABLES.length).toBe(28);
       } finally {
         client.release();
       }

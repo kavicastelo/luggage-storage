@@ -101,6 +101,10 @@ export const EnvSchema = z
     PAYOUT_ENCRYPTION_KEY: z.preprocess(
       (val) => (val === "" || val === undefined ? undefined : val),
       z.string().min(32, "PAYOUT_ENCRYPTION_KEY must be at least 32 characters").default("dev_payout_encryption_key_32_characters_minimum_12345")
+    ),
+    DB_IDENTITY_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.string().min(32, "DB_IDENTITY_SECRET must be at least 32 characters").default("dev_db_identity_secret_key_minimum_32_characters_12345")
     )
   })
   .superRefine((data, ctx) => {
@@ -166,6 +170,13 @@ export const EnvSchema = z
           code: z.ZodIssueCode.custom,
           message: "RATE_LIMIT_HASH_SECRET cannot use default dev secret in production",
           path: ["RATE_LIMIT_HASH_SECRET"]
+        });
+      }
+      if (data.DB_IDENTITY_SECRET.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "DB_IDENTITY_SECRET cannot use default dev secret in production",
+          path: ["DB_IDENTITY_SECRET"]
         });
       }
       if (!data.DATABASE_SSL) {

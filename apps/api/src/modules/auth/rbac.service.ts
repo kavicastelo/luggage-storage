@@ -6,6 +6,7 @@ import {
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { auditService, SecurityEventType } from "../audit/audit.service.js";
+import { createDatabaseIdentityAssertion } from "../../common/crypto/database-identity.js";
 
 export interface RoleManagementContext {
   adminId: string;
@@ -201,6 +202,14 @@ export class RbacService {
       throw AppError.forbidden("Only Superadministrators can assign administrative roles");
     }
 
+    // Generate cryptographically signed database identity assertion
+    const assertion = createDatabaseIdentityAssertion({
+      actorId: context.adminId,
+      action: "ASSIGN_ROLE",
+      targetId: context.targetUserId,
+      roleCode: normalizedRoleCode
+    });
+
     // Execute role assignment via SECURITY DEFINER function inside transaction setting session actor
     await db.transaction(async (tx) => {
       await tx.execute(
@@ -210,7 +219,7 @@ export class RbacService {
         sql`SELECT public.assign_user_role(
               ${context.targetUserId}::uuid,
               ${normalizedRoleCode}::varchar,
-              ${context.adminId}::uuid
+              ${JSON.stringify(assertion)}::jsonb
             );`
       );
     });
@@ -275,6 +284,14 @@ export class RbacService {
       throw AppError.forbidden("Only Superadministrators can revoke Superadmin privileges");
     }
 
+    // Generate cryptographically signed database identity assertion
+    const assertion = createDatabaseIdentityAssertion({
+      actorId: context.adminId,
+      action: "REVOKE_ROLE",
+      targetId: context.targetUserId,
+      roleCode: normalizedRoleCode
+    });
+
     // Execute role revocation via SECURITY DEFINER function inside transaction setting session actor
     await db.transaction(async (tx) => {
       await tx.execute(
@@ -283,7 +300,8 @@ export class RbacService {
       await tx.execute(
         sql`SELECT public.revoke_user_role(
               ${context.targetUserId}::uuid,
-              ${normalizedRoleCode}::varchar
+              ${normalizedRoleCode}::varchar,
+              ${JSON.stringify(assertion)}::jsonb
             );`
       );
     });

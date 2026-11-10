@@ -178,7 +178,7 @@ export default function HostSettingsScreen() {
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <MobileIcon name="shield" size={18} color={mobileColors.terracotta[600]} />
-          <Text style={styles.sectionTitle}>Host Business & Compliance Records</Text>
+          <Text style={styles.sectionTitle}>Host Business &amp; Compliance Records (Simulated Compliance Records)</Text>
         </View>
 
         <View style={styles.detailRow}>

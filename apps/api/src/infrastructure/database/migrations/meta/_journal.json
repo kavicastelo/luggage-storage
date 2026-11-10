@@ -64,6 +64,13 @@
       "when": 1794350000000,
       "tag": "0008_phase_a_final_security_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794360000000,
+      "tag": "0009_phase_a_trusted_identity_boundary",
+      "breakpoints": true
     }
   ]
 }
