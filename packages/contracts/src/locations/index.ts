@@ -163,8 +163,8 @@ export const PublicStorageLocationSchema = z.object({
   })).default([]),
   baseRateMinor: z.number().int().positive().optional(),
   currency: z.string().default("LKR"),
-  averageRating: z.number().default(5.0),
-  reviewCount: z.number().int().default(0),
+  averageRating: z.number().min(0).max(5).nullable().default(null),
+  reviewCount: z.number().int().nonnegative().default(0),
   is24Hours: z.boolean().default(false),
   operatingHoursSummary: z.string().default("08:00 - 20:00")
 });

@@ -886,7 +886,7 @@ export interface StorageLocationItem {
   district: string;
   landmark: string;
   distanceKm: number;
-  rating: number;
+  rating: number | null;
   reviewCount: number;
   verifiedHost: string;
   openHours: string;

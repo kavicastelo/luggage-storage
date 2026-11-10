@@ -367,6 +367,12 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
       JWT_SECRET: "prod_jwt_secret_key_with_at_least_32_characters_99999",
       COOKIE_SECRET: "prod_cookie_secret_key_with_at_least_32_characters_99999",
       RATE_LIMIT_HASH_SECRET: "prod_rate_limit_hmac_secret_with_at_least_32_chars_99",
+      STORAGE_PROVIDER: "r2",
+      R2_ACCOUNT_ID: "prod_r2_account_id_example",
+      R2_ACCESS_KEY_ID: "prod_r2_access_key_id_example",
+      R2_SECRET_ACCESS_KEY: "prod_r2_secret_access_key_example",
+      R2_BUCKET_NAME: "luggage-storage-production",
+      PAYOUT_ENCRYPTION_KEY: "prod_payout_encryption_key_32_chars_minimum!",
       DATABASE_SSL: "true",
       DATABASE_SSL_REJECT_UNAUTHORIZED: "true",
       CORS_ORIGIN: "https://app.luggagestorage.lk,https://admin.luggagestorage.lk",
@@ -808,7 +814,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
         fs.readFileSync(path.join(metaDir, "_journal.json"), "utf8")
       );
 
-      expect(journal.entries.length).toBe(7);
+      expect(journal.entries.length).toBe(8);
 
       let previousSnapshotId = "00000000-0000-0000-0000-000000000000";
       for (const entry of journal.entries) {
@@ -829,7 +835,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
       const client = await migratorPool.connect();
       try {
         await verifyMigratedSchema(client);
-        expect(REQUIRED_PUBLIC_TABLES.length).toBe(25);
+        expect(REQUIRED_PUBLIC_TABLES.length).toBe(26);
       } finally {
         client.release();
       }

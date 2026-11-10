@@ -302,7 +302,7 @@ export function PublicLandingPage() {
                   <Badge variant="brand">{loc.city}</Badge>
                   <span className="flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
                     <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
-                    <span>{loc.rating.toFixed(1)}</span>
+                    <span>{loc.rating !== null ? loc.rating.toFixed(1) : "New"}</span>
                     <span className="text-sand-600 font-normal">({loc.reviewCount})</span>
                   </span>
                 </div>
@@ -544,7 +544,7 @@ export function WebSearchDiscoveryPage() {
     if (sortBy === "PRICE_ASC") {
       list.sort((a, b) => a.hourlyRateLkr.MEDIUM - b.hourlyRateLkr.MEDIUM);
     } else if (sortBy === "RATING_DESC") {
-      list.sort((a, b) => b.rating - a.rating);
+      list.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
     }
     return list;
   }, [liveLocations, selectedCity, only24Hours, onlyClimateControl, sortBy]);
@@ -674,7 +674,7 @@ export function WebSearchDiscoveryPage() {
                         <Badge variant="brand">{loc.city}</Badge>
                         <span className="flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
                           <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
-                          <span>{loc.rating.toFixed(1)}</span>
+                          <span>{loc.rating !== null ? loc.rating.toFixed(1) : "New"}</span>
                           <span className="text-sand-600 font-normal">({loc.reviewCount})</span>
                         </span>
                         {loc.is24Hours && (
@@ -858,7 +858,7 @@ export function LocationProfileDetailPage() {
             <Badge variant="brand">{location.city}</Badge>
             <span className="flex items-center gap-1 text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
               <Star className="h-3.5 w-3.5 fill-amber-500 text-amber-500" />
-              <span>{location.rating.toFixed(1)}</span>
+              <span>{location.rating !== null ? location.rating.toFixed(1) : "New Partner"}</span>
               <span className="text-sand-600 font-normal">({location.reviewCount} reviews)</span>
             </span>
             <Badge variant="success">Verified Host</Badge>

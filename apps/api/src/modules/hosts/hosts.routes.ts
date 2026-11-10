@@ -192,4 +192,37 @@ export async function hostRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(200).send(createSuccessResponse(business.verification || null, request.id));
     }
   );
+
+  // 7. Get sensitive payout details (Authorized Host Owner or Financial Admin only)
+  app.get<{ Params: { businessId: string } }>(
+    "/businesses/:businessId/payout-details",
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        description: "Retrieve sensitive payout details for authorized business owner or financial administrator",
+        tags: ["Hosts"],
+        params: {
+          type: "object",
+          required: ["businessId"],
+          properties: {
+            businessId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const { businessId } = request.params;
+      const payoutDetails = await hostsService.getPayoutDetails(businessId, {
+        userId: request.user!.sub,
+        roles: request.user!.roles,
+        clientInfo: {
+          ip: request.ip,
+          userAgent: request.headers["user-agent"] as string,
+          correlationId: (request.headers["x-correlation-id"] as string) || request.id
+        }
+      });
+
+      return reply.status(200).send(createSuccessResponse(payoutDetails, request.id));
+    }
+  );
 }

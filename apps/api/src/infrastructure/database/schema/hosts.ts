@@ -39,7 +39,7 @@ export const hostBusinesses = pgTable(
     postalCode: varchar("postal_code", { length: 20 }),
     countryCode: varchar("country_code", { length: 2 }).notNull().default("LK"),
     payoutBankName: varchar("payout_bank_name", { length: 128 }),
-    payoutAccountNumber: varchar("payout_account_number", { length: 64 }),
+    payoutAccountNumber: varchar("payout_account_number", { length: 255 }),
     payoutAccountName: varchar("payout_account_name", { length: 128 }),
     payoutBranchCode: varchar("payout_branch_code", { length: 32 }),
     status: varchar("status", { length: 32 }).notNull().default("DRAFT"),

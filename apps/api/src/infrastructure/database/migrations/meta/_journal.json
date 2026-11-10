@@ -50,6 +50,13 @@
       "when": 1794273000000,
       "tag": "0006_marketplace_phase_a",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794276000000,
+      "tag": "0007_phase_a_security_hardening",
+      "breakpoints": true
     }
   ]
 }

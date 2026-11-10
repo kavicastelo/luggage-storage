@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import {
   ConfigurePricingPolicyRequest,
   PricingPolicy,
@@ -81,11 +81,21 @@ export class PricingService {
     await this.verifyLocationAccess(locationId, context);
 
     const result = await db.transaction(async (tx) => {
-      // Find or create policy
+      // 1. Serialize concurrent configuration calls for this location via row lock
+      await tx.execute(
+        sql`SELECT id FROM storage_locations WHERE id = ${locationId}::uuid FOR UPDATE;`
+      );
+
+      // 2. Find existing active policy
       const [existing] = await tx
         .select()
         .from(schema.pricingPolicies)
-        .where(eq(schema.pricingPolicies.locationId, locationId))
+        .where(
+          and(
+            eq(schema.pricingPolicies.locationId, locationId),
+            eq(schema.pricingPolicies.status, "ACTIVE")
+          )
+        )
         .limit(1);
 
       let policyId: string;
@@ -193,7 +203,8 @@ export class PricingService {
     const [loc] = await db
       .select({
         id: schema.storageLocations.id,
-        ownerUserId: schema.hostBusinesses.ownerUserId
+        ownerUserId: schema.hostBusinesses.ownerUserId,
+        businessStatus: schema.hostBusinesses.status
       })
       .from(schema.storageLocations)
       .innerJoin(
@@ -210,6 +221,10 @@ export class PricingService {
     const isSuperadmin = context.roles.includes("SUPERADMIN");
     if (loc.ownerUserId !== context.userId && !isSuperadmin) {
       throw AppError.forbidden("Access denied: You do not have permission to manage pricing for this location");
+    }
+
+    if (loc.businessStatus === "SUSPENDED" || loc.businessStatus === "REJECTED") {
+      throw AppError.badRequest(`Cannot configure pricing for a location belonging to a ${loc.businessStatus.toLowerCase()} business`);
     }
   }
 }

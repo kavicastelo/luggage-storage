@@ -37,7 +37,8 @@ export const REQUIRED_PUBLIC_TABLES = [
   "opening_hours_exceptions",
   "storage_capacity_pools",
   "pricing_policies",
-  "pricing_tier_rates"
+  "pricing_tier_rates",
+  "upload_intents"
 ] as const;
 
 export async function verifyMigratedSchema(client: pg.PoolClient): Promise<void> {

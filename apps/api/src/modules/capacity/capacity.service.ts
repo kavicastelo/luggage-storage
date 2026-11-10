@@ -170,7 +170,8 @@ export class CapacityService {
     const [loc] = await db
       .select({
         id: schema.storageLocations.id,
-        ownerUserId: schema.hostBusinesses.ownerUserId
+        ownerUserId: schema.hostBusinesses.ownerUserId,
+        businessStatus: schema.hostBusinesses.status
       })
       .from(schema.storageLocations)
       .innerJoin(
@@ -187,6 +188,10 @@ export class CapacityService {
     const isSuperadmin = context.roles.includes("SUPERADMIN");
     if (loc.ownerUserId !== context.userId && !isSuperadmin) {
       throw AppError.forbidden("Access denied: You do not have permission to manage this location");
+    }
+
+    if (loc.businessStatus === "SUSPENDED" || loc.businessStatus === "REJECTED") {
+      throw AppError.badRequest(`Cannot manage capacity for a location belonging to a ${loc.businessStatus.toLowerCase()} business`);
     }
   }
 }

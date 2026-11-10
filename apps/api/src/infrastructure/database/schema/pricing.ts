@@ -31,6 +31,9 @@ export const pricingPolicies = pgTable(
   (table) => [
     index("pricing_policies_location_id_idx").on(table.locationId),
     index("pricing_policies_status_idx").on(table.status),
+    uniqueIndex("pricing_policies_location_active_unique")
+      .on(table.locationId)
+      .where(sql`${table.status} = 'ACTIVE'`),
     check(
       "pricing_policies_pricing_unit_check",
       sql`${table.pricingUnit} IN ('CALENDAR_DAY', '24_HOUR_BLOCK')`

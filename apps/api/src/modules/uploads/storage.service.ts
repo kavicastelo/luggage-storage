@@ -21,13 +21,22 @@ export interface PresignedDownloadParams {
   expiresInSeconds?: number;
 }
 
+export interface ObjectMetadata {
+  exists: boolean;
+  contentLength?: number;
+  contentType?: string;
+  etag?: string;
+}
+
 export interface StoragePort {
   readonly isLiveR2: boolean;
   generatePresignedUploadUrl(params: PresignedUploadParams): Promise<{ uploadUrl: string; expiresInSeconds: number }>;
   generatePresignedDownloadUrl(params: PresignedDownloadParams): Promise<string>;
   deleteObject(fileKey: string): Promise<void>;
   objectExists(fileKey: string): Promise<boolean>;
+  getObjectMetadata(fileKey: string): Promise<ObjectMetadata>;
   getPublicUrl?(fileKey: string): string | undefined;
+  simulateUpload?(fileKey: string, data: { mimeType: string; size: number }): void;
 }
 
 export class CloudflareR2StorageAdapter implements StoragePort {
@@ -86,17 +95,27 @@ export class CloudflareR2StorageAdapter implements StoragePort {
     await this.client.send(command);
   }
 
-  async objectExists(fileKey: string): Promise<boolean> {
+  async getObjectMetadata(fileKey: string): Promise<ObjectMetadata> {
     try {
       const command = new HeadObjectCommand({
         Bucket: this.bucketName,
         Key: fileKey
       });
-      await this.client.send(command);
-      return true;
+      const res = await this.client.send(command);
+      return {
+        exists: true,
+        contentLength: res.ContentLength,
+        contentType: res.ContentType,
+        etag: res.ETag
+      };
     } catch {
-      return false;
+      return { exists: false };
     }
+  }
+
+  async objectExists(fileKey: string): Promise<boolean> {
+    const meta = await this.getObjectMetadata(fileKey);
+    return meta.exists;
   }
 
   getPublicUrl(fileKey: string): string | undefined {
@@ -107,7 +126,7 @@ export class CloudflareR2StorageAdapter implements StoragePort {
 
 export class InMemoryStorageAdapter implements StoragePort {
   readonly isLiveR2 = false;
-  private readonly storedObjects = new Map<string, { mimeType: string; createdAt: Date }>();
+  private readonly storedObjects = new Map<string, { mimeType: string; size: number; createdAt: Date }>();
   private readonly baseUrl: string;
 
   constructor(baseUrl: string = "http://localhost:3000") {
@@ -116,9 +135,16 @@ export class InMemoryStorageAdapter implements StoragePort {
 
   async generatePresignedUploadUrl(params: PresignedUploadParams): Promise<{ uploadUrl: string; expiresInSeconds: number }> {
     const expiresIn = params.expiresInSeconds || 900;
-    this.storedObjects.set(params.fileKey, { mimeType: params.mimeType, createdAt: new Date() });
     const uploadUrl = `${this.baseUrl}/api/v1/uploads/mock-storage/${encodeURIComponent(params.fileKey)}?signature=mock-presigned-sig&expiresIn=${expiresIn}`;
     return { uploadUrl, expiresInSeconds: expiresIn };
+  }
+
+  simulateUpload(fileKey: string, data: { mimeType: string; size: number }): void {
+    this.storedObjects.set(fileKey, {
+      mimeType: data.mimeType,
+      size: data.size,
+      createdAt: new Date()
+    });
   }
 
   async generatePresignedDownloadUrl(params: PresignedDownloadParams): Promise<string> {
@@ -128,6 +154,18 @@ export class InMemoryStorageAdapter implements StoragePort {
 
   async deleteObject(fileKey: string): Promise<void> {
     this.storedObjects.delete(fileKey);
+  }
+
+  async getObjectMetadata(fileKey: string): Promise<ObjectMetadata> {
+    const obj = this.storedObjects.get(fileKey);
+    if (!obj) {
+      return { exists: false };
+    }
+    return {
+      exists: true,
+      contentLength: obj.size,
+      contentType: obj.mimeType
+    };
   }
 
   async objectExists(fileKey: string): Promise<boolean> {
@@ -140,24 +178,44 @@ export class InMemoryStorageAdapter implements StoragePort {
 }
 
 export function createStorageService(): StoragePort {
+  const isProduction = env.NODE_ENV === "production";
   const hasR2Creds = Boolean(
     env.R2_ACCOUNT_ID &&
     env.R2_ACCESS_KEY_ID &&
-    env.R2_SECRET_ACCESS_KEY
+    env.R2_SECRET_ACCESS_KEY &&
+    env.R2_BUCKET_NAME
   );
 
-  if (env.STORAGE_PROVIDER === "r2" || (hasR2Creds && env.STORAGE_PROVIDER !== "memory" && env.STORAGE_PROVIDER !== "test")) {
+  if (isProduction) {
+    if (!hasR2Creds || env.STORAGE_PROVIDER !== "r2") {
+      throw new Error(
+        "[StorageService] Fatal: Cloudflare R2 credentials are required in production (STORAGE_PROVIDER must be 'r2'). Ephemeral InMemoryStorageAdapter is strictly prohibited."
+      );
+    }
     logger.info({ bucket: env.R2_BUCKET_NAME }, "[StorageService] Initialized Cloudflare R2 storage adapter");
     return new CloudflareR2StorageAdapter({
       accountId: env.R2_ACCOUNT_ID!,
       accessKeyId: env.R2_ACCESS_KEY_ID!,
       secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
-      bucketName: env.R2_BUCKET_NAME,
+      bucketName: env.R2_BUCKET_NAME!,
       publicUrl: env.R2_PUBLIC_URL
     });
   }
 
-  logger.info("[StorageService] Initialized InMemoryStorageAdapter (R2 credentials not provided in environment)");
+  if (env.STORAGE_PROVIDER === "r2" && hasR2Creds) {
+    logger.info({ bucket: env.R2_BUCKET_NAME }, "[StorageService] Initialized Cloudflare R2 storage adapter (non-production)");
+    return new CloudflareR2StorageAdapter({
+      accountId: env.R2_ACCOUNT_ID!,
+      accessKeyId: env.R2_ACCESS_KEY_ID!,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
+      bucketName: env.R2_BUCKET_NAME!,
+      publicUrl: env.R2_PUBLIC_URL
+    });
+  }
+
+  logger.warn(
+    "[StorageService] Ephemeral storage warning: Initialized InMemoryStorageAdapter for local development/testing."
+  );
   return new InMemoryStorageAdapter(env.APP_PUBLIC_URL || `http://${env.HOST}:${env.PORT}`);
 }
 
