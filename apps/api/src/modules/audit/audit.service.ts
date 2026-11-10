@@ -69,7 +69,19 @@ const ALLOWED_METADATA_KEYS = new Set([
   "scope",
   "points",
   "maxPoints",
-  "retryAfterSeconds"
+  "retryAfterSeconds",
+  "businessId",
+  "locationId",
+  "verificationId",
+  "documentId",
+  "poolId",
+  "policyId",
+  "zoneId",
+  "fileKey",
+  "documentType",
+  "decision",
+  "rejectionReason",
+  "adminNotes"
 ]);
 
 const FORBIDDEN_KEY_PATTERN = /(?:password|passwd|pwd|hash|salt|secret|token|bearer|authorization|cookie|credential)/i;

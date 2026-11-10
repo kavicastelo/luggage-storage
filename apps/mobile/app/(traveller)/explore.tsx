@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,10 +10,80 @@ import { useRouter } from "expo-router";
 import { DEMO_LOCATIONS, StorageLocationItem } from "../../src/data/mock-marketplace";
 import { Card, Button, Badge, MobileIcon, MascotIllustration } from "../../src/components";
 import { mobileColors, mobileRadius, mobileTypography } from "../../src/lib/theme";
+import { marketplaceApi } from "../../src/services/marketplace-api";
+import { PublicStorageLocation } from "@luggage-storage/contracts";
 
 export default function TravellerExploreScreen() {
   const router = useRouter();
+  const [locationsList, setLocationsList] = useState<StorageLocationItem[]>(DEMO_LOCATIONS);
   const [selectedLocation, setSelectedLocation] = useState<StorageLocationItem>(DEMO_LOCATIONS[0]);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchLive() {
+      try {
+        const res = await marketplaceApi.searchLocations({
+          radiusMeters: 25000,
+          page: 1,
+          limit: 20
+        });
+        if (isMounted && res.locations && res.locations.length > 0) {
+          const mapped: StorageLocationItem[] = res.locations.map((loc: PublicStorageLocation) => {
+            const baseRate = Math.round((loc.baseRateMinor ?? 15000) / 100);
+            return {
+              id: loc.id,
+              slug: loc.id,
+              name: loc.name,
+              city: loc.city,
+              district: loc.approximateArea || loc.city,
+              landmark: loc.approximateArea || `${loc.city} Station Zone`,
+              distanceKm: (loc.distanceMeters ?? 1000) / 1000,
+              rating: loc.averageRating,
+              reviewCount: loc.reviewCount,
+              verifiedHost: "Verified Host Partner",
+              openHours: loc.operatingHoursSummary,
+              is24Hours: loc.is24Hours,
+              hasCctv: loc.amenities.includes("CCTV"),
+              hasClimateControl: loc.amenities.includes("AIR_CONDITIONING"),
+              hasInsurance: true,
+              insuranceLimitLkr: 250000,
+              photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
+              gracePeriodMinutes: 30,
+              lateFeePolicyLabel: "Standard Tier LKR 300 / hr",
+              hourlyRateLkr: {
+                SMALL: Math.round(baseRate * 0.7),
+                MEDIUM: baseRate,
+                LARGE: Math.round(baseRate * 1.5),
+                OVERSIZED: Math.round(baseRate * 2.0)
+              },
+              dailyCapLkr: {
+                SMALL: Math.round(baseRate * 0.7 * 8),
+                MEDIUM: baseRate * 8,
+                LARGE: Math.round(baseRate * 1.5 * 8),
+                OVERSIZED: Math.round(baseRate * 2.0 * 8)
+              },
+              totalCapacity: 50,
+              availableCapacity: 45,
+              coordinates: {
+                lat: loc.approximateLatitude,
+                lng: loc.approximateLongitude
+              },
+              addressMasked: loc.approximateArea,
+              addressExact: `${loc.approximateArea} (Revealed on custody pass per OQ-012)`,
+              zones: [{ id: "z1", code: "Z1", name: "Main Storage Area", capacity: 50, occupied: 5 }],
+              description: loc.description || "Secure, verified luggage storage hub in Sri Lanka."
+            };
+          });
+          setLocationsList(mapped);
+          setSelectedLocation(mapped[0]);
+        }
+      } catch {
+        // Fallback silently to mock demo state
+      }
+    }
+    fetchLive();
+    return () => { isMounted = false; };
+  }, []);
 
   return (
     <View style={styles.screenWrapper}>
@@ -47,7 +117,7 @@ export default function TravellerExploreScreen() {
 
           {/* Interactive Map Pins */}
           <View style={styles.pinsContainer}>
-            {DEMO_LOCATIONS.map((loc) => {
+            {locationsList.map((loc) => {
               const isSelected = loc.id === selectedLocation.id;
               return (
                 <TouchableOpacity
@@ -146,7 +216,7 @@ export default function TravellerExploreScreen() {
         {/* All Location Cards List */}
         <View style={styles.listSection}>
           <Text style={styles.listHeading}>All Sri Lanka Storage Locations</Text>
-          {DEMO_LOCATIONS.map((loc) => {
+          {locationsList.map((loc) => {
             const isSelected = loc.id === selectedLocation.id;
             return (
               <TouchableOpacity

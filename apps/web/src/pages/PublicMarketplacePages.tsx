@@ -38,13 +38,63 @@ import {
   MascotIllustration
 } from "@/components/ui";
 import { useAuthStore } from "@/store/useAuthStore";
+import { marketplaceApi } from "@/services/marketplace-api";
+import { PublicStorageLocation } from "@luggage-storage/contracts";
 import {
   DEMO_LOCATIONS,
   DEMO_BOOKINGS,
   REFUND_SEVEN_STAGES,
   formatLkr,
-  DemoBookingRecord
+  DemoBookingRecord,
+  StorageLocationItem
 } from "@/data/mock-marketplace";
+
+function mapPublicLocationToItem(loc: PublicStorageLocation): StorageLocationItem {
+  const baseRate = Math.round((loc.baseRateMinor ?? 15000) / 100);
+  return {
+    id: loc.id,
+    slug: loc.id,
+    name: loc.name,
+    city: loc.city,
+    district: loc.approximateArea || loc.city,
+    landmark: loc.approximateArea || `${loc.city} Central Zone`,
+    distanceKm: (loc.distanceMeters ?? 1000) / 1000,
+    rating: loc.averageRating,
+    reviewCount: loc.reviewCount,
+    verifiedHost: "Verified Host Partner",
+    openHours: loc.operatingHoursSummary,
+    is24Hours: loc.is24Hours,
+    hasCctv: loc.amenities.includes("CCTV"),
+    hasClimateControl: loc.amenities.includes("AIR_CONDITIONING"),
+    hasInsurance: true,
+    insuranceLimitLkr: 250000,
+    photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
+    gracePeriodMinutes: 30,
+    lateFeePolicyLabel: "Standard Tier LKR 300 / hr",
+    hourlyRateLkr: {
+      SMALL: Math.round(baseRate * 0.7),
+      MEDIUM: baseRate,
+      LARGE: Math.round(baseRate * 1.5),
+      OVERSIZED: Math.round(baseRate * 2.0)
+    },
+    dailyCapLkr: {
+      SMALL: Math.round(baseRate * 0.7 * 8),
+      MEDIUM: baseRate * 8,
+      LARGE: Math.round(baseRate * 1.5 * 8),
+      OVERSIZED: Math.round(baseRate * 2.0 * 8)
+    },
+    totalCapacity: 50,
+    availableCapacity: 45,
+    coordinates: {
+      lat: loc.approximateLatitude,
+      lng: loc.approximateLongitude
+    },
+    addressMasked: loc.approximateArea,
+    addressExact: `${loc.approximateArea} (Revealed upon confirmed booking per OQ-012)`,
+    zones: [{ id: "z1", code: "Z1", name: "Main Storage Room", capacity: 50, occupied: 5 }],
+    description: loc.description || "Secure, convenient storage facility in Sri Lanka."
+  };
+}
 
 // ============================================================================
 // PW-001: Public Landing Page (/)
@@ -432,6 +482,7 @@ export function WebSearchDiscoveryPage() {
   const [onlyClimateControl, setOnlyClimateControl] = useState(false);
   const [sortBy, setSortBy] = useState<"RECOMMENDED" | "PRICE_ASC" | "RATING_DESC">("RECOMMENDED");
   const [selectedPinId, setSelectedPinId] = useState<string>(DEMO_LOCATIONS[0].id);
+  const [liveLocations, setLiveLocations] = useState<PublicStorageLocation[]>([]);
 
   // Sync state if query changes
   useEffect(() => {
@@ -440,6 +491,28 @@ export function WebSearchDiscoveryPage() {
       setSelectedCity(qCity);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchLive() {
+      try {
+        const res = await marketplaceApi.searchLocations({
+          city: selectedCity !== "ALL" ? selectedCity : undefined,
+          radiusMeters: 15000,
+          amenities: [],
+          page: 1,
+          limit: 20
+        });
+        if (isMounted && res.locations) {
+          setLiveLocations(res.locations);
+        }
+      } catch {
+        // Fallback silently to mock demo state
+      }
+    }
+    fetchLive();
+    return () => { isMounted = false; };
+  }, [selectedCity]);
 
   const handleCityChange = (city: string) => {
     setSelectedCity(city);
@@ -455,6 +528,10 @@ export function WebSearchDiscoveryPage() {
   };
 
   const filteredLocations = useMemo(() => {
+    if (liveLocations.length > 0) {
+      return liveLocations.map(mapPublicLocationToItem);
+    }
+
     const list = DEMO_LOCATIONS.filter((loc) => {
       if (selectedCity !== "ALL" && loc.city.toLowerCase() !== selectedCity.toLowerCase()) {
         return false;
@@ -470,7 +547,7 @@ export function WebSearchDiscoveryPage() {
       list.sort((a, b) => b.rating - a.rating);
     }
     return list;
-  }, [selectedCity, only24Hours, onlyClimateControl, sortBy]);
+  }, [liveLocations, selectedCity, only24Hours, onlyClimateControl, sortBy]);
 
   const activeSelectedLocation =
     filteredLocations.find((l) => l.id === selectedPinId) || filteredLocations[0];
@@ -742,8 +819,23 @@ export function WebSearchDiscoveryPage() {
 // ============================================================================
 export function LocationProfileDetailPage() {
   const { slug } = useParams<{ slug: string }>();
-  const location =
-    DEMO_LOCATIONS.find((l) => l.slug === slug || l.id === slug) || DEMO_LOCATIONS[0];
+  const [liveLocation, setLiveLocation] = useState<PublicStorageLocation | null>(null);
+
+  useEffect(() => {
+    if (slug) {
+      marketplaceApi.getPublicLocationDetails(slug)
+        .then((loc) => setLiveLocation(loc))
+        .catch(() => {});
+    }
+  }, [slug]);
+
+  const location = useMemo(() => {
+    if (liveLocation) {
+      return mapPublicLocationToItem(liveLocation);
+    }
+    return DEMO_LOCATIONS.find((l) => l.slug === slug || l.id === slug) || DEMO_LOCATIONS[0];
+  }, [liveLocation, slug]);
+
   const [hoursEstimate, setHoursEstimate] = useState(6);
 
   return (

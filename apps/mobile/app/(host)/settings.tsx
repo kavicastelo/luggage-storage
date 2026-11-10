@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,16 +11,43 @@ import { useAuthStore } from "../../src/store/useAuthStore";
 import { useHostStore } from "../../src/store/useHostStore";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
+import { marketplaceApi } from "../../src/services/marketplace-api";
+import { HostBusiness, StorageLocation } from "@luggage-storage/contracts";
 
 export default function HostSettingsScreen() {
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
   const { activeDemoRole, hub, resetToDefaults } = useHostStore();
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [liveBusiness, setLiveBusiness] = useState<HostBusiness | null>(null);
+  const [liveLocation, setLiveLocation] = useState<StorageLocation | null>(null);
 
   const isOwner = isAuthenticated
     ? Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"))
     : activeDemoRole === "HOST_OWNER";
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadLiveHostData() {
+      if (!isOwner) return;
+      try {
+        const businesses = await marketplaceApi.getOwnedBusinesses();
+        if (isMounted && businesses && businesses.length > 0) {
+          setLiveBusiness(businesses[0]);
+        }
+        const locations = await marketplaceApi.getOwnedLocations();
+        if (isMounted && locations && locations.length > 0) {
+          setLiveLocation(locations[0]);
+        }
+      } catch {
+        // Fallback to local store fixtures
+      }
+    }
+    loadLiveHostData();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOwner]);
 
   // Role Guard for Host Staff
   if (!isOwner) {
@@ -79,22 +106,29 @@ export default function HostSettingsScreen() {
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Facility Name:</Text>
-          <Text style={styles.detailValue}>{hub.name}</Text>
+          <Text style={styles.detailValue}>{liveLocation?.name || hub.name}</Text>
         </View>
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Location Identifier:</Text>
-          <Text style={styles.detailCode}>{hub.id}</Text>
+          <Text style={styles.detailCode}>{liveLocation?.id || hub.id}</Text>
         </View>
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Physical Address:</Text>
-          <Text style={styles.detailValue}>{hub.address}</Text>
+          <Text style={styles.detailValue}>
+            {liveLocation?.addressLine1 ? `${liveLocation.addressLine1}, ${liveLocation.city}` : hub.address}
+          </Text>
         </View>
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Operating Hours:</Text>
           <Text style={styles.detailValue}>{hub.operatingHours}</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Status:</Text>
+          <Text style={styles.detailValue}>{liveLocation?.status || "ACTIVE"}</Text>
         </View>
 
         <View style={styles.detailRow}>
@@ -144,17 +178,32 @@ export default function HostSettingsScreen() {
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <MobileIcon name="shield" size={18} color={mobileColors.terracotta[600]} />
-          <Text style={styles.sectionTitle}>Simulated Compliance Records</Text>
+          <Text style={styles.sectionTitle}>Host Business & Compliance Records</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Trade / Brand Name:</Text>
+          <Text style={styles.detailValue}>{liveBusiness?.tradeName || "Colombo Fort Hub"}</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Legal Entity Name:</Text>
+          <Text style={styles.detailValue}>{liveBusiness?.legalBusinessName || "Lanka Storage Hub PVT LTD"}</Text>
         </View>
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Business Reg. No (BRN):</Text>
-          <Text style={styles.detailCode}>PV-00294812 (Demo)</Text>
+          <Text style={styles.detailCode}>{liveBusiness?.businessRegistrationNumber || "PV-00294812 (Demo)"}</Text>
         </View>
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Tax ID (TIN):</Text>
-          <Text style={styles.detailCode}>TIN-10928472-0001</Text>
+          <Text style={styles.detailCode}>{liveBusiness?.taxIdentifier || "TIN-10928472-0001"}</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Verification Status:</Text>
+          <Text style={styles.detailCode}>{liveBusiness?.verification?.status || liveBusiness?.status || "NOT_SUBMITTED"}</Text>
         </View>
 
         <View style={styles.detailRow}>

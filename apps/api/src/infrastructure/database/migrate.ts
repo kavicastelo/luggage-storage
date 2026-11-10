@@ -25,7 +25,19 @@ export const REQUIRED_PUBLIC_TABLES = [
   "password_reset_tokens",
   "security_audit_events",
   "email_verification_tokens",
-  "auth_rate_limits"
+  "auth_rate_limits",
+  "host_businesses",
+  "host_verifications",
+  "host_verification_documents",
+  "host_staff_memberships",
+  "storage_locations",
+  "location_media",
+  "storage_zones",
+  "opening_hours",
+  "opening_hours_exceptions",
+  "storage_capacity_pools",
+  "pricing_policies",
+  "pricing_tier_rates"
 ] as const;
 
 export async function verifyMigratedSchema(client: pg.PoolClient): Promise<void> {

@@ -43,6 +43,13 @@
       "when": 1794150000000,
       "tag": "0005_stabilization_verification_and_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794273000000,
+      "tag": "0006_marketplace_phase_a",
+      "breakpoints": true
     }
   ]
 }

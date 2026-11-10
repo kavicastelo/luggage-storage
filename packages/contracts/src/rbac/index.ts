@@ -46,7 +46,29 @@ export const SYSTEM_PERMISSIONS = {
 
   // Support operations
   SUPPORT_TICKET_READ: "support.ticket.read",
-  SUPPORT_TICKET_UPDATE: "support.ticket.update"
+  SUPPORT_TICKET_UPDATE: "support.ticket.update",
+
+  // Hosts & Business domain
+  HOSTS_BUSINESS_CREATE: "hosts.business.create",
+  HOSTS_BUSINESS_READ_OWN: "hosts.business.read_own",
+  HOSTS_BUSINESS_UPDATE_OWN: "hosts.business.update_own",
+  HOSTS_VERIFICATION_SUBMIT: "hosts.verification.submit",
+  HOSTS_VERIFICATION_READ_OWN: "hosts.verification.read_own",
+  HOSTS_LOCATION_CREATE: "hosts.location.create",
+  HOSTS_LOCATION_READ_OWN: "hosts.location.read_own",
+  HOSTS_LOCATION_UPDATE_OWN: "hosts.location.update_own",
+  HOSTS_LOCATION_SUBMIT: "hosts.location.submit",
+  HOSTS_LOCATION_DISABLE: "hosts.location.disable",
+  HOSTS_LOCATION_CONFIGURE: "hosts.location.configure",
+
+  // Admin moderation domain
+  ADMIN_HOST_READ: "admin.host.read",
+  ADMIN_HOST_VERIFY: "admin.host.verify",
+  ADMIN_LOCATION_READ: "admin.location.read",
+  ADMIN_LOCATION_MODERATE: "admin.location.moderate",
+
+  // Upload domain
+  UPLOAD_INITIATE: "upload.initiate"
 } as const;
 
 export type PermissionCode =
