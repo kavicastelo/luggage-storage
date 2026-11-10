@@ -66,6 +66,9 @@ export class HostsService {
 
       // 2. Assign HOST_OWNER role using safe, self-service function (verified by business ownership)
       await tx.execute(
+        sql`SELECT set_config('app.current_user_id', ${context.userId}, true);`
+      );
+      await tx.execute(
         sql`SELECT public.self_assign_host_owner_role(${context.userId}::uuid);`
       );
 
@@ -274,18 +277,18 @@ export class HostsService {
         })
         .returning();
 
-      // 2. Validate each document against durable, confirmed upload intents
+      // 2. Validate each document against durable, confirmed upload intents under row-level lock
       const validatedDocs = [];
       for (const doc of request.documents) {
         const condition = doc.intentId
-          ? eq(schema.uploadIntents.id, doc.intentId)
-          : eq(schema.uploadIntents.fileKey, doc.fileKey!);
+          ? sql`id = ${doc.intentId}::uuid`
+          : sql`file_key = ${doc.fileKey}`;
 
-        const [intent] = await tx
-          .select()
-          .from(schema.uploadIntents)
-          .where(condition)
-          .limit(1);
+        // Lock upload intent row
+        const lockRes = await tx.execute(
+          sql`SELECT * FROM upload_intents WHERE ${condition} FOR UPDATE;`
+        );
+        const intent = lockRes.rows[0] as any;
 
         if (!intent) {
           throw AppError.badRequest(
@@ -293,7 +296,7 @@ export class HostsService {
           );
         }
 
-        if (intent.userId !== context.userId) {
+        if (intent.user_id !== context.userId) {
           throw AppError.forbidden(
             "Access denied: Upload intent belongs to another user"
           );
@@ -305,9 +308,15 @@ export class HostsService {
           );
         }
 
-        if (intent.resourceId && intent.resourceId !== businessId) {
+        if (intent.resource_id && intent.resource_id !== businessId) {
           throw AppError.forbidden(
             "Access denied: Upload intent was created for a different business"
+          );
+        }
+
+        if (intent.status === "CONSUMED") {
+          throw AppError.conflict(
+            `Upload intent ${intent.id} has already been consumed and cannot be reused (replay prevention)`
           );
         }
 
@@ -321,22 +330,28 @@ export class HostsService {
         const [alreadyAssociated] = await tx
           .select({ id: schema.hostVerificationDocuments.id })
           .from(schema.hostVerificationDocuments)
-          .where(eq(schema.hostVerificationDocuments.fileKey, intent.fileKey))
+          .where(eq(schema.hostVerificationDocuments.fileKey, intent.file_key))
           .limit(1);
 
         if (alreadyAssociated) {
           throw AppError.conflict(
-            `Document with fileKey ${intent.fileKey} is already attached to a verification application`
+            `Document with fileKey ${intent.file_key} is already attached to a verification application`
           );
         }
+
+        // Atomically transition intent to CONSUMED
+        await tx
+          .update(schema.uploadIntents)
+          .set({ status: "CONSUMED", updatedAt: new Date() })
+          .where(eq(schema.uploadIntents.id, intent.id));
 
         validatedDocs.push({
           verificationId: verif.id,
           documentType: doc.documentType,
-          fileKey: intent.fileKey,
-          fileName: intent.fileName || doc.fileName || "verification-document",
-          fileSize: intent.maxFileSize,
-          mimeType: intent.mimeType,
+          fileKey: intent.file_key,
+          fileName: intent.file_name || doc.fileName || "verification-document",
+          fileSize: intent.max_file_size,
+          mimeType: intent.mime_type,
           status: "PENDING" as const
         });
       }

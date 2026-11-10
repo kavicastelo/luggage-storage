@@ -201,14 +201,19 @@ export class RbacService {
       throw AppError.forbidden("Only Superadministrators can assign administrative roles");
     }
 
-    // Execute role assignment via SECURITY DEFINER function
-    await db.execute(
-      sql`SELECT public.assign_user_role(
-            ${context.targetUserId}::uuid,
-            ${normalizedRoleCode}::varchar,
-            ${context.adminId}::uuid
-          );`
-    );
+    // Execute role assignment via SECURITY DEFINER function inside transaction setting session actor
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT set_config('app.current_user_id', ${context.adminId}, true);`
+      );
+      await tx.execute(
+        sql`SELECT public.assign_user_role(
+              ${context.targetUserId}::uuid,
+              ${normalizedRoleCode}::varchar,
+              ${context.adminId}::uuid
+            );`
+      );
+    });
 
     // Record immutable security audit event
     await auditService.recordEvent({
@@ -270,13 +275,18 @@ export class RbacService {
       throw AppError.forbidden("Only Superadministrators can revoke Superadmin privileges");
     }
 
-    // Execute role revocation via SECURITY DEFINER function
-    await db.execute(
-      sql`SELECT public.revoke_user_role(
-            ${context.targetUserId}::uuid,
-            ${normalizedRoleCode}::varchar
-          );`
-    );
+    // Execute role revocation via SECURITY DEFINER function inside transaction setting session actor
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT set_config('app.current_user_id', ${context.adminId}, true);`
+      );
+      await tx.execute(
+        sql`SELECT public.revoke_user_role(
+              ${context.targetUserId}::uuid,
+              ${normalizedRoleCode}::varchar
+            );`
+      );
+    });
 
     // Record immutable security audit event
     await auditService.recordEvent({

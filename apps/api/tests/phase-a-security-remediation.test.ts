@@ -566,6 +566,260 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       );
       expect(mediaCount.rows[0].count).toBe(1);
     });
+
+    it("Scenario 15: Upload confirmation strictly rejects MIME type mismatch", async () => {
+      const initRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/presigned-url",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          purpose: "LOCATION_IMAGE",
+          resourceId: locationAId,
+          fileName: "photo.jpg",
+          fileSize: 524288,
+          mimeType: "image/jpeg"
+        }
+      });
+      const initData = JSON.parse(initRes.body).data;
+
+      // Simulate upload of text/html instead of image/jpeg
+      storageService.simulateUpload?.(initData.fileKey, { mimeType: "text/html", size: 1024 });
+
+      const confirmRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/confirm",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          intentId: initData.intentId,
+          fileKey: initData.fileKey,
+          resourceId: locationAId
+        }
+      });
+
+      expect(confirmRes.statusCode).toBe(400);
+      expect(JSON.parse(confirmRes.body).error.message).toMatch(/content type .* does not match/i);
+    });
+
+    it("Scenario 16: Upload confirmation strictly rejects empty files (0 bytes)", async () => {
+      const initRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/presigned-url",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          purpose: "LOCATION_IMAGE",
+          resourceId: locationAId,
+          fileName: "empty.jpg",
+          fileSize: 524288,
+          mimeType: "image/jpeg"
+        }
+      });
+      const initData = JSON.parse(initRes.body).data;
+
+      // Simulate empty file
+      storageService.simulateUpload?.(initData.fileKey, { mimeType: "image/jpeg", size: 0 });
+
+      const confirmRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/confirm",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          intentId: initData.intentId,
+          fileKey: initData.fileKey,
+          resourceId: locationAId
+        }
+      });
+
+      expect(confirmRes.statusCode).toBe(400);
+      expect(JSON.parse(confirmRes.body).error.message).toMatch(/empty/i);
+    });
+
+    it("Scenario 17: Upload intent transitions to CONSUMED upon verification submission, preventing replay attacks", async () => {
+      const initRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/presigned-url",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          purpose: "HOST_VERIFICATION",
+          resourceId: businessAId,
+          fileName: "gov-id.pdf",
+          fileSize: 1048576,
+          mimeType: "application/pdf"
+        }
+      });
+      const initData = JSON.parse(initRes.body).data;
+      storageService.simulateUpload?.(initData.fileKey, { mimeType: "application/pdf", size: 1024 });
+
+      // Confirm upload
+      const confirmRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/confirm",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          intentId: initData.intentId,
+          fileKey: initData.fileKey,
+          resourceId: businessAId
+        }
+      });
+      expect(confirmRes.statusCode).toBe(200);
+
+      // Verify intent is CONFIRMED in DB
+      const intentBefore = await runtimePool.query(
+        "SELECT status FROM upload_intents WHERE id = $1",
+        [initData.intentId]
+      );
+      expect(intentBefore.rows[0].status).toBe("CONFIRMED");
+
+      // Submit verification with this document
+      const verifRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/hosts/businesses/${businessAId}/verification`,
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          documents: [
+            {
+              documentType: "NATIONAL_ID",
+              intentId: initData.intentId,
+              fileKey: initData.fileKey
+            }
+          ]
+        }
+      });
+      expect(verifRes.statusCode).toBe(201);
+
+      // Verify intent is now CONSUMED in DB
+      const intentAfter = await runtimePool.query(
+        "SELECT status FROM upload_intents WHERE id = $1",
+        [initData.intentId]
+      );
+      expect(intentAfter.rows[0].status).toBe("CONSUMED");
+
+      // Replay attack: attempt to use the same consumed intent again
+      const replayRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/hosts/businesses/${businessAId}/verification`,
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          documents: [
+            {
+              documentType: "NATIONAL_ID",
+              intentId: initData.intentId,
+              fileKey: initData.fileKey
+            }
+          ]
+        }
+      });
+      expect(replayRes.statusCode).toBe(409);
+      expect(JSON.parse(replayRes.body).error.message).toMatch(/consumed|already attached/i);
+    });
+
+    it("Scenario 18: Concurrency test - simultaneous upload confirmations succeed idempotently", async () => {
+      const initRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/presigned-url",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          purpose: "LOCATION_IMAGE",
+          resourceId: locationAId,
+          fileName: "concurrent-facade.jpg",
+          fileSize: 524288,
+          mimeType: "image/jpeg"
+        }
+      });
+      const initData = JSON.parse(initRes.body).data;
+      storageService.simulateUpload?.(initData.fileKey, { mimeType: "image/jpeg", size: 524288 });
+
+      // Fire 2 simultaneous confirmation requests
+      const [resA, resB] = await Promise.all([
+        app.inject({
+          method: "POST",
+          url: "/api/v1/uploads/confirm",
+          headers: { authorization: `Bearer ${hostA.accessToken}` },
+          payload: { intentId: initData.intentId, fileKey: initData.fileKey, resourceId: locationAId }
+        }),
+        app.inject({
+          method: "POST",
+          url: "/api/v1/uploads/confirm",
+          headers: { authorization: `Bearer ${hostA.accessToken}` },
+          payload: { intentId: initData.intentId, fileKey: initData.fileKey, resourceId: locationAId }
+        })
+      ]);
+
+      expect(resA.statusCode).toBe(200);
+      expect(resB.statusCode).toBe(200);
+
+      // Verify exactly one media record was created
+      const mediaRows = await runtimePool.query(
+        "SELECT id FROM location_media WHERE file_key = $1",
+        [initData.fileKey]
+      );
+      expect(mediaRows.rows.length).toBe(1);
+    });
+
+    it("Scenario 19: Failure recovery - batch verification rollback leaves valid intents unconsumed for retry", async () => {
+      // Create valid document intent
+      const initRes1 = await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/presigned-url",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          purpose: "HOST_VERIFICATION",
+          resourceId: businessAId,
+          fileName: "batch-doc1.pdf",
+          fileSize: 1048576,
+          mimeType: "application/pdf"
+        }
+      });
+      const initData1 = JSON.parse(initRes1.body).data;
+      storageService.simulateUpload?.(initData1.fileKey, { mimeType: "application/pdf", size: 1024 });
+
+      await app.inject({
+        method: "POST",
+        url: "/api/v1/uploads/confirm",
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: { intentId: initData1.intentId, fileKey: initData1.fileKey, resourceId: businessAId }
+      });
+
+      // Submit batch with valid doc1 AND non-existent doc2
+      const failedBatchRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/hosts/businesses/${businessAId}/verification`,
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          documents: [
+            { documentType: "BUSINESS_REGISTRATION", intentId: initData1.intentId, fileKey: initData1.fileKey },
+            { documentType: "UTILITY_BILL", intentId: "00000000-0000-0000-0000-000000000000" }
+          ]
+        }
+      });
+      expect(failedBatchRes.statusCode).toBe(400);
+
+      // Verify doc1 intent was NOT consumed (rolled back cleanly to CONFIRMED)
+      const doc1Status = await runtimePool.query(
+        "SELECT status FROM upload_intents WHERE id = $1",
+        [initData1.intentId]
+      );
+      expect(doc1Status.rows[0].status).toBe("CONFIRMED");
+
+      // Verify retry with only valid doc succeeds
+      const retryRes = await app.inject({
+        method: "POST",
+        url: `/api/v1/hosts/businesses/${businessAId}/verification`,
+        headers: { authorization: `Bearer ${hostA.accessToken}` },
+        payload: {
+          documents: [
+            { documentType: "BUSINESS_REGISTRATION", intentId: initData1.intentId, fileKey: initData1.fileKey }
+          ]
+        }
+      });
+      expect(retryRes.statusCode).toBe(201);
+
+      // Now doc1 IS consumed
+      const doc1Final = await runtimePool.query(
+        "SELECT status FROM upload_intents WHERE id = $1",
+        [initData1.intentId]
+      );
+      expect(doc1Final.rows[0].status).toBe("CONSUMED");
+    });
   });
 
   // ==========================================================================
@@ -674,6 +928,64 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       expect(loc.longitude).toBe(exactLng);
       expect(loc.addressLine1).toBe("42 Classified Entrance Lane");
     });
+
+    it("Scenario 7: Repeated queries with slight radius increments evaluate consistently on coarse coordinates", async () => {
+      const res1 = await app.inject({
+        method: "GET",
+        url: "/api/v1/discovery/locations?latitude=6.9000&longitude=79.8000&radiusMeters=10000"
+      });
+      const res2 = await app.inject({
+        method: "GET",
+        url: "/api/v1/discovery/locations?latitude=6.9000&longitude=79.8000&radiusMeters=10050"
+      });
+
+      expect(res1.statusCode).toBe(200);
+      expect(res2.statusCode).toBe(200);
+      const data1 = JSON.parse(res1.body).data;
+      const data2 = JSON.parse(res2.body).data;
+      expect(data1.locations.length).toBe(data2.locations.length);
+    });
+
+    it("Scenario 8: Results within same coarse cell do not leak micro-distance ordering", async () => {
+      // Find businessId of locationId
+      const bizRes = await runtimePool.query("SELECT business_id FROM storage_locations WHERE id = $1", [locationId]);
+      const bizId = bizRes.rows[0].business_id;
+
+      // Create a second location within the same 0.01 coarse grid cell (6.93, 79.85)
+      const locRes2 = await app.inject({
+        method: "POST",
+        url: "/api/v1/hosts/locations",
+        headers: { authorization: `Bearer ${host.accessToken}` },
+        payload: {
+          businessId: bizId,
+          name: "Geospatial Coarse Peer Hub",
+          addressLine1: "44 Classified Entrance Lane",
+          city: "Colombo",
+          latitude: 6.934888, // slightly different secret entrance lat
+          longitude: 79.851999 // slightly different secret entrance lng
+        }
+      });
+      const loc2Id = JSON.parse(locRes2.body).data.id;
+      await runtimePool.query("UPDATE storage_locations SET status = 'ACTIVE' WHERE id = $1", [loc2Id]);
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/v1/discovery/locations?latitude=6.9000&longitude=79.8000&radiusMeters=20000"
+      });
+      expect(res.statusCode).toBe(200);
+      const locations = JSON.parse(res.body).data.locations;
+      const l1 = locations.find((l: any) => l.id === locationId);
+      const l2 = locations.find((l: any) => l.id === loc2Id);
+
+      expect(l1).toBeDefined();
+      expect(l2).toBeDefined();
+      // Both locations share identical coarse coordinates and coarse distance bands
+      expect(l1.approximateLatitude).toBe(6.93);
+      expect(l2.approximateLatitude).toBe(6.93);
+      expect(l1.approximateLongitude).toBe(79.85);
+      expect(l2.approximateLongitude).toBe(79.85);
+      expect(l1.distanceMeters).toBe(l2.distanceMeters);
+    });
   });
 
   // ==========================================================================
@@ -688,42 +1000,94 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       superadmin = await createTestUser("SUPERADMIN", "MasterAdmin");
     });
 
-    it("Scenario 1: A normal user cannot assign themselves SUPERADMIN via SQL function", async () => {
+    it("Scenario 1: Invoking assign_user_role without session identity app.current_user_id is rejected", async () => {
       await expect(
         runtimePool.query(
           "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $1::uuid)",
           [regularUser.userId]
         )
-      ).rejects.toThrow(/requires SUPERADMIN authority/i);
+      ).rejects.toThrow(/database identity context .* not established/i);
     });
 
-    it("Scenario 2: A normal user cannot assign another user SUPERADMIN", async () => {
-      const target = await createTestUser("TRAVELLER", "VictimUser");
-      await expect(
-        runtimePool.query(
-          "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $2::uuid)",
-          [target.userId, regularUser.userId]
-        )
-      ).rejects.toThrow(/requires SUPERADMIN authority/i);
+    it("Scenario 2: A non-superadmin cannot assign roles even with session identity established", async () => {
+      const client = await runtimePool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('app.current_user_id', $1, true)", [regularUser.userId]);
+        await expect(
+          client.query(
+            "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $1::uuid)",
+            [regularUser.userId]
+          )
+        ).rejects.toThrow(/requires SUPERADMIN authority/i);
+        await client.query("ROLLBACK");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     });
 
-    it("Scenario 4: A forged p_assigned_by does not grant authority if assigning actor does not have SUPERADMIN", async () => {
-      const fakeAdminId = "00000000-0000-0000-0000-000000000000";
-      await expect(
-        runtimePool.query(
-          "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $2::uuid)",
-          [regularUser.userId, fakeAdminId]
-        )
-      ).rejects.toThrow(/requires SUPERADMIN authority/i);
+    it("Scenario 3: Forged p_assigned_by is rejected when it differs from app.current_user_id", async () => {
+      const client = await runtimePool.connect();
+      try {
+        await client.query("BEGIN");
+        // Caller session is regularUser, but passes superadmin.userId as p_assigned_by
+        await client.query("SELECT set_config('app.current_user_id', $1, true)", [regularUser.userId]);
+        await expect(
+          client.query(
+            "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $2::uuid)",
+            [regularUser.userId, superadmin.userId]
+          )
+        ).rejects.toThrow(/supplied actor does not match database identity context|forged assignment/i);
+        await client.query("ROLLBACK");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+
+    it("Scenario 4: Role assignment to invalid/unauthorized role code is rejected", async () => {
+      const client = await runtimePool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
+        await expect(
+          client.query(
+            "SELECT public.assign_user_role($1::uuid, 'INVALID_ROLE', $2::uuid)",
+            [regularUser.userId, superadmin.userId]
+          )
+        ).rejects.toThrow(/unauthorized or unknown role code/i);
+        await client.query("ROLLBACK");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     });
 
     it("Scenario 5: Normal host onboarding path can self-assign HOST_OWNER via self_assign_host_owner_role", async () => {
       const newHost = await createTestUser("TRAVELLER", "OnboardingHost");
 
       // Attempt self-assign before creating business -> should fail
-      await expect(
-        runtimePool.query("SELECT public.self_assign_host_owner_role($1::uuid)", [newHost.userId])
-      ).rejects.toThrow(/does not own a registered host business/i);
+      const client = await runtimePool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('app.current_user_id', $1, true)", [newHost.userId]);
+        await expect(
+          client.query("SELECT public.self_assign_host_owner_role($1::uuid)", [newHost.userId])
+        ).rejects.toThrow(/does not own a registered host business/i);
+        await client.query("ROLLBACK");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
 
       // Create a business
       const bRes = await app.inject({
@@ -749,13 +1113,115 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       expect(userRoles.rows.some((r) => r.code === "HOST_OWNER")).toBe(true);
     });
 
-    it("Scenario 6: An authorized SUPERADMIN can assign permitted roles", async () => {
+    it("Scenario 6: An authorized SUPERADMIN setting app.current_user_id can assign permitted roles", async () => {
       const target = await createTestUser("TRAVELLER", "PromotedUser");
-      const res = await runtimePool.query(
-        "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::uuid)",
-        [target.userId, superadmin.userId]
-      );
-      expect(res.rows[0].assign_user_role).toBe(true);
+      const client = await runtimePool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
+        await client.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::uuid)",
+          [target.userId, superadmin.userId]
+        );
+        await client.query("COMMIT");
+
+        const userRoles = await runtimePool.query(
+          "SELECT r.code FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = $1",
+          [target.userId]
+        );
+        expect(userRoles.rows.some((r) => r.code === "HOST_OWNER")).toBe(true);
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+
+    it("Scenario 7: revoke_user_role requires trusted app.current_user_id and SUPERADMIN authority", async () => {
+      const target = await createTestUser("TRAVELLER", "RevokeTarget");
+
+      // Without app.current_user_id -> rejected
+      await expect(
+        runtimePool.query("SELECT public.revoke_user_role($1::uuid, 'TRAVELLER')", [target.userId])
+      ).rejects.toThrow(/database identity context .* not established/i);
+
+      // With regularUser identity -> rejected
+      const client = await runtimePool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('app.current_user_id', $1, true)", [regularUser.userId]);
+        await expect(
+          client.query("SELECT public.revoke_user_role($1::uuid, 'TRAVELLER')", [target.userId])
+        ).rejects.toThrow(/requires SUPERADMIN authority/i);
+        await client.query("ROLLBACK");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    });
+
+    it("Scenario 8: revoke_user_role prevents self-revocation and stripping user's only role", async () => {
+      // 1. Attempt self-revocation in isolated transaction
+      const client1 = await runtimePool.connect();
+      try {
+        await client1.query("BEGIN");
+        await client1.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
+        await expect(
+          client1.query("SELECT public.revoke_user_role($1::uuid, 'SUPERADMIN')", [superadmin.userId])
+        ).rejects.toThrow(/cannot modify roles on their own account|cannot revoke roles from their own account/i);
+        await client1.query("ROLLBACK");
+      } catch {
+        await client1.query("ROLLBACK").catch(() => {});
+      } finally {
+        client1.release();
+      }
+
+      // 2. Attempt revoking only role from a single-role user in isolated transaction
+      const singleRoleUser = await createTestUser("TRAVELLER", "SingleRoleUser");
+      const client2 = await runtimePool.connect();
+      try {
+        await client2.query("BEGIN");
+        await client2.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
+        await expect(
+          client2.query("SELECT public.revoke_user_role($1::uuid, 'TRAVELLER')", [singleRoleUser.userId])
+        ).rejects.toThrow(/cannot revoke the user's only remaining role/i);
+        await client2.query("ROLLBACK");
+      } catch {
+        await client2.query("ROLLBACK").catch(() => {});
+      } finally {
+        client2.release();
+      }
+
+      // 3. Assign second role and then successfully revoke it
+      const client3 = await runtimePool.connect();
+      try {
+        await client3.query("BEGIN");
+        await client3.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
+        await client3.query("SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::uuid)", [
+          singleRoleUser.userId,
+          superadmin.userId
+        ]);
+        await client3.query(
+          "SELECT public.revoke_user_role($1::uuid, 'HOST_OWNER')",
+          [singleRoleUser.userId]
+        );
+        await client3.query("COMMIT");
+
+        const remainingRoles = await runtimePool.query(
+          "SELECT r.code FROM user_roles ur JOIN roles r ON ur.role_id = r.id WHERE ur.user_id = $1",
+          [singleRoleUser.userId]
+        );
+        expect(remainingRoles.rows.some((r) => r.code === "HOST_OWNER")).toBe(false);
+        expect(remainingRoles.rows.some((r) => r.code === "TRAVELLER")).toBe(true);
+      } catch (err) {
+        await client3.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client3.release();
+      }
     });
   });
 
@@ -1046,6 +1512,30 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
 
       const masked = maskPayoutAccountNumber(raw);
       expect(masked).toBe("••••••••3456");
+    });
+
+    it("Scenario 6: PostgreSQL check constraint host_businesses_payout_encrypted_check rejects unencrypted plaintext values", async () => {
+      const testHost = await createTestUser("HOST_OWNER", "ConstraintTestHost");
+
+      await expect(
+        runtimePool.query(
+          `INSERT INTO host_businesses (
+            owner_user_id, legal_business_name, trade_name, entity_type,
+            contact_email, contact_phone, payout_account_number, status
+          ) VALUES (
+            $1, 'Plaintext Corp', 'Plaintext Hub', 'SOLE_PROPRIETORSHIP',
+            'test@plain.lk', '+94770001234', '123456789012', 'DRAFT'
+          )`,
+          [testHost.userId]
+        )
+      ).rejects.toThrow(/host_businesses_payout_encrypted_check/i);
+    });
+
+    it("Scenario 7: Plaintext payout records can be safely backfilled to AES-256-GCM format", async () => {
+      const rawNum = "987654321098";
+      const encrypted = encryptPayoutAccountNumber(rawNum);
+      expect(encrypted).toMatch(/^enc:v1:[a-f0-9]+:[a-f0-9]+:[a-f0-9]+$/);
+      expect(decryptPayoutAccountNumber(encrypted)).toBe(rawNum);
     });
   });
 

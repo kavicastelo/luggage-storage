@@ -61,6 +61,9 @@ export class LocationsService {
     }
 
     const coordinatesEwkt = `SRID=4326;POINT(${request.longitude} ${request.latitude})`;
+    const coarseLon = Number(request.longitude.toFixed(2));
+    const coarseLat = Number(request.latitude.toFixed(2));
+    const coarseCoordinatesEwkt = `SRID=4326;POINT(${coarseLon} ${coarseLat})`;
 
     const locationResult = await db.transaction(async (tx) => {
       // 2. Insert storage location
@@ -78,6 +81,7 @@ export class LocationsService {
           latitude: request.latitude,
           longitude: request.longitude,
           coordinates: coordinatesEwkt,
+          coarseCoordinates: coarseCoordinatesEwkt,
           timezone: request.timezone || "Asia/Colombo",
           bookingMode: request.bookingMode || "INSTANT",
           acceptsOversized: request.acceptsOversized ?? false,
@@ -344,6 +348,9 @@ export class LocationsService {
       updateData.latitude = request.latitude;
       updateData.longitude = request.longitude;
       updateData.coordinates = `SRID=4326;POINT(${request.longitude} ${request.latitude})`;
+      const coarseLon = Number(request.longitude.toFixed(2));
+      const coarseLat = Number(request.latitude.toFixed(2));
+      updateData.coarseCoordinates = `SRID=4326;POINT(${coarseLon} ${coarseLat})`;
     }
 
     await db
@@ -556,27 +563,77 @@ export class LocationsService {
   ): Promise<typeof schema.locationMedia.$inferSelect> {
     await this.getLocationById(locationId, context);
 
-    const [media] = await db
-      .insert(schema.locationMedia)
-      .values({
-        locationId,
-        fileKey: request.fileKey,
-        url: request.url,
-        mediaType: "IMAGE",
-        caption: request.caption || null,
-        isPrimary: request.isPrimary ?? false,
-        sortOrder: request.sortOrder ?? 0
-      })
-      .returning();
+    return db.transaction(async (tx) => {
+      // Check if upload intent exists for this fileKey and enforce lifecycle
+      const intentRows = await tx.execute(
+        sql`SELECT * FROM upload_intents WHERE file_key = ${request.fileKey} FOR UPDATE;`
+      );
+      const intent = intentRows.rows[0] as any;
 
-    await auditService.recordEvent({
-      eventType: SecurityEventType.UPLOAD_MEDIA_CONFIRMED,
-      userId: context.userId,
-      clientInfo: context.clientInfo,
-      metadata: { locationId, mediaId: media.id, fileKey: request.fileKey }
+      if (intent) {
+        if (intent.status === "CONSUMED") {
+          // Check if already attached to this location (idempotent replay)
+          const [existing] = await tx
+            .select()
+            .from(schema.locationMedia)
+            .where(eq(schema.locationMedia.fileKey, request.fileKey))
+            .limit(1);
+
+          if (existing && existing.locationId === locationId) {
+            return existing;
+          }
+          throw AppError.conflict("Upload intent has already been consumed and cannot be reused");
+        }
+
+        if (intent.status !== "CONFIRMED") {
+          throw AppError.badRequest(`Upload intent is not confirmed. Current status: ${intent.status}`);
+        }
+
+        if (intent.resource_id && intent.resource_id !== locationId) {
+          throw AppError.forbidden("Access denied: Upload intent was created for a different location");
+        }
+
+        // Atomically transition intent to CONSUMED
+        await tx
+          .update(schema.uploadIntents)
+          .set({ status: "CONSUMED", updatedAt: new Date() })
+          .where(eq(schema.uploadIntents.id, intent.id));
+      }
+
+      // Check if media already inserted (idempotency)
+      const [existingMedia] = await tx
+        .select()
+        .from(schema.locationMedia)
+        .where(eq(schema.locationMedia.fileKey, request.fileKey))
+        .limit(1);
+
+      if (existingMedia) {
+        return existingMedia;
+      }
+
+      const [media] = await tx
+        .insert(schema.locationMedia)
+        .values({
+          locationId,
+          fileKey: request.fileKey,
+          url: request.url,
+          mediaType: "IMAGE",
+          caption: request.caption || null,
+          isPrimary: request.isPrimary ?? false,
+          sortOrder: request.sortOrder ?? 0
+        })
+        .returning();
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.UPLOAD_MEDIA_CONFIRMED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        tx,
+        metadata: { locationId, mediaId: media.id, fileKey: request.fileKey }
+      });
+
+      return media;
     });
-
-    return media;
   }
 
   // ============================================================================
