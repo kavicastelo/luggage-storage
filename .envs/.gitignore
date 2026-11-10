@@ -1,0 +1,7 @@
+# Prevent accidental commit of real environment secret files in .envs/
+*
+!.gitignore
+!README.md
+!*.example
+!*.template
+

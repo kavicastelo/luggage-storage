@@ -815,7 +815,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
         fs.readFileSync(path.join(metaDir, "_journal.json"), "utf8")
       );
 
-      expect(journal.entries.length).toBe(10);
+      expect(journal.entries.length).toBe(11);
 
       let previousSnapshotId = "00000000-0000-0000-0000-000000000000";
       for (const entry of journal.entries) {

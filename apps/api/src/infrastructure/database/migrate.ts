@@ -44,6 +44,10 @@ export const REQUIRED_PUBLIC_TABLES = [
   "consumed_auth_assertions"
 ] as const;
 
+export const REVOKED_IDENTITY_SECRETS = new Set([
+  "dev_db_identity_secret_key_minimum_32_characters_12345"
+]);
+
 export async function syncTrustedAuthSecret(client: pg.PoolClient): Promise<void> {
   const tableCheck = await client.query<{ exists: boolean }>(
     `SELECT EXISTS (
@@ -55,12 +59,46 @@ export async function syncTrustedAuthSecret(client: pg.PoolClient): Promise<void
     return;
   }
 
+  const secretToProvision = env.DB_IDENTITY_SECRET?.trim();
+  if (!secretToProvision || secretToProvision.length < 32) {
+    throw new Error(
+      "[Migration Engine] Security failure: DB_IDENTITY_SECRET is missing or less than 32 characters. Privileged identity provisioning cannot proceed."
+    );
+  }
+
+  if (REVOKED_IDENTITY_SECRETS.has(secretToProvision)) {
+    throw new Error(
+      "[Migration Engine] Security failure: DB_IDENTITY_SECRET matches a known compromised development secret. Migration aborted."
+    );
+  }
+
+  // Purge any compromised development secrets from database storage
+  await client.query(
+    `DELETE FROM public.trusted_auth_secrets 
+     WHERE secret = 'dev_db_identity_secret_key_minimum_32_characters_12345';`
+  );
+
+  // Securely provision the active identity secret
   await client.query(
     `INSERT INTO public.trusted_auth_secrets (key_id, secret)
      VALUES ('active', $1)
      ON CONFLICT (key_id) DO UPDATE SET secret = EXCLUDED.secret;`,
-    [env.DB_IDENTITY_SECRET]
+    [secretToProvision]
   );
+
+  // PostgreSQL verification: ensure the active secret is verified and usable
+  const verifyRes = await client.query<{ count: string }>(
+    `SELECT count(*)::text as count FROM public.trusted_auth_secrets
+     WHERE key_id = 'active'
+       AND secret <> 'dev_db_identity_secret_key_minimum_32_characters_12345'
+       AND length(secret) >= 32;`
+  );
+
+  if (verifyRes.rows[0]?.count !== "1") {
+    throw new Error(
+      "[Migration Engine] Security failure: active identity secret verification failed in PostgreSQL"
+    );
+  }
 }
 
 export async function verifyMigratedSchema(client: pg.PoolClient): Promise<void> {

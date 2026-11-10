@@ -26,12 +26,6 @@ REVOKE ALL ON public.trusted_auth_secrets FROM PUBLIC;
 REVOKE ALL ON public.trusted_auth_secrets FROM luggage_user;
 --> statement-breakpoint
 
--- Insert default active secret for development/testing
-INSERT INTO public.trusted_auth_secrets (key_id, secret)
-VALUES ('active', 'dev_db_identity_secret_key_minimum_32_characters_12345')
-ON CONFLICT (key_id) DO NOTHING;
---> statement-breakpoint
-
 -- 3. Create consumed_auth_assertions table for replay prevention
 CREATE TABLE IF NOT EXISTS public.consumed_auth_assertions (
   nonce text PRIMARY KEY,

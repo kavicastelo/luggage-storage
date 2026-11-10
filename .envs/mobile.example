@@ -1,0 +1,14 @@
+# =============================================================================
+# Mobile Application Environment Configuration Template (Expo + React Native)
+# =============================================================================
+# Consumed by: apps/mobile (Expo Router / React Native bundle)
+# IMPORTANT: Only variables prefixed with EXPO_PUBLIC_ are bundled into client code!
+# NEVER add database credentials, private keys, or server secrets to this file!
+
+# Fastify API Endpoint URL
+# Development on Android Emulator: http://10.0.2.2:3000/api/v1
+# Development on iOS Simulator: http://localhost:3000/api/v1
+# Physical device over LAN: http://<DEVELOPMENT_MACHINE_IP>:3000/api/v1
+# Staging/Production: https://api.luggagestorage.lk/api/v1
+EXPO_PUBLIC_API_URL=http://localhost:3000/api/v1
+

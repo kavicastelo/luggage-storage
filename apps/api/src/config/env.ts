@@ -99,15 +99,28 @@ export const EnvSchema = z
       z.coerce.number().int().positive().default(900)
     ),
     PAYOUT_ENCRYPTION_KEY: z.preprocess(
-      (val) => (val === "" || val === undefined ? undefined : val),
-      z.string().min(32, "PAYOUT_ENCRYPTION_KEY must be at least 32 characters").default("dev_payout_encryption_key_32_characters_minimum_12345")
+      (val) => (typeof val === "string" ? val.trim() : val),
+      z.string().min(32, "PAYOUT_ENCRYPTION_KEY must be at least 32 characters")
+    ),
+    PAYOUT_ENCRYPTION_KEY_PREVIOUS: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().min(32, "PAYOUT_ENCRYPTION_KEY_PREVIOUS must be at least 32 characters").optional()
     ),
     DB_IDENTITY_SECRET: z.preprocess(
-      (val) => (val === "" || val === undefined ? undefined : val),
-      z.string().min(32, "DB_IDENTITY_SECRET must be at least 32 characters").default("dev_db_identity_secret_key_minimum_32_characters_12345")
+      (val) => (typeof val === "string" ? val.trim() : val),
+      z.string().min(32, "DB_IDENTITY_SECRET must be at least 32 characters")
     )
   })
   .superRefine((data, ctx) => {
+    // Universal security checks (all environments)
+    if (data.DB_IDENTITY_SECRET === "dev_db_identity_secret_key_minimum_32_characters_12345") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DB_IDENTITY_SECRET matches a known compromised secret and is prohibited",
+        path: ["DB_IDENTITY_SECRET"]
+      });
+    }
+
     if (data.NODE_ENV === "production") {
       if (data.STORAGE_PROVIDER !== "r2") {
         ctx.addIssue({
