@@ -170,7 +170,9 @@ export default function TravellerExploreScreen() {
             <View style={styles.ratingBox}>
               <MobileIcon name="star" size={14} color={mobileColors.amber[600]} />
               <Text style={styles.ratingText}>
-                {selectedLocation.rating} ({selectedLocation.reviewCount})
+                {selectedLocation.rating !== null
+                  ? `${selectedLocation.rating.toFixed(1)} (${selectedLocation.reviewCount})`
+                  : `New Partner (${selectedLocation.reviewCount})`}
               </Text>
             </View>
           </View>

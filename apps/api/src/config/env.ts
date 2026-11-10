@@ -85,16 +85,68 @@ export const EnvSchema = z
     RATE_LIMIT_VERIFICATION_RESEND_MAX: z.coerce.number().int().positive().default(3),
     RATE_LIMIT_RECOVERY_IP_MAX: z.coerce.number().int().positive().default(10),
     RATE_LIMIT_RECOVERY_MAX: z.coerce.number().int().positive().default(3),
-    STORAGE_PROVIDER: z.enum(["r2", "memory", "test"]).optional(),
-    R2_ACCOUNT_ID: z.string().optional(),
-    R2_ACCESS_KEY_ID: z.string().optional(),
-    R2_SECRET_ACCESS_KEY: z.string().optional(),
-    R2_BUCKET_NAME: z.string().default("luggage-storage-dev"),
-    R2_PUBLIC_URL: z.string().optional(),
-    R2_PRESIGNED_TTL_SECONDS: z.coerce.number().int().positive().default(900)
+    STORAGE_PROVIDER: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.enum(["r2", "memory", "test"]).optional()
+    ),
+    R2_ACCOUNT_ID: z.preprocess((val) => (val === "" || val === undefined ? undefined : val), z.string().optional()),
+    R2_ACCESS_KEY_ID: z.preprocess((val) => (val === "" || val === undefined ? undefined : val), z.string().optional()),
+    R2_SECRET_ACCESS_KEY: z.preprocess((val) => (val === "" || val === undefined ? undefined : val), z.string().optional()),
+    R2_BUCKET_NAME: z.preprocess((val) => (val === "" || val === undefined ? undefined : val), z.string().default("luggage-storage-dev")),
+    R2_PUBLIC_URL: z.preprocess((val) => (val === "" || val === undefined ? undefined : val), z.string().optional()),
+    R2_PRESIGNED_TTL_SECONDS: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.coerce.number().int().positive().default(900)
+    ),
+    PAYOUT_ENCRYPTION_KEY: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.string().min(32, "PAYOUT_ENCRYPTION_KEY must be at least 32 characters").default("dev_payout_encryption_key_32_characters_minimum_12345")
+    )
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === "production") {
+      if (data.STORAGE_PROVIDER !== "r2") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "STORAGE_PROVIDER must be 'r2' in production; ephemeral storage is prohibited",
+          path: ["STORAGE_PROVIDER"]
+        });
+      }
+      if (!data.R2_ACCOUNT_ID) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "R2_ACCOUNT_ID is required in production",
+          path: ["R2_ACCOUNT_ID"]
+        });
+      }
+      if (!data.R2_ACCESS_KEY_ID) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "R2_ACCESS_KEY_ID is required in production",
+          path: ["R2_ACCESS_KEY_ID"]
+        });
+      }
+      if (!data.R2_SECRET_ACCESS_KEY) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "R2_SECRET_ACCESS_KEY is required in production",
+          path: ["R2_SECRET_ACCESS_KEY"]
+        });
+      }
+      if (!data.R2_BUCKET_NAME) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "R2_BUCKET_NAME is required in production",
+          path: ["R2_BUCKET_NAME"]
+        });
+      }
+      if (data.PAYOUT_ENCRYPTION_KEY.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYOUT_ENCRYPTION_KEY cannot use default dev secret in production",
+          path: ["PAYOUT_ENCRYPTION_KEY"]
+        });
+      }
       if (data.JWT_SECRET.startsWith("dev_")) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -255,8 +307,8 @@ export function parseAllowedCorsOrigins(corsOrigin: string): string[] {
     .filter(Boolean);
 }
 
-export function loadConfig(): EnvConfig {
-  const result = EnvSchema.safeParse(process.env);
+export function loadConfig(customEnv: Record<string, string | undefined> = process.env): EnvConfig {
+  const result = EnvSchema.safeParse(customEnv);
   if (!result.success) {
     const formatted = result.error.format();
     throw new Error(`Invalid environment configuration: ${JSON.stringify(formatted)}`);

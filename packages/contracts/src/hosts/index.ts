@@ -98,6 +98,7 @@ export const HostBusinessSchema = z.object({
   countryCode: z.string().length(2).default("LK"),
   payoutBankName: z.string().nullable().optional(),
   payoutAccountNumber: z.string().nullable().optional(),
+  payoutAccountNumberMasked: z.string().nullable().optional(),
   payoutAccountName: z.string().nullable().optional(),
   payoutBranchCode: z.string().nullable().optional(),
   status: z.enum(HOST_BUSINESS_STATUSES),
@@ -148,13 +149,22 @@ export type CreateHostBusinessRequest = z.infer<typeof CreateHostBusinessRequest
 export const UpdateHostBusinessRequestSchema = CreateHostBusinessRequestSchema.partial();
 export type UpdateHostBusinessRequest = z.infer<typeof UpdateHostBusinessRequestSchema>;
 
-export const SubmitVerificationDocumentItemSchema = z.object({
-  documentType: z.enum(HOST_DOCUMENT_TYPES),
-  fileKey: z.string().min(1, "File key is required"),
-  fileName: z.string().min(1, "File name is required"),
-  fileSize: z.number().int().positive("File size must be positive"),
-  mimeType: z.string().min(1, "MIME type is required")
-});
+export const SubmitVerificationDocumentItemSchema = z
+  .object({
+    documentType: z.enum(HOST_DOCUMENT_TYPES),
+    intentId: z.string().uuid().optional(),
+    fileKey: z.string().min(1, "File key is required").optional(),
+    fileName: z.string().min(1).optional(),
+    fileSize: z.number().int().positive().optional(),
+    mimeType: z.string().min(1).optional()
+  })
+  .refine(
+    (data) => Boolean(data.intentId || data.fileKey),
+    {
+      message: "Either intentId or fileKey must be provided for verification document",
+      path: ["intentId"]
+    }
+  );
 export type SubmitVerificationDocumentItem = z.infer<typeof SubmitVerificationDocumentItemSchema>;
 
 export const SubmitHostVerificationRequestSchema = z.object({

@@ -56,6 +56,10 @@ export class LocationsService {
       throw AppError.forbidden("Access denied: You do not own this host business");
     }
 
+    if (business.status === "SUSPENDED" || business.status === "REJECTED") {
+      throw AppError.badRequest(`Cannot create storage locations for a ${business.status.toLowerCase()} business`);
+    }
+
     const coordinatesEwkt = `SRID=4326;POINT(${request.longitude} ${request.latitude})`;
 
     const locationResult = await db.transaction(async (tx) => {
@@ -312,6 +316,16 @@ export class LocationsService {
     context: LocationCallerContext
   ): Promise<StorageLocation> {
     const loc = await this.getLocationById(locationId, context);
+
+    const [business] = await db
+      .select({ status: schema.hostBusinesses.status })
+      .from(schema.hostBusinesses)
+      .where(eq(schema.hostBusinesses.id, loc.businessId))
+      .limit(1);
+
+    if (business && (business.status === "SUSPENDED" || business.status === "REJECTED")) {
+      throw AppError.badRequest(`Cannot update locations for a ${business.status.toLowerCase()} business`);
+    }
 
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (request.name !== undefined) updateData.name = request.name;

@@ -174,6 +174,23 @@ export class DiscoveryService {
       const approximateLongitude = Number(r.longitude.toFixed(2));
       const approximateArea = `${r.city} Transit Area`;
 
+      // OQ-012 Security Invariant: Compute distance using public coarse coordinates (NOT exact secret coordinates)
+      // and round to coarse 100m bands to prevent triangulation/trilateration side-channel leakage.
+      let distanceMeters: number | undefined = undefined;
+      if (hasGeo && query.latitude !== undefined && query.longitude !== undefined) {
+        const R = 6371000; // Earth radius in meters
+        const dLat = ((approximateLatitude - query.latitude) * Math.PI) / 180;
+        const dLon = ((approximateLongitude - query.longitude) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((query.latitude * Math.PI) / 180) *
+            Math.cos((approximateLatitude * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distanceMeters = Math.round((R * c) / 100) * 100;
+      }
+
       return {
         id: r.id,
         name: r.name,
@@ -183,7 +200,7 @@ export class DiscoveryService {
         approximateArea,
         approximateLatitude,
         approximateLongitude,
-        distanceMeters: r.distance_meters !== null ? r.distance_meters : undefined,
+        distanceMeters,
         timezone: r.timezone,
         bookingMode: r.booking_mode as any,
         acceptsOversized: r.accepts_oversized,
@@ -193,7 +210,7 @@ export class DiscoveryService {
         images,
         baseRateMinor: r.base_rate_minor || 100000,
         currency: r.currency || "LKR",
-        averageRating: 5.0,
+        averageRating: null,
         reviewCount: 0,
         is24Hours,
         operatingHoursSummary
@@ -289,7 +306,7 @@ export class DiscoveryService {
       images: formattedImages,
       baseRateMinor: row.baseRateMinor || 100000,
       currency: row.currency || "LKR",
-      averageRating: 5.0,
+      averageRating: null,
       reviewCount: 0,
       is24Hours,
       operatingHoursSummary

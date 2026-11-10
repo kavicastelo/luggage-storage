@@ -4,6 +4,7 @@ import pg from "pg";
 import { buildApp } from "../src/app.js";
 import { env } from "../src/config/env.js";
 import { rateLimitService } from "../src/modules/auth/rate-limit.service.js";
+import { storageService } from "../src/modules/uploads/storage.service.js";
 
 const { Pool } = pg;
 
@@ -86,6 +87,39 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
       email,
       accessToken: JSON.parse(loginRes.body).data.accessToken as string
     };
+  }
+
+  async function helperCreateConfirmedDoc(
+    userToken: string,
+    businessId: string,
+    fileName: string,
+    mimeType = "application/pdf"
+  ) {
+    const initRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/uploads/presigned-url",
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: {
+        purpose: "HOST_VERIFICATION",
+        resourceId: businessId,
+        fileName,
+        fileSize: 1048576,
+        mimeType
+      }
+    });
+    const initData = JSON.parse(initRes.body).data;
+    storageService.simulateUpload?.(initData.fileKey, { mimeType, size: 1048576 });
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/uploads/confirm",
+      headers: { authorization: `Bearer ${userToken}` },
+      payload: {
+        intentId: initData.intentId,
+        fileKey: initData.fileKey,
+        resourceId: businessId
+      }
+    });
+    return initData;
   }
 
   // ==========================================================================
@@ -223,6 +257,10 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
       });
       const businessId = JSON.parse(createRes.body).data.id;
 
+      // Create confirmed documents first
+      const doc1 = await helperCreateConfirmedDoc(user.accessToken, businessId, "br-certificate.pdf", "application/pdf");
+      const doc2 = await helperCreateConfirmedDoc(user.accessToken, businessId, "nic-front.jpg", "image/jpeg");
+
       // Submit verification
       const verifRes = await app.inject({
         method: "POST",
@@ -232,17 +270,13 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
           documents: [
             {
               documentType: "BUSINESS_REGISTRATION",
-              fileKey: `verifications/${businessId}/br-certificate.pdf`,
-              fileName: "br-certificate.pdf",
-              fileSize: 1048576,
-              mimeType: "application/pdf"
+              intentId: doc1.intentId,
+              fileKey: doc1.fileKey
             },
             {
               documentType: "NATIONAL_ID",
-              fileKey: `verifications/${businessId}/nic-front.jpg`,
-              fileName: "nic-front.jpg",
-              fileSize: 524288,
-              mimeType: "image/jpeg"
+              intentId: doc2.intentId,
+              fileKey: doc2.fileKey
             }
           ]
         }
@@ -286,6 +320,8 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
       });
       const businessId = JSON.parse(createRes.body).data.id;
 
+      const doc = await helperCreateConfirmedDoc(hostUser.accessToken, businessId, "nic.jpg", "image/jpeg");
+
       const verifRes = await app.inject({
         method: "POST",
         url: `/api/v1/hosts/businesses/${businessId}/verification`,
@@ -294,10 +330,8 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
           documents: [
             {
               documentType: "NATIONAL_ID",
-              fileKey: `verifications/${businessId}/nic.jpg`,
-              fileName: "nic.jpg",
-              fileSize: 500000,
-              mimeType: "image/jpeg"
+              intentId: doc.intentId,
+              fileKey: doc.fileKey
             }
           ]
         }
@@ -338,6 +372,8 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
       });
       const businessId = JSON.parse(createRes.body).data.id;
 
+      const doc = await helperCreateConfirmedDoc(host.accessToken, businessId, "br.pdf", "application/pdf");
+
       const verifRes = await app.inject({
         method: "POST",
         url: `/api/v1/hosts/businesses/${businessId}/verification`,
@@ -346,10 +382,8 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
           documents: [
             {
               documentType: "BUSINESS_REGISTRATION",
-              fileKey: `verifications/${businessId}/br.pdf`,
-              fileName: "br.pdf",
-              fileSize: 200000,
-              mimeType: "application/pdf"
+              intentId: doc.intentId,
+              fileKey: doc.fileKey
             }
           ]
         }
@@ -419,6 +453,7 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
       activeBusinessId = JSON.parse(bRes.body).data.id;
 
       // Submit and approve
+      const doc = await helperCreateConfirmedDoc(host.accessToken, activeBusinessId, "mirissa.jpg", "image/jpeg");
       const vRes = await app.inject({
         method: "POST",
         url: `/api/v1/hosts/businesses/${activeBusinessId}/verification`,
@@ -427,10 +462,8 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
           documents: [
             {
               documentType: "NATIONAL_ID",
-              fileKey: "v/mirissa.jpg",
-              fileName: "mirissa.jpg",
-              fileSize: 100000,
-              mimeType: "image/jpeg"
+              intentId: doc.intentId,
+              fileKey: doc.fileKey
             }
           ]
         }
@@ -625,12 +658,28 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
     it("should generate pre-signed upload URL for authorized purpose and valid MIME type", async () => {
       const user = await createTestUser("HOST_OWNER", "Uploader");
 
+      const bRes = await app.inject({
+        method: "POST",
+        url: "/api/v1/hosts/businesses",
+        headers: { authorization: `Bearer ${user.accessToken}` },
+        payload: {
+          legalBusinessName: "Uploader Business",
+          tradeName: "Uploader Hub",
+          entityType: "SOLE_PROPRIETORSHIP",
+          contactEmail: "uploader@hub.lk",
+          contactPhone: "+94770006666",
+          city: "Colombo"
+        }
+      });
+      const bId = JSON.parse(bRes.body).data.id;
+
       const res = await app.inject({
         method: "POST",
         url: "/api/v1/uploads/presigned-url",
         headers: { authorization: `Bearer ${user.accessToken}` },
         payload: {
           purpose: "HOST_VERIFICATION",
+          resourceId: bId,
           fileName: "business-license.pdf",
           fileSize: 1048576,
           mimeType: "application/pdf"
@@ -879,6 +928,8 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
       businessBId = JSON.parse(bRes.body).data.id;
 
       // Host B submits a verification document while in DRAFT status
+      const doc = await helperCreateConfirmedDoc(hostB.accessToken, businessBId, "bob-id.pdf", "application/pdf");
+
       const vRes = await app.inject({
         method: "POST",
         url: `/api/v1/hosts/businesses/${businessBId}/verification`,
@@ -887,10 +938,8 @@ describe("Phase A: Marketplace Foundation, Host Onboarding & Location Management
           documents: [
             {
               documentType: "NATIONAL_ID",
-              fileKey: "v/bob-id.pdf",
-              fileName: "bob-id.pdf",
-              fileSize: 50000,
-              mimeType: "application/pdf"
+              intentId: doc.intentId,
+              fileKey: doc.fileKey
             }
           ]
         }
