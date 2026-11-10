@@ -49,6 +49,7 @@ export const storageLocations = pgTable(
     latitude: doublePrecision("latitude").notNull(),
     longitude: doublePrecision("longitude").notNull(),
     coordinates: postgisPoint("coordinates").notNull(),
+    coarseCoordinates: postgisPoint("coarse_coordinates").notNull(),
     timezone: varchar("timezone", { length: 64 }).notNull().default("Asia/Colombo"),
     bookingMode: varchar("booking_mode", { length: 32 }).notNull().default("INSTANT"),
     acceptsOversized: boolean("accepts_oversized").notNull().default(false),
@@ -66,6 +67,7 @@ export const storageLocations = pgTable(
     index("storage_locations_status_idx").on(table.status),
     index("storage_locations_city_idx").on(table.city),
     index("storage_locations_coordinates_gist_idx").using("gist", table.coordinates),
+    index("storage_locations_coarse_coordinates_gist_idx").using("gist", table.coarseCoordinates),
     check(
       "storage_locations_status_check",
       sql`${table.status} IN ('DRAFT', 'PENDING_REVIEW', 'ACTIVE', 'DISABLED', 'REJECTED')`

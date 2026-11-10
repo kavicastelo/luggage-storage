@@ -32,7 +32,7 @@ export class DiscoveryService {
     if (hasGeo) {
       conditions.push(
         sql`ST_DWithin(
-          sl.coordinates,
+          sl.coarse_coordinates,
           ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography,
           ${radiusMeters}
         )`
@@ -60,16 +60,16 @@ export class DiscoveryService {
 
     const whereClause = sql.join(conditions, sql` AND `);
 
-    // Order by distance when coords provided, else recent
+    // Order by distance from query point to coarse_coordinates, broken stably by created_at DESC
     const orderByClause = hasGeo
-      ? sql`ST_Distance(sl.coordinates, ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography) ASC`
+      ? sql`ST_Distance(sl.coarse_coordinates, ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography) ASC, sl.created_at DESC`
       : sql`sl.created_at DESC`;
 
     const distanceSelect = hasGeo
-      ? sql`, ROUND(ST_Distance(sl.coordinates, ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography))::integer AS distance_meters`
+      ? sql`, (ROUND(ST_Distance(sl.coarse_coordinates, ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography) / 100.0) * 100)::integer AS distance_meters`
       : sql`, NULL::integer AS distance_meters`;
 
-    // Query matching locations
+    // Query matching locations - uses privacy-preserving coarse coordinates ONLY
     const rowsQuery = sql`
       SELECT
         sl.id,
@@ -77,8 +77,8 @@ export class DiscoveryService {
         sl.description,
         sl.city,
         sl.country_code,
-        sl.latitude,
-        sl.longitude,
+        ST_Y(sl.coarse_coordinates::geometry) AS approximate_latitude,
+        ST_X(sl.coarse_coordinates::geometry) AS approximate_longitude,
         sl.timezone,
         sl.booking_mode,
         sl.accepts_oversized,
@@ -108,8 +108,8 @@ export class DiscoveryService {
         description: string | null;
         city: string;
         country_code: string;
-        latitude: number;
-        longitude: number;
+        approximate_latitude: number;
+        approximate_longitude: number;
         timezone: string;
         booking_mode: string;
         accepts_oversized: boolean;
@@ -169,27 +169,14 @@ export class DiscoveryService {
         ? `${firstOpen.openTime.slice(0, 5)} - ${firstOpen.closeTime.slice(0, 5)}`
         : "08:00 - 20:00";
 
-      // OQ-012: Approximate coordinates rounded to 2 decimals (~1.1 km precision) to prevent exact pinpointing
-      const approximateLatitude = Number(r.latitude.toFixed(2));
-      const approximateLongitude = Number(r.longitude.toFixed(2));
+      // OQ-012: Privacy-preserving coarse coordinates from DB (exact coordinates are never queried)
+      const approximateLatitude = Number(Number(r.approximate_latitude).toFixed(2));
+      const approximateLongitude = Number(Number(r.approximate_longitude).toFixed(2));
       const approximateArea = `${r.city} Transit Area`;
 
-      // OQ-012 Security Invariant: Compute distance using public coarse coordinates (NOT exact secret coordinates)
-      // and round to coarse 100m bands to prevent triangulation/trilateration side-channel leakage.
-      let distanceMeters: number | undefined = undefined;
-      if (hasGeo && query.latitude !== undefined && query.longitude !== undefined) {
-        const R = 6371000; // Earth radius in meters
-        const dLat = ((approximateLatitude - query.latitude) * Math.PI) / 180;
-        const dLon = ((approximateLongitude - query.longitude) * Math.PI) / 180;
-        const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos((query.latitude * Math.PI) / 180) *
-            Math.cos((approximateLatitude * Math.PI) / 180) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        distanceMeters = Math.round((R * c) / 100) * 100;
-      }
+      // OQ-012 Security Invariant: Distance is computed directly from coarse_coordinates
+      // in rounded 100m bands by PostGIS, preventing trilateration side-channel leakage.
+      const distanceMeters = r.distance_meters !== null ? Number(r.distance_meters) : undefined;
 
       return {
         id: r.id,
@@ -235,7 +222,18 @@ export class DiscoveryService {
   async getPublicLocationDetails(locationId: string): Promise<PublicStorageLocation> {
     const [row] = await db
       .select({
-        location: schema.storageLocations,
+        id: schema.storageLocations.id,
+        name: schema.storageLocations.name,
+        description: schema.storageLocations.description,
+        city: schema.storageLocations.city,
+        countryCode: schema.storageLocations.countryCode,
+        approximateLatitude: sql<number>`ST_Y(${schema.storageLocations.coarseCoordinates}::geometry)`,
+        approximateLongitude: sql<number>`ST_X(${schema.storageLocations.coarseCoordinates}::geometry)`,
+        timezone: schema.storageLocations.timezone,
+        bookingMode: schema.storageLocations.bookingMode,
+        acceptsOversized: schema.storageLocations.acceptsOversized,
+        amenities: schema.storageLocations.amenities,
+        locationStatus: schema.storageLocations.status,
         businessStatus: schema.hostBusinesses.status,
         baseRateMinor: schema.pricingPolicies.baseRateMinor,
         currency: schema.pricingPolicies.currency
@@ -255,7 +253,7 @@ export class DiscoveryService {
       .where(eq(schema.storageLocations.id, locationId))
       .limit(1);
 
-    if (!row || row.location.status !== "ACTIVE" || row.businessStatus !== "ACTIVE") {
+    if (!row || row.locationStatus !== "ACTIVE" || row.businessStatus !== "ACTIVE") {
       throw AppError.notFound("Storage location not found or is currently not active");
     }
 
@@ -289,18 +287,18 @@ export class DiscoveryService {
       : "08:00 - 20:00";
 
     return {
-      id: row.location.id,
-      name: row.location.name,
-      description: row.location.description,
-      city: row.location.city,
-      countryCode: row.location.countryCode,
-      approximateArea: `${row.location.city} District`,
-      approximateLatitude: Number(row.location.latitude.toFixed(2)),
-      approximateLongitude: Number(row.location.longitude.toFixed(2)),
-      timezone: row.location.timezone,
-      bookingMode: row.location.bookingMode as any,
-      acceptsOversized: row.location.acceptsOversized,
-      amenities: (row.location.amenities as string[]) || [],
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      city: row.city,
+      countryCode: row.countryCode,
+      approximateArea: `${row.city} District`,
+      approximateLatitude: Number(Number(row.approximateLatitude).toFixed(2)),
+      approximateLongitude: Number(Number(row.approximateLongitude).toFixed(2)),
+      timezone: row.timezone,
+      bookingMode: row.bookingMode as any,
+      acceptsOversized: row.acceptsOversized,
+      amenities: (row.amenities as string[]) || [],
       status: "ACTIVE",
       primaryImageUrl: primaryImage?.url || null,
       images: formattedImages,

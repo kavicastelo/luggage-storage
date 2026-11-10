@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { env, buildDatabaseSslConfig } from "../../config/env.js";
 import { logger } from "../logging/logger.js";
+import { encryptPayoutAccountNumber } from "../../common/crypto/payout-encryption.js";
 
 const { Pool } = pg;
 
@@ -68,6 +69,45 @@ export async function verifyMigratedSchema(client: pg.PoolClient): Promise<void>
   }
 }
 
+export async function backfillPlaintextPayoutRecords(client: pg.PoolClient): Promise<number> {
+  const tableCheck = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.tables 
+       WHERE table_schema = 'public' AND table_name = 'host_businesses'
+     );`
+  );
+  if (!tableCheck.rows[0]?.exists) {
+    return 0;
+  }
+
+  const result = await client.query<{ id: string; payout_account_number: string }>(
+    `SELECT id, payout_account_number
+     FROM public.host_businesses
+     WHERE payout_account_number IS NOT NULL
+       AND payout_account_number NOT LIKE 'enc:v1:%';`
+  );
+
+  if (result.rows.length === 0) {
+    return 0;
+  }
+
+  for (const row of result.rows) {
+    const encrypted = encryptPayoutAccountNumber(row.payout_account_number);
+    await client.query(
+      `UPDATE public.host_businesses
+       SET payout_account_number = $1, updated_at = NOW()
+       WHERE id = $2;`,
+      [encrypted, row.id]
+    );
+  }
+
+  logger.info(
+    { count: result.rows.length },
+    "[Migration Engine] Successfully backfilled and encrypted plaintext payout records"
+  );
+  return result.rows.length;
+}
+
 export async function runMigrations(customConnectionString?: string): Promise<number> {
   const connectionString =
     customConnectionString ||
@@ -110,6 +150,9 @@ export async function runMigrations(customConnectionString?: string): Promise<nu
     const migrationsFolder = path.resolve(__dirname, "migrations");
     logger.info({ folder: migrationsFolder }, "[Migration Engine] Loading migrations");
     const migrations = readMigrationFiles({ migrationsFolder });
+
+    // Backfill any plaintext payout account numbers before applying pending migrations/constraints
+    await backfillPlaintextPayoutRecords(client);
 
     let appliedCount = 0;
     for (const migration of migrations) {

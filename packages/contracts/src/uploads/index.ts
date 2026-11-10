@@ -11,7 +11,7 @@ export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 export const UPLOAD_RESOURCE_TYPES = ["HOST_BUSINESS", "STORAGE_LOCATION"] as const;
 export type UploadResourceType = (typeof UPLOAD_RESOURCE_TYPES)[number];
 
-export const UPLOAD_INTENT_STATUSES = ["PENDING", "CONFIRMED", "EXPIRED", "CANCELLED"] as const;
+export const UPLOAD_INTENT_STATUSES = ["PENDING", "CONFIRMED", "CONSUMED", "EXPIRED", "CANCELLED"] as const;
 export type UploadIntentStatus = (typeof UPLOAD_INTENT_STATUSES)[number];
 
 export const ALLOWED_MIME_TYPES = {

@@ -50,7 +50,7 @@ export const uploadIntents = pgTable(
     ),
     check(
       "upload_intents_status_check",
-      sql`${table.status} IN ('PENDING', 'CONFIRMED', 'EXPIRED', 'CANCELLED')`
+      sql`${table.status} IN ('PENDING', 'CONFIRMED', 'CONSUMED', 'EXPIRED', 'CANCELLED')`
     ),
     check("upload_intents_max_size_check", sql`${table.maxFileSize} > 0`)
   ]

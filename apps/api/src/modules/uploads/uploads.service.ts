@@ -216,7 +216,29 @@ export class UploadsService {
       throw AppError.badRequest("Upload purpose does not match the purpose registered on this upload intent");
     }
 
-    // 4. Handle idempotency if already confirmed
+    // 4. Handle idempotency and terminal states before storage checks
+    if (intent.status === "CONSUMED") {
+      if (intent.purpose === "LOCATION_IMAGE") {
+        const [existingMedia] = await db
+          .select()
+          .from(schema.locationMedia)
+          .where(eq(schema.locationMedia.fileKey, intent.fileKey))
+          .limit(1);
+
+        if (existingMedia) {
+          return {
+            success: true,
+            intentId: intent.id,
+            id: existingMedia.id,
+            fileKey: intent.fileKey,
+            url: existingMedia.url,
+            message: "Upload is already confirmed"
+          };
+        }
+      }
+      throw AppError.conflict("Upload intent has already been consumed and cannot be reused");
+    }
+
     if (intent.status === "CONFIRMED") {
       if (intent.purpose === "LOCATION_IMAGE") {
         const [existingMedia] = await db
@@ -225,16 +247,17 @@ export class UploadsService {
           .where(eq(schema.locationMedia.fileKey, intent.fileKey))
           .limit(1);
 
-        return {
-          success: true,
-          intentId: intent.id,
-          id: existingMedia?.id || intent.id,
-          fileKey: intent.fileKey,
-          url: existingMedia?.url,
-          message: "Upload is already confirmed"
-        };
+        if (existingMedia) {
+          return {
+            success: true,
+            intentId: intent.id,
+            id: existingMedia.id,
+            fileKey: intent.fileKey,
+            url: existingMedia.url,
+            message: "Upload is already confirmed"
+          };
+        }
       }
-
       return {
         success: true,
         intentId: intent.id,
@@ -243,7 +266,6 @@ export class UploadsService {
       };
     }
 
-    // 5. Verify intent status and expiration
     if (intent.status !== "PENDING") {
       throw AppError.badRequest(`Cannot confirm upload intent with status '${intent.status}'`);
     }
@@ -257,7 +279,7 @@ export class UploadsService {
       throw AppError.badRequest("Upload intent has expired. Please initiate a fresh upload request.");
     }
 
-    // 6. Verify object existence and metadata in durable storage (Cloudflare R2 or Storage Adapter)
+    // 5. Verify object existence and metadata in durable storage (Cloudflare R2 or Storage Adapter)
     const meta = await this.storage.getObjectMetadata(intent.fileKey);
     if (!meta.exists) {
       throw AppError.badRequest(
@@ -265,97 +287,200 @@ export class UploadsService {
       );
     }
 
-    if (meta.contentLength !== undefined && meta.contentLength > intent.maxFileSize) {
+    if (meta.contentLength === undefined || meta.contentLength <= 0) {
+      throw AppError.badRequest(
+        "Uploaded object is empty (0 bytes). Uploaded files must have positive length."
+      );
+    }
+
+    if (meta.contentLength > intent.maxFileSize) {
       throw AppError.badRequest(
         `Uploaded object size (${meta.contentLength} bytes) exceeds the authorized maximum file size limit (${intent.maxFileSize} bytes)`
       );
     }
 
-    // 7. Mark intent confirmed
-    await db
-      .update(schema.uploadIntents)
-      .set({
-        status: "CONFIRMED",
-        confirmedAt: new Date(),
-        updatedAt: new Date()
-      })
-      .where(eq(schema.uploadIntents.id, intent.id));
+    if (meta.contentType) {
+      const actualMime = meta.contentType.split(";")[0].trim().toLowerCase();
+      const expectedMime = intent.mimeType.split(";")[0].trim().toLowerCase();
+      if (actualMime !== expectedMime) {
+        throw AppError.badRequest(
+          `Uploaded object content type '${meta.contentType}' does not match the authorized MIME type '${intent.mimeType}' for this upload intent`
+        );
+      }
+    }
 
-    // 8. Associate with resource
-    if (intent.purpose === "LOCATION_IMAGE" && intent.resourceId) {
-      const publicUrl =
-        this.storage.getPublicUrl?.(intent.fileKey) ||
-        `https://storage.luggagestorage.lk/${intent.fileKey}`;
+    // 6. Execute state transition and resource association atomically under row lock
+    return db.transaction(async (tx) => {
+      const lockRes = await tx.execute(
+        sql`SELECT * FROM upload_intents WHERE id = ${intent.id}::uuid FOR UPDATE;`
+      );
+      const locked = lockRes.rows[0] as any;
 
-      // Idempotently check if media already inserted
-      const [existingMedia] = await db
-        .select()
-        .from(schema.locationMedia)
-        .where(eq(schema.locationMedia.fileKey, intent.fileKey))
-        .limit(1);
+      if (!locked) {
+        throw AppError.notFound("Upload intent not found");
+      }
 
-      let mediaId: string;
-      let mediaUrl: string;
+      // Replay prevention & safe idempotency under row lock
+      if (locked.status === "CONSUMED") {
+        if (intent.purpose === "LOCATION_IMAGE") {
+          const [existingMedia] = await tx
+            .select()
+            .from(schema.locationMedia)
+            .where(eq(schema.locationMedia.fileKey, intent.fileKey))
+            .limit(1);
 
-      if (existingMedia) {
-        mediaId = existingMedia.id;
-        mediaUrl = existingMedia.url;
-      } else {
-        const [inserted] = await db
-          .insert(schema.locationMedia)
-          .values({
+          if (existingMedia) {
+            return {
+              success: true,
+              intentId: intent.id,
+              id: existingMedia.id,
+              fileKey: intent.fileKey,
+              url: existingMedia.url,
+              message: "Upload is already confirmed"
+            };
+          }
+        }
+        throw AppError.conflict("Upload intent has already been consumed and cannot be reused");
+      }
+
+      if (locked.status === "CONFIRMED") {
+        if (intent.purpose === "LOCATION_IMAGE") {
+          const [existingMedia] = await tx
+            .select()
+            .from(schema.locationMedia)
+            .where(eq(schema.locationMedia.fileKey, intent.fileKey))
+            .limit(1);
+
+          if (existingMedia) {
+            return {
+              success: true,
+              intentId: intent.id,
+              id: existingMedia.id,
+              fileKey: intent.fileKey,
+              url: existingMedia.url,
+              message: "Upload is already confirmed"
+            };
+          }
+        }
+        return {
+          success: true,
+          intentId: intent.id,
+          fileKey: intent.fileKey,
+          message: "Upload is already confirmed"
+        };
+      }
+
+      if (locked.status !== "PENDING") {
+        throw AppError.badRequest(`Cannot confirm upload intent with status '${locked.status}'`);
+      }
+
+      if (new Date() > new Date(locked.expires_at)) {
+        await tx
+          .update(schema.uploadIntents)
+          .set({ status: "EXPIRED", updatedAt: new Date() })
+          .where(eq(schema.uploadIntents.id, intent.id));
+
+        throw AppError.badRequest("Upload intent has expired. Please initiate a fresh upload request.");
+      }
+
+      // 7. Associate with resource and update intent status atomically
+      if (intent.purpose === "LOCATION_IMAGE" && intent.resourceId) {
+        const publicUrl =
+          this.storage.getPublicUrl?.(intent.fileKey) ||
+          `https://storage.luggagestorage.lk/${intent.fileKey}`;
+
+        // Idempotently check if media already inserted
+        const [existingMedia] = await tx
+          .select()
+          .from(schema.locationMedia)
+          .where(eq(schema.locationMedia.fileKey, intent.fileKey))
+          .limit(1);
+
+        let mediaId: string;
+        let mediaUrl: string;
+
+        if (existingMedia) {
+          mediaId = existingMedia.id;
+          mediaUrl = existingMedia.url;
+        } else {
+          const [inserted] = await tx
+            .insert(schema.locationMedia)
+            .values({
+              locationId: intent.resourceId,
+              fileKey: intent.fileKey,
+              url: publicUrl,
+              mediaType: "IMAGE",
+              caption: request.caption || null,
+              isPrimary: request.isPrimary ?? false
+            })
+            .returning();
+          mediaId = inserted.id;
+          mediaUrl = inserted.url;
+        }
+
+        // For location images, associating consumes the intent atomically
+        await tx
+          .update(schema.uploadIntents)
+          .set({
+            status: "CONSUMED",
+            confirmedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(schema.uploadIntents.id, intent.id));
+
+        await auditService.recordEvent({
+          eventType: SecurityEventType.UPLOAD_MEDIA_CONFIRMED,
+          userId: context.userId,
+          clientInfo: context.clientInfo,
+          tx,
+          metadata: {
+            intentId: intent.id,
             locationId: intent.resourceId,
             fileKey: intent.fileKey,
-            url: publicUrl,
-            mediaType: "IMAGE",
-            caption: request.caption || null,
-            isPrimary: request.isPrimary ?? false
-          })
-          .returning();
-        mediaId = inserted.id;
-        mediaUrl = inserted.url;
+            mediaId
+          }
+        });
+
+        return {
+          success: true,
+          intentId: intent.id,
+          id: mediaId,
+          fileKey: intent.fileKey,
+          url: mediaUrl,
+          message: "Location image confirmed and linked successfully"
+        };
       }
+
+      // For HOST_VERIFICATION, mark CONFIRMED (consumed during verification submission)
+      await tx
+        .update(schema.uploadIntents)
+        .set({
+          status: "CONFIRMED",
+          confirmedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(schema.uploadIntents.id, intent.id));
 
       await auditService.recordEvent({
         eventType: SecurityEventType.UPLOAD_MEDIA_CONFIRMED,
         userId: context.userId,
         clientInfo: context.clientInfo,
+        tx,
         metadata: {
           intentId: intent.id,
-          locationId: intent.resourceId,
+          purpose: intent.purpose,
           fileKey: intent.fileKey,
-          mediaId
+          resourceId: intent.resourceId
         }
       });
 
       return {
         success: true,
         intentId: intent.id,
-        id: mediaId,
         fileKey: intent.fileKey,
-        url: mediaUrl,
-        message: "Location image confirmed and linked successfully"
+        message: "Verification document upload confirmed successfully"
       };
-    }
-
-    await auditService.recordEvent({
-      eventType: SecurityEventType.UPLOAD_MEDIA_CONFIRMED,
-      userId: context.userId,
-      clientInfo: context.clientInfo,
-      metadata: {
-        intentId: intent.id,
-        purpose: intent.purpose,
-        fileKey: intent.fileKey,
-        resourceId: intent.resourceId
-      }
     });
-
-    return {
-      success: true,
-      intentId: intent.id,
-      fileKey: intent.fileKey,
-      message: "Verification document upload confirmed successfully"
-    };
   }
 
   /**

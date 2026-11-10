@@ -56,6 +56,10 @@ export const hostBusinesses = pgTable(
     check(
       "host_businesses_entity_type_check",
       sql`${table.entityType} IN ('SOLE_PROPRIETORSHIP', 'PRIVATE_LIMITED', 'HOTEL', 'RETAIL_SHOP', 'PARTNERSHIP', 'OTHER')`
+    ),
+    check(
+      "host_businesses_payout_encrypted_check",
+      sql`${table.payoutAccountNumber} IS NULL OR ${table.payoutAccountNumber} LIKE 'enc:v1:%'`
     )
   ]
 );
