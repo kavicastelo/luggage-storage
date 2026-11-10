@@ -1,0 +1,40 @@
+# =============================================================================
+# Local Development Environment Configuration Template
+# =============================================================================
+# Used for daily developer workflows with local Docker dependencies.
+
+NODE_ENV=development
+PORT=3000
+HOST=0.0.0.0
+LOG_LEVEL=debug
+
+# Local PostgreSQL + PostGIS via Docker
+DATABASE_URL=postgresql://luggage_user:luggage_password@localhost:5432/luggage_storage_dev
+MIGRATION_DATABASE_URL=postgresql://luggage_migrator:migrator_password@localhost:5432/luggage_storage_dev
+DATABASE_MAX_CONNECTIONS=10
+DATABASE_SSL=false
+DATABASE_SSL_REJECT_UNAUTHORIZED=true
+
+# Cryptographic Secrets (Placeholders — generate unique values for each developer environment)
+DB_IDENTITY_SECRET=REPLACE_WITH_LOCAL_DEV_IDENTITY_SECRET_MINIMUM_32_CHARACTERS
+PAYOUT_ENCRYPTION_KEY=REPLACE_WITH_LOCAL_DEV_PAYOUT_KEY_MINIMUM_32_CHARACTERS
+JWT_SECRET=REPLACE_WITH_LOCAL_DEV_JWT_SECRET_MINIMUM_32_CHARACTERS
+COOKIE_SECRET=REPLACE_WITH_LOCAL_DEV_COOKIE_SECRET_MINIMUM_32_CHARACTERS
+RATE_LIMIT_HASH_SECRET=REPLACE_WITH_LOCAL_DEV_RATE_LIMIT_SECRET_MINIMUM_32_CHARACTERS
+
+# CORS & Routing
+CORS_ORIGIN=http://localhost:5173,http://localhost:8081
+APP_PUBLIC_URL=http://localhost:5173
+API_PREFIX=/api/v1
+
+# In-memory storage & console email for zero-friction local development
+STORAGE_PROVIDER=memory
+EMAIL_PROVIDER=console
+EMAIL_FROM_ADDRESS=no-reply@luggagestorage.lk
+EMAIL_FROM_NAME=Luggage Storage Marketplace
+
+# Client endpoints
+VITE_API_URL=http://localhost:3000/api/v1
+VITE_ENABLE_DEMO_PREVIEW=true
+EXPO_PUBLIC_API_URL=http://localhost:3000/api/v1
+

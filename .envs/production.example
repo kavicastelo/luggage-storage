@@ -1,0 +1,82 @@
+# =============================================================================
+# Production Environment Configuration Template
+# =============================================================================
+# Used as a reference specification for production secret provisioning.
+# Provision through cloud secret manager (AWS Secrets Manager, GCP Secret Manager, Vault).
+# NEVER commit production configuration files to source control!
+
+NODE_ENV=production
+PORT=3000
+HOST=0.0.0.0
+LOG_LEVEL=info
+
+# -----------------------------------------------------------------------------
+# 1. Production Database (TLS Mandatory)
+# -----------------------------------------------------------------------------
+DATABASE_URL=postgresql://app_user:REPLACE_WITH_STRONG_PASSWORD@db.production.luggagestorage.lk:5432/luggage_storage_prod?sslmode=verify-full
+MIGRATION_DATABASE_URL=postgresql://migrator_user:REPLACE_WITH_STRONG_PASSWORD@db.production.luggagestorage.lk:5432/luggage_storage_prod?sslmode=verify-full
+DATABASE_MAX_CONNECTIONS=25
+DATABASE_SSL=true
+DATABASE_SSL_REJECT_UNAUTHORIZED=true
+DATABASE_SSL_CA=REPLACE_WITH_BASE64_CA_CERT_IF_CUSTOM
+
+# -----------------------------------------------------------------------------
+# 2. Production Cryptographic Secrets (High Entropy, >= 32 characters)
+# -----------------------------------------------------------------------------
+# Database Identity Assertion HMAC Secret (MUST NOT start with dev_ or test_)
+DB_IDENTITY_SECRET=REPLACE_WITH_64_CHAR_HEX_SECRET_FROM_SECRET_MANAGER
+
+# Bank Account Payout Encryption Master Key (AES-256-GCM via scrypt)
+PAYOUT_ENCRYPTION_KEY=REPLACE_WITH_64_CHAR_HEX_SECRET_FROM_SECRET_MANAGER
+# Optional previous key during zero-downtime rotation window
+PAYOUT_ENCRYPTION_KEY_PREVIOUS=
+
+# Session & Token Signing
+JWT_SECRET=REPLACE_WITH_64_CHAR_HEX_SECRET_FROM_SECRET_MANAGER
+JWT_ACCESS_EXPIRATION=15m
+REFRESH_TOKEN_TTL_DAYS=7
+COOKIE_SECRET=REPLACE_WITH_64_CHAR_HEX_SECRET_FROM_SECRET_MANAGER
+COOKIE_SECURE=true
+
+# Rate Limit Identifier Hashing
+RATE_LIMIT_HASH_SECRET=REPLACE_WITH_64_CHAR_HEX_SECRET_FROM_SECRET_MANAGER
+
+# -----------------------------------------------------------------------------
+# 3. Production Networking & Strict CORS (NO wildcards allowed)
+# -----------------------------------------------------------------------------
+CORS_ORIGIN=https://app.luggagestorage.lk,https://admin.luggagestorage.lk
+APP_PUBLIC_URL=https://app.luggagestorage.lk
+API_PREFIX=/api/v1
+
+# -----------------------------------------------------------------------------
+# 4. Cloudflare R2 Production Object Storage (Mandatory in production)
+# -----------------------------------------------------------------------------
+STORAGE_PROVIDER=r2
+R2_ACCOUNT_ID=REPLACE_WITH_PRODUCTION_CLOUDFLARE_ACCOUNT_ID
+R2_ACCESS_KEY_ID=REPLACE_WITH_PRODUCTION_R2_ACCESS_KEY_ID
+R2_SECRET_ACCESS_KEY=REPLACE_WITH_PRODUCTION_R2_SECRET_ACCESS_KEY
+R2_BUCKET_NAME=luggage-storage-production-media
+R2_PUBLIC_URL=https://assets.luggagestorage.lk
+R2_PRESIGNED_TTL_SECONDS=900
+
+# -----------------------------------------------------------------------------
+# 5. Production Transactional Email (Zoho SMTP Mandatory)
+# -----------------------------------------------------------------------------
+EMAIL_PROVIDER=zoho
+ZOHO_SMTP_HOST=smtp.zoho.eu
+ZOHO_SMTP_PORT=587
+ZOHO_SMTP_SECURE=false
+ZOHO_SMTP_REQUIRE_TLS=true
+ZOHO_SMTP_USER=no-reply@luggagestorage.lk
+ZOHO_SMTP_PASSWORD=REPLACE_WITH_PRODUCTION_ZOHO_APP_PASSWORD
+ZOHO_SMTP_TIMEOUT_MS=10000
+EMAIL_FROM_ADDRESS=no-reply@luggagestorage.lk
+EMAIL_FROM_NAME=Luggage Storage Marketplace
+
+# -----------------------------------------------------------------------------
+# 6. Production Frontend Client Configuration
+# -----------------------------------------------------------------------------
+VITE_API_URL=https://api.luggagestorage.lk/api/v1
+VITE_ENABLE_DEMO_PREVIEW=false
+EXPO_PUBLIC_API_URL=https://api.luggagestorage.lk/api/v1
+

@@ -47,6 +47,8 @@ jobs:
           DATABASE_URL: postgresql://luggage_user:luggage_password@127.0.0.1:5432/luggage_storage_dev
           MIGRATION_DATABASE_URL: postgresql://luggage_migrator:migrator_password@127.0.0.1:5432/luggage_storage_dev
           NODE_ENV: test
+          DB_IDENTITY_SECRET: ${{ secrets.DB_IDENTITY_SECRET || 'ci_test_identity_secret_key_minimum_32_characters_random' }}
+          PAYOUT_ENCRYPTION_KEY: ${{ secrets.PAYOUT_ENCRYPTION_KEY || 'ci_test_payout_encryption_key_32_chars_random' }}
 
       - name: Execute Full Quality Gate (pnpm verify)
         run: pnpm verify
@@ -54,6 +56,8 @@ jobs:
           DATABASE_URL: postgresql://luggage_user:luggage_password@127.0.0.1:5432/luggage_storage_dev
           MIGRATION_DATABASE_URL: postgresql://luggage_migrator:migrator_password@127.0.0.1:5432/luggage_storage_dev
           NODE_ENV: test
+          DB_IDENTITY_SECRET: ${{ secrets.DB_IDENTITY_SECRET || 'ci_test_identity_secret_key_minimum_32_characters_random' }}
+          PAYOUT_ENCRYPTION_KEY: ${{ secrets.PAYOUT_ENCRYPTION_KEY || 'ci_test_payout_encryption_key_32_chars_random' }}
 
       - name: Stop PostgreSQL/PostGIS database
         if: always()

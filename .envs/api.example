@@ -1,0 +1,98 @@
+# =============================================================================
+# Fastify API Server Environment Configuration Template
+# =============================================================================
+# Consumed by: apps/api (src/config/env.ts)
+# Copy to apps/api/.env for workspace-isolated development.
+
+NODE_ENV=development
+PORT=3000
+HOST=0.0.0.0
+LOG_LEVEL=debug
+
+# -----------------------------------------------------------------------------
+# 1. Database Connections (PostgreSQL 16 + PostGIS 3.5)
+# -----------------------------------------------------------------------------
+# Runtime application user (unprivileged, denied direct access to secrets)
+DATABASE_URL=postgresql://luggage_user:luggage_password@localhost:5432/luggage_storage_dev
+# Migration runner user (owns schema, runs DDL, manages roles)
+MIGRATION_DATABASE_URL=postgresql://luggage_migrator:migrator_password@localhost:5432/luggage_storage_dev
+DATABASE_MAX_CONNECTIONS=10
+DATABASE_SSL=false
+DATABASE_SSL_REJECT_UNAUTHORIZED=true
+DATABASE_SSL_CA=
+
+# -----------------------------------------------------------------------------
+# 2. Cryptographic Secrets (MUST be unique, high-entropy, >= 32 characters)
+# -----------------------------------------------------------------------------
+# Database Identity Assertion HMAC Secret (provisioned into trusted_auth_secrets)
+DB_IDENTITY_SECRET=REPLACE_WITH_UNIQUE_RANDOM_HMAC_SECRET_MINIMUM_32_CHARACTERS
+
+# Bank Account Payout Encryption Master Key (AES-256-GCM via scrypt)
+PAYOUT_ENCRYPTION_KEY=REPLACE_WITH_UNIQUE_RANDOM_AES256_SECRET_MINIMUM_32_CHARACTERS
+# Optional previous key for zero-downtime key rotation cutover
+PAYOUT_ENCRYPTION_KEY_PREVIOUS=
+
+# Session & Authentication Tokens
+JWT_SECRET=REPLACE_WITH_UNIQUE_RANDOM_JWT_SECRET_MINIMUM_32_CHARACTERS
+JWT_ACCESS_EXPIRATION=15m
+REFRESH_TOKEN_TTL_DAYS=7
+COOKIE_SECRET=REPLACE_WITH_UNIQUE_RANDOM_COOKIE_SECRET_MINIMUM_32_CHARACTERS
+COOKIE_SECURE=false
+
+# Rate Limit Identifier Hashing
+RATE_LIMIT_HASH_SECRET=REPLACE_WITH_UNIQUE_RANDOM_RATE_LIMIT_SECRET_MINIMUM_32_CHARACTERS
+
+# Password Hashing (Argon2id parameters)
+ARGON2_MEMORY_COST=65536
+ARGON2_TIME_COST=3
+ARGON2_PARALLELISM=4
+
+# -----------------------------------------------------------------------------
+# 3. Rate Limiting Windows & Thresholds
+# -----------------------------------------------------------------------------
+RATE_LIMIT_WINDOW_SECONDS=900
+RATE_LIMIT_REGISTER_EMAIL_WINDOW_SECONDS=3600
+RATE_LIMIT_LOGIN_IP_MAX=20
+RATE_LIMIT_LOGIN_MAX=5
+RATE_LIMIT_REGISTER_IP_MAX=10
+RATE_LIMIT_REGISTER_MAX=5
+RATE_LIMIT_VERIFY_RESEND_IP_MAX=10
+RATE_LIMIT_VERIFICATION_RESEND_MAX=3
+RATE_LIMIT_RECOVERY_IP_MAX=10
+RATE_LIMIT_RECOVERY_MAX=3
+
+# -----------------------------------------------------------------------------
+# 4. Networking, CORS & Routing
+# -----------------------------------------------------------------------------
+CORS_ORIGIN=http://localhost:5173,http://localhost:3000
+APP_PUBLIC_URL=http://localhost:5173
+API_PREFIX=/api/v1
+
+# -----------------------------------------------------------------------------
+# 5. Cloudflare R2 Object Storage (S3-Compatible API)
+# -----------------------------------------------------------------------------
+# Options: 'memory' (local dev/test), 'r2' (production mandatory)
+STORAGE_PROVIDER=memory
+R2_ACCOUNT_ID=REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID
+R2_ACCESS_KEY_ID=REPLACE_WITH_R2_ACCESS_KEY_ID
+R2_SECRET_ACCESS_KEY=REPLACE_WITH_R2_SECRET_ACCESS_KEY
+R2_BUCKET_NAME=luggage-storage-dev
+R2_PUBLIC_URL=https://assets.luggagestorage.lk
+R2_PRESIGNED_TTL_SECONDS=900
+
+# -----------------------------------------------------------------------------
+# 6. Transactional Email (Zoho Mail SMTP)
+# -----------------------------------------------------------------------------
+# Options: 'zoho' (production mandatory), 'console', 'noop', 'test'
+EMAIL_PROVIDER=console
+ZOHO_SMTP_HOST=smtp.zoho.eu
+ZOHO_SMTP_PORT=587
+ZOHO_SMTP_SECURE=false
+ZOHO_SMTP_REQUIRE_TLS=true
+ZOHO_SMTP_USER=no-reply@talnova.io
+ZOHO_SMTP_PASSWORD=REPLACE_WITH_ZOHO_APPLICATION_PASSWORD
+ZOHO_SMTP_TIMEOUT_MS=10000
+EMAIL_FROM_ADDRESS=no-reply@talnova.io
+EMAIL_FROM_NAME=Luggage Storage Marketplace
+RESEND_API_KEY=
+

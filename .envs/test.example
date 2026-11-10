@@ -1,0 +1,39 @@
+# =============================================================================
+# Automated Testing Environment Configuration Template (Vitest & CI)
+# =============================================================================
+# Used when running test suites across packages or during GitHub Actions CI.
+
+NODE_ENV=test
+PORT=3001
+HOST=127.0.0.1
+LOG_LEVEL=fatal
+
+# Test Database Connection (Isolated local test database)
+DATABASE_URL=postgresql://luggage_user:luggage_password@127.0.0.1:5432/luggage_storage_dev
+MIGRATION_DATABASE_URL=postgresql://luggage_migrator:migrator_password@127.0.0.1:5432/luggage_storage_dev
+DATABASE_MAX_CONNECTIONS=5
+DATABASE_SSL=false
+DATABASE_SSL_REJECT_UNAUTHORIZED=false
+
+# Test Cryptographic Secrets (Dedicated test secrets; never use in production)
+DB_IDENTITY_SECRET=test_db_identity_secret_key_minimum_32_chars_for_automated_tests
+PAYOUT_ENCRYPTION_KEY=test_payout_encryption_key_32_chars_for_automated_tests!
+JWT_SECRET=test_jwt_secret_key_minimum_32_characters_for_automated_tests!
+COOKIE_SECRET=test_cookie_secret_key_minimum_32_characters_for_automated_tests!
+RATE_LIMIT_HASH_SECRET=test_rate_limit_hash_secret_minimum_32_characters_long!
+
+# Test Adapters (Zero external network dependencies during tests)
+STORAGE_PROVIDER=memory
+EMAIL_PROVIDER=test
+EMAIL_FROM_ADDRESS=test@luggagestorage.lk
+EMAIL_FROM_NAME=Test Runner
+
+# Fast test hashing parameters (Reduced CPU cost for fast test runs)
+ARGON2_MEMORY_COST=4096
+ARGON2_TIME_COST=1
+ARGON2_PARALLELISM=1
+
+# Client Test Configuration
+VITE_API_URL=http://localhost:3000/api/v1
+EXPO_PUBLIC_API_URL=http://localhost:3000/api/v1
+

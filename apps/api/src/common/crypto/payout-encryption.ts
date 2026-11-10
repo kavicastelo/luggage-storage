@@ -6,12 +6,28 @@ const PREFIX = "enc:v1:";
 const SALT = "luggage_payout_salt_v1";
 
 let derivedKeyCache: Buffer | null = null;
+let previousDerivedKeyCache: Buffer | null = null;
 
 function getDerivedKey(): Buffer {
   if (derivedKeyCache) return derivedKeyCache;
-  const rawKey = env.PAYOUT_ENCRYPTION_KEY || "dev_payout_encryption_key_32_characters_minimum_12345";
+  const rawKey = env.PAYOUT_ENCRYPTION_KEY;
   derivedKeyCache = scryptSync(rawKey, SALT, 32);
   return derivedKeyCache;
+}
+
+function getPreviousDerivedKey(): Buffer | null {
+  if (previousDerivedKeyCache) return previousDerivedKeyCache;
+  if (!env.PAYOUT_ENCRYPTION_KEY_PREVIOUS) return null;
+  previousDerivedKeyCache = scryptSync(env.PAYOUT_ENCRYPTION_KEY_PREVIOUS, SALT, 32);
+  return previousDerivedKeyCache;
+}
+
+/**
+ * Resets the derived key cache (used during testing and key rotation verification).
+ */
+export function resetPayoutKeyCacheForTesting(): void {
+  derivedKeyCache = null;
+  previousDerivedKeyCache = null;
 }
 
 /**
@@ -36,6 +52,8 @@ export function encryptPayoutAccountNumber(rawOrEncrypted: string | null | undef
 /**
  * Decrypts AES-256-GCM encrypted bank account numbers.
  * Backwards-compatible: if the value does not have the enc:v1: prefix, returns it as-is.
+ * Supports zero-downtime key rotation: if decryption with the primary key fails,
+ * attempts fallback to PAYOUT_ENCRYPTION_KEY_PREVIOUS if configured.
  */
 export function decryptPayoutAccountNumber(encryptedOrPlain: string | null | undefined): string | null {
   if (!encryptedOrPlain || encryptedOrPlain.trim() === "") return null;
@@ -51,15 +69,45 @@ export function decryptPayoutAccountNumber(encryptedOrPlain: string | null | und
     const authTag = Buffer.from(authTagHex, "hex");
     const ciphertext = Buffer.from(cipherHex, "hex");
 
-    const key = getDerivedKey();
-    const decipher = createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(authTag);
-
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    return decrypted.toString("utf8");
+    // Attempt 1: Decrypt with primary key
+    try {
+      const key = getDerivedKey();
+      const decipher = createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(authTag);
+      const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      return decrypted.toString("utf8");
+    } catch {
+      // Attempt 2: Decrypt with previous key if configured during key rotation cutover
+      const prevKey = getPreviousDerivedKey();
+      if (prevKey) {
+        const decipher = createDecipheriv(ALGORITHM, prevKey, iv);
+        decipher.setAuthTag(authTag);
+        const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+        return decrypted.toString("utf8");
+      }
+      return null;
+    }
   } catch {
     return null;
   }
+}
+
+/**
+ * Re-encrypts an existing encrypted payout account number using the current primary key.
+ * Used during batch key rotation to migrate historical records.
+ */
+export function reencryptPayoutAccountNumber(
+  encryptedValue: string | null | undefined
+): { reencrypted: string | null; neededRotation: boolean } {
+  if (!encryptedValue) return { reencrypted: null, neededRotation: false };
+  const decrypted = decryptPayoutAccountNumber(encryptedValue);
+  if (!decrypted) return { reencrypted: null, neededRotation: false };
+
+  const freshEncrypted = encryptPayoutAccountNumber(decrypted);
+  return {
+    reencrypted: freshEncrypted,
+    neededRotation: freshEncrypted !== encryptedValue
+  };
 }
 
 /**

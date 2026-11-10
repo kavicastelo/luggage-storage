@@ -9,11 +9,20 @@ build/
 out/
 .next/
 
-# Environment files
+# Environment files & Local Secrets
 .env
-.env.local
-.env.*.local
+.env.*
 !.env.example
+!.env.template
+.envs/*
+!.envs/.gitignore
+!.envs/README.md
+!.envs/*.example
+!.envs/*.template
+*.pem
+*.key
+*.pfx
+*.cert
 
 # Logs
 logs/

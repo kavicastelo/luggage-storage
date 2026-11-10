@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { FastifyInstance } from "fastify";
 import pg from "pg";
+import crypto from "node:crypto";
 import { buildApp } from "../src/app.js";
 import { env } from "../src/config/env.js";
 import { storageService } from "../src/modules/uploads/storage.service.js";
@@ -8,11 +9,16 @@ import { createStorageService } from "../src/modules/uploads/storage.service.js"
 import {
   encryptPayoutAccountNumber,
   decryptPayoutAccountNumber,
-  maskPayoutAccountNumber
+  maskPayoutAccountNumber,
+  reencryptPayoutAccountNumber,
+  resetPayoutKeyCacheForTesting
 } from "../src/common/crypto/payout-encryption.js";
 import { loadConfig } from "../src/config/env.js";
 import { rateLimitService } from "../src/modules/auth/rate-limit.service.js";
-import { createDatabaseIdentityAssertion } from "../src/common/crypto/database-identity.js";
+import {
+  createDatabaseIdentityAssertion,
+  buildIdentityAssertionPayload
+} from "../src/common/crypto/database-identity.js";
 
 const { Pool } = pg;
 
@@ -1186,8 +1192,8 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
         await expect(
           client1.query("SELECT public.assign_user_role($1::uuid, 'SUPERADMIN')", [regularUser.userId])
         ).rejects.toThrow(/missing trusted identity assertion/i);
-        await client1.query("ROLLBACK");
       } finally {
+        await client1.query("ROLLBACK").catch(() => {});
         client1.release();
       }
 
@@ -1201,7 +1207,7 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
           action: "ASSIGN_ROLE",
           targetId: regularUser.userId,
           roleCode: "SUPERADMIN",
-          expiresAt: Math.floor(Date.now() / 1000) + 300,
+          expiresAt: Math.floor(Date.now() / 1000) + 60,
           nonce: "attacker_nonce_12345678",
           signature: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
         };
@@ -1211,8 +1217,8 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
             [regularUser.userId, JSON.stringify(attackerAssertion)]
           )
         ).rejects.toThrow(/invalid or forged identity assertion signature/i);
-        await client2.query("ROLLBACK");
       } finally {
+        await client2.query("ROLLBACK").catch(() => {});
         client2.release();
       }
     });
@@ -1225,11 +1231,8 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
         await expect(
           client.query("SELECT public.revoke_user_role($1::uuid, 'TRAVELLER')", [regularUser.userId])
         ).rejects.toThrow(/missing trusted identity assertion/i);
-        await client.query("ROLLBACK");
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        throw err;
       } finally {
+        await client.query("ROLLBACK").catch(() => {});
         client.release();
       }
     });
@@ -1405,6 +1408,158 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
         expect(check2.rows[0].uid).toBe("");
       } finally {
         client2.release();
+      }
+    });
+
+    it("Scenario 22: Attacker using revoked publicly leaked development HMAC secret is rejected by PostgreSQL", async () => {
+      const revokedSecret = "dev_db_identity_secret_key_minimum_32_characters_12345";
+      const now = Math.floor(Date.now() / 1000);
+      const expiresAt = now + 60;
+      const nonce = "leaked_secret_attack_nonce_12345";
+      const payload = buildIdentityAssertionPayload(
+        superadmin.userId,
+        "ASSIGN_ROLE",
+        regularUser.userId,
+        "SUPERADMIN",
+        expiresAt,
+        nonce
+      );
+      const forgedSig = crypto.createHmac("sha256", revokedSecret).update(payload).digest("hex");
+      const attackAssertion = {
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "SUPERADMIN",
+        expiresAt,
+        nonce,
+        signature: forgedSig
+      };
+
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'SUPERADMIN', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(attackAssertion)]
+        )
+      ).rejects.toThrow(/invalid or forged identity assertion signature/i);
+    });
+
+    it("Scenario 23: PostgreSQL check constraint blocks insertion of revoked or short secrets into trusted_auth_secrets", async () => {
+      const revokedSecret = "dev_db_identity_secret_key_minimum_32_characters_12345";
+
+      // Attempt to insert revoked leaked secret
+      await expect(
+        migratorPool.query(
+          "INSERT INTO public.trusted_auth_secrets (key_id, secret) VALUES ('test-leaked', $1)",
+          [revokedSecret]
+        )
+      ).rejects.toThrow(/trusted_auth_secrets_uncompromised_check/i);
+
+      // Attempt to insert secret shorter than 32 characters
+      await expect(
+        migratorPool.query(
+          "INSERT INTO public.trusted_auth_secrets (key_id, secret) VALUES ('test-short', 'too_short')"
+        )
+      ).rejects.toThrow(/trusted_auth_secrets_uncompromised_check/i);
+    });
+
+    it("Scenario 24: Nonce replay prevention: Replaying the exact same assertion nonce is strictly rejected", async () => {
+      const target = await createTestUser("TRAVELLER", "ReplayTarget2");
+      const validAssertion = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: target.userId,
+        roleCode: "HOST_OWNER"
+      });
+
+      // First call succeeds
+      const res = await runtimePool.query(
+        "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+        [target.userId, JSON.stringify(validAssertion)]
+      );
+      expect(res.rows[0].assign_user_role).toBe(true);
+
+      // Immediate second call with identical nonce must fail with replay detected
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+          [target.userId, JSON.stringify(validAssertion)]
+        )
+      ).rejects.toThrow(/replay detected/i);
+    });
+
+    it("Scenario 25: Assertion timestamp boundaries: expired assertions and excessive future TTLs (>120s) are rejected", async () => {
+      // 1. Expired assertion (more than 5 seconds in past)
+      const expiredAssertion = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "HOST_OWNER",
+        ttlSeconds: -10
+      });
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(expiredAssertion)]
+        )
+      ).rejects.toThrow(/identity assertion has expired/i);
+
+      // 2. Future assertion exceeding maximum 120-second window
+      const futureAssertion = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "HOST_OWNER",
+        ttlSeconds: 300 // 5 minutes > 120 seconds max allowed
+      });
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(futureAssertion)]
+        )
+      ).rejects.toThrow(/maximum permitted lifetime/i);
+    });
+
+    it("Scenario 26: Payout dual-key rotation: seamless decryption of records encrypted under previous key and re-encryption", async () => {
+      const prevKey = "test_previous_key_for_rotation_minimum_32_characters_123";
+      const rawAccount = "9876543210123456";
+
+      // Encrypt account using previous key manually using aes-256-gcm
+      const prevDerived = crypto.scryptSync(prevKey, "luggage_payout_salt_v1", 32);
+      const iv = crypto.randomBytes(12);
+      const cipher = crypto.createCipheriv("aes-256-gcm", prevDerived, iv);
+      const enc = Buffer.concat([cipher.update(rawAccount, "utf8"), cipher.final()]);
+      const tag = cipher.getAuthTag();
+      const encryptedWithPrevKey = `enc:v1:${iv.toString("hex")}:${tag.toString("hex")}:${enc.toString("hex")}`;
+
+      // Temporarily set PAYOUT_ENCRYPTION_KEY_PREVIOUS in env
+      const originalPrev = env.PAYOUT_ENCRYPTION_KEY_PREVIOUS;
+      try {
+        (env as any).PAYOUT_ENCRYPTION_KEY_PREVIOUS = prevKey;
+        resetPayoutKeyCacheForTesting();
+
+        // 1. Decryption succeeds via previous key fallback
+        const decrypted = decryptPayoutAccountNumber(encryptedWithPrevKey);
+        expect(decrypted).toBe(rawAccount);
+
+        // 2. Masking works seamlessly on previous-key records
+        const masked = maskPayoutAccountNumber(encryptedWithPrevKey);
+        expect(masked).toBe("••••••••3456");
+
+        // 3. Re-encryption rotates the ciphertext to the current primary key
+        const rotationResult = reencryptPayoutAccountNumber(encryptedWithPrevKey);
+        expect(rotationResult.neededRotation).toBe(true);
+        expect(rotationResult.reencrypted).not.toBeNull();
+        expect(rotationResult.reencrypted).not.toBe(encryptedWithPrevKey);
+
+        // 4. Verify that the re-encrypted value decrypts with the current primary key alone
+        (env as any).PAYOUT_ENCRYPTION_KEY_PREVIOUS = undefined;
+        resetPayoutKeyCacheForTesting();
+
+        const decryptedPrimary = decryptPayoutAccountNumber(rotationResult.reencrypted);
+        expect(decryptedPrimary).toBe(rawAccount);
+      } finally {
+        (env as any).PAYOUT_ENCRYPTION_KEY_PREVIOUS = originalPrev;
+        resetPayoutKeyCacheForTesting();
       }
     });
   });
@@ -1721,6 +1876,15 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       const encrypted = encryptPayoutAccountNumber(rawNum);
       expect(encrypted).toMatch(/^enc:v1:[a-f0-9]+:[a-f0-9]+:[a-f0-9]+$/);
       expect(decryptPayoutAccountNumber(encrypted)).toBe(rawNum);
+    });
+
+    it("Scenario 8: loadConfig strictly rejects the known revoked development identity secret", () => {
+      expect(() => {
+        loadConfig({
+          DB_IDENTITY_SECRET: "dev_db_identity_secret_key_minimum_32_characters_12345",
+          PAYOUT_ENCRYPTION_KEY: "valid_payout_key_minimum_32_characters_12345"
+        });
+      }).toThrow(/compromised secret/i);
     });
   });
 

@@ -1,0 +1,13 @@
+# =============================================================================
+# Web Frontend Environment Configuration Template (Vite + React)
+# =============================================================================
+# Consumed by: apps/web (Vite build / runtime)
+# IMPORTANT: Only variables prefixed with VITE_ are bundled into client code!
+# NEVER add database credentials, private keys, or server secrets to this file!
+
+# Fastify API Endpoint URL
+VITE_API_URL=http://localhost:3000/api/v1
+
+# Demo Preview Policy (false in production; true enables read-only sandbox fixtures)
+VITE_ENABLE_DEMO_PREVIEW=false
+
