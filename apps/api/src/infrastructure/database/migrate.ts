@@ -48,7 +48,20 @@ export const REVOKED_IDENTITY_SECRETS = new Set([
   "dev_db_identity_secret_key_minimum_32_characters_12345"
 ]);
 
-export async function syncTrustedAuthSecret(client: pg.PoolClient): Promise<void> {
+const KEY_ID_FORMAT_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+
+export interface IdentitySecretSyncOptions {
+  activeKeyId?: string;
+  activeSecret?: string;
+  retiringKeyId?: string;
+  retiringSecret?: string;
+  retiringWindowSeconds?: number;
+}
+
+export async function syncTrustedAuthSecret(
+  client: pg.PoolClient,
+  options?: IdentitySecretSyncOptions
+): Promise<void> {
   const tableCheck = await client.query<{ exists: boolean }>(
     `SELECT EXISTS (
        SELECT 1 FROM information_schema.tables 
@@ -59,7 +72,19 @@ export async function syncTrustedAuthSecret(client: pg.PoolClient): Promise<void
     return;
   }
 
-  const secretToProvision = env.DB_IDENTITY_SECRET?.trim();
+  const activeKeyId = (options?.activeKeyId ?? env.DB_IDENTITY_KEY_ID ?? "active").trim();
+  const secretToProvision = (options?.activeSecret ?? env.DB_IDENTITY_SECRET)?.trim();
+  const retiringKeyId = (options?.retiringKeyId ?? env.DB_IDENTITY_RETIRING_KEY_ID)?.trim() || undefined;
+  const retiringSecret = (options?.retiringSecret ?? env.DB_IDENTITY_RETIRING_SECRET)?.trim() || undefined;
+  const retiringWindowSeconds =
+    options?.retiringWindowSeconds ?? env.DB_IDENTITY_RETIRING_WINDOW_SECONDS ?? 300;
+
+  if (!KEY_ID_FORMAT_REGEX.test(activeKeyId)) {
+    throw new Error(
+      "[Migration Engine] Security failure: DB_IDENTITY_KEY_ID is malformed. Must match ^[a-zA-Z0-9_-]{1,64}$."
+    );
+  }
+
   if (!secretToProvision || secretToProvision.length < 32) {
     throw new Error(
       "[Migration Engine] Security failure: DB_IDENTITY_SECRET is missing or less than 32 characters. Privileged identity provisioning cannot proceed."
@@ -72,32 +97,163 @@ export async function syncTrustedAuthSecret(client: pg.PoolClient): Promise<void
     );
   }
 
+  if (Boolean(retiringKeyId) !== Boolean(retiringSecret)) {
+    throw new Error(
+      "[Migration Engine] Security failure: DB_IDENTITY_RETIRING_KEY_ID and DB_IDENTITY_RETIRING_SECRET must both be provided when rotating keys."
+    );
+  }
+
+  if (retiringKeyId && retiringSecret) {
+    if (!KEY_ID_FORMAT_REGEX.test(retiringKeyId)) {
+      throw new Error(
+        "[Migration Engine] Security failure: DB_IDENTITY_RETIRING_KEY_ID is malformed. Must match ^[a-zA-Z0-9_-]{1,64}$."
+      );
+    }
+    if (retiringKeyId === activeKeyId) {
+      throw new Error(
+        "[Migration Engine] Security failure: DB_IDENTITY_RETIRING_KEY_ID must differ from active DB_IDENTITY_KEY_ID."
+      );
+    }
+    if (retiringSecret.length < 32) {
+      throw new Error(
+        "[Migration Engine] Security failure: DB_IDENTITY_RETIRING_SECRET must be at least 32 characters."
+      );
+    }
+    if (REVOKED_IDENTITY_SECRETS.has(retiringSecret)) {
+      throw new Error(
+        "[Migration Engine] Security failure: DB_IDENTITY_RETIRING_SECRET matches a known compromised development secret."
+      );
+    }
+    if (
+      !Number.isInteger(retiringWindowSeconds) ||
+      retiringWindowSeconds < 30 ||
+      retiringWindowSeconds > 3600
+    ) {
+      throw new Error(
+        "[Migration Engine] Security failure: DB_IDENTITY_RETIRING_WINDOW_SECONDS must be between 30 and 3600 seconds."
+      );
+    }
+  }
+
+  // Check whether the lifecycle columns from migration 0011 are present
+  const statusColCheck = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'trusted_auth_secrets'
+         AND column_name = 'status'
+     );`
+  );
+
   // Purge any compromised development secrets from database storage
   await client.query(
     `DELETE FROM public.trusted_auth_secrets 
      WHERE secret = 'dev_db_identity_secret_key_minimum_32_characters_12345';`
   );
 
-  // Securely provision the active identity secret
-  await client.query(
-    `INSERT INTO public.trusted_auth_secrets (key_id, secret)
-     VALUES ('active', $1)
-     ON CONFLICT (key_id) DO UPDATE SET secret = EXCLUDED.secret;`,
-    [secretToProvision]
-  );
-
-  // PostgreSQL verification: ensure the active secret is verified and usable
-  const verifyRes = await client.query<{ count: string }>(
-    `SELECT count(*)::text as count FROM public.trusted_auth_secrets
-     WHERE key_id = 'active'
-       AND secret <> 'dev_db_identity_secret_key_minimum_32_characters_12345'
-       AND length(secret) >= 32;`
-  );
-
-  if (verifyRes.rows[0]?.count !== "1") {
-    throw new Error(
-      "[Migration Engine] Security failure: active identity secret verification failed in PostgreSQL"
+  if (!statusColCheck.rows[0]?.exists) {
+    await client.query(
+      `INSERT INTO public.trusted_auth_secrets (key_id, secret)
+       VALUES ($1, $2)
+       ON CONFLICT (key_id) DO UPDATE SET secret = EXCLUDED.secret;`,
+      [activeKeyId, secretToProvision]
     );
+    return;
+  }
+
+  await client.query("BEGIN");
+  try {
+    // 1. Transition any elapsed RETIRING keys to REVOKED
+    await client.query(
+      `UPDATE public.trusted_auth_secrets
+       SET status = 'REVOKED',
+           retires_at = NULL,
+           updated_at = NOW()
+       WHERE status = 'RETIRING'
+         AND retires_at <= NOW();`
+    );
+
+    // 2. Demote any previously ACTIVE key that differs from the configured activeKeyId
+    if (retiringKeyId) {
+      await client.query(
+        `UPDATE public.trusted_auth_secrets
+         SET status = CASE WHEN key_id = $2 THEN 'RETIRING' ELSE 'REVOKED' END,
+             retires_at = CASE WHEN key_id = $2 THEN NOW() + make_interval(secs => $3::int) ELSE NULL END,
+             updated_at = NOW()
+         WHERE status = 'ACTIVE'
+           AND key_id <> $1;`,
+        [activeKeyId, retiringKeyId, retiringWindowSeconds]
+      );
+    } else {
+      await client.query(
+        `UPDATE public.trusted_auth_secrets
+         SET status = 'REVOKED',
+             retires_at = NULL,
+             updated_at = NOW()
+         WHERE status = 'ACTIVE'
+           AND key_id <> $1;`,
+        [activeKeyId]
+      );
+
+      // If no retiring key is configured, revoke any remaining RETIRING keys immediately on explicit cutover
+      await client.query(
+        `UPDATE public.trusted_auth_secrets
+         SET status = 'REVOKED',
+             retires_at = NULL,
+             updated_at = NOW()
+         WHERE status = 'RETIRING'
+           AND key_id <> $1;`,
+        [activeKeyId]
+      );
+    }
+
+    // 3. Provision or update the configured ACTIVE key
+    await client.query(
+      `INSERT INTO public.trusted_auth_secrets (key_id, secret, status, retires_at, updated_at)
+       VALUES ($1, $2, 'ACTIVE', NULL, NOW())
+       ON CONFLICT (key_id) DO UPDATE
+       SET secret = EXCLUDED.secret,
+           status = 'ACTIVE',
+           retires_at = NULL,
+           updated_at = NOW();`,
+      [activeKeyId, secretToProvision]
+    );
+
+    // 4. Optionally provision or refresh the bounded RETIRING key for overlap rotation
+    if (retiringKeyId && retiringSecret) {
+      await client.query(
+        `INSERT INTO public.trusted_auth_secrets (key_id, secret, status, retires_at, updated_at)
+         VALUES ($1, $2, 'RETIRING', NOW() + make_interval(secs => $3::int), NOW())
+         ON CONFLICT (key_id) DO UPDATE
+         SET secret = EXCLUDED.secret,
+             status = 'RETIRING',
+             retires_at = NOW() + make_interval(secs => $3::int),
+             updated_at = NOW();`,
+        [retiringKeyId, retiringSecret, retiringWindowSeconds]
+      );
+    }
+
+    // 5. Verify in PostgreSQL that exactly one valid ACTIVE key exists and matches activeKeyId
+    const verifyRes = await client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM public.trusted_auth_secrets
+       WHERE status = 'ACTIVE'
+         AND key_id = $1
+         AND secret <> 'dev_db_identity_secret_key_minimum_32_characters_12345'
+         AND length(secret) >= 32;`,
+      [activeKeyId]
+    );
+
+    if (verifyRes.rows[0]?.count !== "1") {
+      throw new Error(
+        "[Migration Engine] Security failure: active identity secret verification failed in PostgreSQL"
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
   }
 }
 

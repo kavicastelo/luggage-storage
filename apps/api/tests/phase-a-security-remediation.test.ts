@@ -17,8 +17,13 @@ import { loadConfig } from "../src/config/env.js";
 import { rateLimitService } from "../src/modules/auth/rate-limit.service.js";
 import {
   createDatabaseIdentityAssertion,
-  buildIdentityAssertionPayload
+  buildIdentityAssertionPayload,
+  verifyDatabaseIdentityAssertion
 } from "../src/common/crypto/database-identity.js";
+import { syncTrustedAuthSecret, runMigrations } from "../src/infrastructure/database/migrate.js";
+import { readMigrationFiles } from "drizzle-orm/migrator";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const { Pool } = pg;
 
@@ -1203,6 +1208,7 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
         await client2.query("BEGIN");
         await client2.query("SELECT set_config('app.current_user_id', $1, true)", [superadmin.userId]);
         const attackerAssertion = {
+          keyId: "active",
           actorId: superadmin.userId,
           action: "ASSIGN_ROLE",
           targetId: regularUser.userId,
@@ -1417,6 +1423,7 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       const expiresAt = now + 60;
       const nonce = "leaked_secret_attack_nonce_12345";
       const payload = buildIdentityAssertionPayload(
+        env.DB_IDENTITY_KEY_ID,
         superadmin.userId,
         "ASSIGN_ROLE",
         regularUser.userId,
@@ -1426,6 +1433,7 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       );
       const forgedSig = crypto.createHmac("sha256", revokedSecret).update(payload).digest("hex");
       const attackAssertion = {
+        keyId: env.DB_IDENTITY_KEY_ID,
         actorId: superadmin.userId,
         action: "ASSIGN_ROLE",
         targetId: regularUser.userId,
@@ -1560,6 +1568,444 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       } finally {
         (env as any).PAYOUT_ENCRYPTION_KEY_PREVIOUS = originalPrev;
         resetPayoutKeyCacheForTesting();
+      }
+    });
+
+    it("Scenario 27: Invalid signature encoding and length (non-hex, odd, short, overlong) rejected cleanly in PostgreSQL and Node", async () => {
+      const baseAssertion = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "HOST_OWNER"
+      });
+
+      const invalidSignatures = [
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", // 64 non-hex chars
+        baseAssertion.signature.slice(0, 63), // odd length (63)
+        baseAssertion.signature.slice(0, 32), // short length (16 bytes)
+        `${baseAssertion.signature}ab` // overlong (66 hex chars / 33 bytes)
+      ];
+
+      for (const badSig of invalidSignatures) {
+        const badAssertion = {
+          ...baseAssertion,
+          nonce: crypto.randomBytes(16).toString("hex"),
+          signature: badSig
+        };
+
+        const nodeCheck = verifyDatabaseIdentityAssertion(
+          badAssertion,
+          "ASSIGN_ROLE",
+          regularUser.userId,
+          "HOST_OWNER"
+        );
+        expect(nodeCheck.valid).toBe(false);
+        expect(nodeCheck.reason).toMatch(/encoding or length/i);
+
+        await expect(
+          runtimePool.query(
+            "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+            [regularUser.userId, JSON.stringify(badAssertion)]
+          )
+        ).rejects.toThrow(/signature encoding or length/i);
+      }
+    });
+
+    it("Scenario 28: Action mismatch, target mismatch, role mismatch, and malformed/missing keyId rejected by PostgreSQL", async () => {
+      const otherUser = await createTestUser("TRAVELLER", "MismatchTarget");
+
+      // 1. Action mismatch (REVOKE_ROLE assertion sent to assign_user_role)
+      const wrongAction = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "REVOKE_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "HOST_OWNER"
+      });
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(wrongAction)]
+        )
+      ).rejects.toThrow(/action mismatch/i);
+
+      // 2. Target mismatch
+      const wrongTarget = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: otherUser.userId,
+        roleCode: "HOST_OWNER"
+      });
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(wrongTarget)]
+        )
+      ).rejects.toThrow(/target mismatch/i);
+
+      // 3. Role mismatch
+      const wrongRole = createDatabaseIdentityAssertion({
+        actorId: superadmin.userId,
+        action: "ASSIGN_ROLE",
+        targetId: regularUser.userId,
+        roleCode: "SUPPORT"
+      });
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(wrongRole)]
+        )
+      ).rejects.toThrow(/role code mismatch/i);
+
+      // 4. Missing keyId
+      const missingKeyId = { ...wrongRole, keyId: undefined };
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'SUPPORT', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(missingKeyId)]
+        )
+      ).rejects.toThrow(/malformed identity assertion/i);
+
+      // 5. Malformed keyId characters
+      const malformedKeyId = { ...wrongRole, keyId: "bad key!@#" };
+      await expect(
+        runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'SUPPORT', $2::jsonb)",
+          [regularUser.userId, JSON.stringify(malformedKeyId)]
+        )
+      ).rejects.toThrow(/invalid identity assertion key identifier/i);
+    });
+
+    it("Scenario 29: Fail-closed database verification when no valid ACTIVE secret is provisioned", async () => {
+      const client = await migratorPool.connect();
+      try {
+        await client.query("UPDATE public.trusted_auth_secrets SET status = 'REVOKED', retires_at = NULL;");
+
+        const validLookingAssertion = createDatabaseIdentityAssertion({
+          actorId: superadmin.userId,
+          action: "ASSIGN_ROLE",
+          targetId: regularUser.userId,
+          roleCode: "HOST_OWNER"
+        });
+
+        await expect(
+          runtimePool.query(
+            "SELECT public.assign_user_role($1::uuid, 'HOST_OWNER', $2::jsonb)",
+            [regularUser.userId, JSON.stringify(validLookingAssertion)]
+          )
+        ).rejects.toThrow(/trusted authentication secret is not provisioned/i);
+      } finally {
+        await syncTrustedAuthSecret(client);
+        client.release();
+      }
+    });
+
+    it("Scenario 30: Secret provisioning boundary rejects missing, short, compromised, or inconsistent rotation configs", async () => {
+      const client = await migratorPool.connect();
+      try {
+        await expect(
+          syncTrustedAuthSecret(client, { activeSecret: "" })
+        ).rejects.toThrow(/missing or less than 32 characters/i);
+
+        await expect(
+          syncTrustedAuthSecret(client, { activeSecret: "short_secret_under_32" })
+        ).rejects.toThrow(/missing or less than 32 characters/i);
+
+        await expect(
+          syncTrustedAuthSecret(client, {
+            activeSecret: "dev_db_identity_secret_key_minimum_32_characters_12345"
+          })
+        ).rejects.toThrow(/compromised development secret/i);
+
+        await expect(
+          syncTrustedAuthSecret(client, {
+            activeKeyId: "invalid key spaces!",
+            activeSecret: "valid_random_secret_for_testing_minimum_32_chars!"
+          })
+        ).rejects.toThrow(/DB_IDENTITY_KEY_ID is malformed/i);
+
+        await expect(
+          syncTrustedAuthSecret(client, {
+            activeKeyId: "key_v2",
+            activeSecret: "valid_random_secret_for_testing_minimum_32_chars!",
+            retiringKeyId: "key_v1"
+          })
+        ).rejects.toThrow(/must both be provided/i);
+
+        await expect(
+          syncTrustedAuthSecret(client, {
+            activeKeyId: "same_key",
+            activeSecret: "valid_random_secret_for_testing_minimum_32_chars!",
+            retiringKeyId: "same_key",
+            retiringSecret: "another_valid_secret_for_testing_minimum_32_chars!"
+          })
+        ).rejects.toThrow(/must differ/i);
+      } finally {
+        await syncTrustedAuthSecret(client);
+        client.release();
+      }
+    });
+
+    it("Scenario 31: Key-ID-aware multi-key rotation overlap, replay defense across rotation, retirement, and revocation", async () => {
+      const keyV1Id = "rot_key_v1";
+      const keyV1Secret = "rotation_v1_secret_minimum_32_characters_alpha_9001";
+      const keyV2Id = "rot_key_v2";
+      const keyV2Secret = "rotation_v2_secret_minimum_32_characters_bravo_9002";
+
+      const targetA = await createTestUser("TRAVELLER", "RotTargetA");
+      const targetB = await createTestUser("TRAVELLER", "RotTargetB");
+      const targetC = await createTestUser("TRAVELLER", "RotTargetC");
+
+      const client = await migratorPool.connect();
+      try {
+        // Step 1: Provision V1 as ACTIVE
+        await syncTrustedAuthSecret(client, {
+          activeKeyId: keyV1Id,
+          activeSecret: keyV1Secret
+        });
+
+        // Partial unique index prevents inserting a second ACTIVE key directly
+        await expect(
+          client.query(
+            "INSERT INTO public.trusted_auth_secrets (key_id, secret, status) VALUES ('rogue_second_active', $1, 'ACTIVE')",
+            [keyV2Secret]
+          )
+        ).rejects.toThrow(/trusted_auth_secrets_single_active_idx/i);
+
+        // Mint an in-flight assertion under V1 BEFORE rotating to V2
+        const inFlightV1Assertion = createDatabaseIdentityAssertion({
+          keyId: keyV1Id,
+          secretOverride: keyV1Secret,
+          actorId: superadmin.userId,
+          action: "ASSIGN_ROLE",
+          targetId: targetA.userId,
+          roleCode: "SUPPORT"
+        });
+
+        // Step 2: Rotate to V2 (ACTIVE) with V1 in bounded RETIRING overlap window (300s)
+        await syncTrustedAuthSecret(client, {
+          activeKeyId: keyV2Id,
+          activeSecret: keyV2Secret,
+          retiringKeyId: keyV1Id,
+          retiringSecret: keyV1Secret,
+          retiringWindowSeconds: 300
+        });
+
+        // New assertion signed with V2 (ACTIVE) succeeds
+        const v2Assertion = createDatabaseIdentityAssertion({
+          keyId: keyV2Id,
+          secretOverride: keyV2Secret,
+          actorId: superadmin.userId,
+          action: "ASSIGN_ROLE",
+          targetId: targetB.userId,
+          roleCode: "SUPPORT"
+        });
+        const v2Res = await runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'SUPPORT', $2::jsonb)",
+          [targetB.userId, JSON.stringify(v2Assertion)]
+        );
+        expect(v2Res.rows[0].assign_user_role).toBe(true);
+
+        // In-flight assertion signed with V1 (RETIRING) ALSO succeeds during overlap window!
+        const v1Res = await runtimePool.query(
+          "SELECT public.assign_user_role($1::uuid, 'SUPPORT', $2::jsonb)",
+          [targetA.userId, JSON.stringify(inFlightV1Assertion)]
+        );
+        expect(v1Res.rows[0].assign_user_role).toBe(true);
+
+        // Replaying the consumed V1 assertion during overlap window is blocked globally
+        await expect(
+          runtimePool.query(
+            "SELECT public.assign_user_role($1::uuid, 'SUPPORT', $2::jsonb)",
+            [targetA.userId, JSON.stringify(inFlightV1Assertion)]
+          )
+        ).rejects.toThrow(/replay detected/i);
+
+        // Cross-key forgery (signed with V1 secret but claiming keyId = V2) is rejected
+        const crossKeyForgery = createDatabaseIdentityAssertion({
+          keyId: keyV1Id,
+          secretOverride: keyV1Secret,
+          actorId: superadmin.userId,
+          action: "ASSIGN_ROLE",
+          targetId: targetC.userId,
+          roleCode: "SUPPORT"
+        });
+        crossKeyForgery.keyId = keyV2Id;
+        await expect(
+          runtimePool.query(
+            "SELECT public.assign_user_role($1::uuid, 'SUPPORT', $2::jsonb)",
+            [targetC.userId, JSON.stringify(crossKeyForgery)]
+          )
+        ).rejects.toThrow(/invalid or forged identity assertion signature/i);
+
+        // Step 3: Expire V1's retiring window -> V1 assertions immediately fail
+        await client.query(
+          "UPDATE public.trusted_auth_secrets SET retires_at = NOW() - interval '2 seconds' WHERE key_id = $1",
+          [keyV1Id]
+        );
+        const postExpiryV1 = createDatabaseIdentityAssertion({
+          keyId: keyV1Id,
+          secretOverride: keyV1Secret,
+          actorId: superadmin.userId,
+          action: "ASSIGN_ROLE",
+          targetId: targetC.userId,
+          roleCode: "SUPPORT"
+        });
+        await expect(
+          runtimePool.query(
+            "SELECT public.assign_user_role($1::uuid, 'SUPPORT', $2::jsonb)",
+            [targetC.userId, JSON.stringify(postExpiryV1)]
+          )
+        ).rejects.toThrow(/unknown, retired, or revoked/i);
+
+        // Step 4: Final cutover (no retiring key) marks V1 REVOKED while V2 stays ACTIVE
+        await syncTrustedAuthSecret(client, {
+          activeKeyId: keyV2Id,
+          activeSecret: keyV2Secret
+        });
+        const statusCheck = await client.query<{ status: string }>(
+          "SELECT status FROM public.trusted_auth_secrets WHERE key_id = $1",
+          [keyV1Id]
+        );
+        expect(statusCheck.rows[0]?.status).toBe("REVOKED");
+      } finally {
+        await syncTrustedAuthSecret(client);
+        await client.query(
+          "DELETE FROM public.trusted_auth_secrets WHERE key_id IN ('rot_key_v1', 'rot_key_v2');"
+        );
+        client.release();
+      }
+    });
+
+    it("Scenario 32: Runtime role luggage_user cannot INSERT, UPDATE, or DELETE trusted_auth_secrets or consumed_auth_assertions", async () => {
+      await expect(
+        runtimePool.query(
+          "INSERT INTO public.trusted_auth_secrets (key_id, secret, status) VALUES ('hack', 'hack_secret_minimum_32_characters_long_999', 'ACTIVE')"
+        )
+      ).rejects.toThrow(/permission denied for table trusted_auth_secrets/i);
+
+      await expect(
+        runtimePool.query("DELETE FROM public.consumed_auth_assertions")
+      ).rejects.toThrow(/permission denied for table consumed_auth_assertions/i);
+    });
+
+    it("Scenario 33 & 34: Clean database install (0000->latest) and existing Phase A upgrade (0010->latest) succeed on real PostgreSQL", async () => {
+      const parsedUrl = new URL(env.MIGRATION_DATABASE_URL);
+      const adminUrl = `postgresql://postgres:postgres@${parsedUrl.hostname}:${parsedUrl.port || "5432"}/postgres`;
+      const adminPool = new Pool({ connectionString: adminUrl, max: 2 });
+
+      const suffix = `${Date.now().toString(36)}`;
+      const cleanDb = `luggage_clean_${suffix}`;
+      const upgradeDb = `luggage_upg_${suffix}`;
+
+      const initTempDatabase = async (dbName: string) => {
+        await adminPool.query(`CREATE DATABASE ${dbName};`);
+        const dbAdminPool = new Pool({
+          connectionString: `postgresql://postgres:postgres@${parsedUrl.hostname}:${parsedUrl.port || "5432"}/${dbName}`,
+          max: 1
+        });
+        try {
+          await dbAdminPool.query("CREATE EXTENSION IF NOT EXISTS postgis;");
+          await dbAdminPool.query("CREATE EXTENSION IF NOT EXISTS postgis_topology;");
+          await dbAdminPool.query("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;");
+          await dbAdminPool.query(`GRANT CONNECT ON DATABASE ${dbName} TO luggage_migrator, luggage_user;`);
+          await dbAdminPool.query("GRANT USAGE, CREATE ON SCHEMA public TO luggage_migrator, luggage_role_assigner;");
+          await dbAdminPool.query("GRANT USAGE ON SCHEMA public TO luggage_user;");
+          await dbAdminPool.query("REVOKE CREATE ON SCHEMA public FROM luggage_user;");
+          await dbAdminPool.query(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE luggage_migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO luggage_user;"
+          );
+          await dbAdminPool.query(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE luggage_migrator IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO luggage_user;"
+          );
+          await dbAdminPool.query(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE luggage_migrator IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;"
+          );
+          await dbAdminPool.query(
+            "ALTER DEFAULT PRIVILEGES FOR ROLE luggage_migrator IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO luggage_user;"
+          );
+        } finally {
+          await dbAdminPool.end();
+        }
+      };
+
+      try {
+        // 1. Clean installation from zero
+        await initTempDatabase(cleanDb);
+        const cleanMigratorUrl = `postgresql://luggage_migrator:migrator_password@${parsedUrl.hostname}:${parsedUrl.port || "5432"}/${cleanDb}`;
+        const appliedClean = await runMigrations(cleanMigratorUrl);
+        expect(appliedClean).toBeGreaterThanOrEqual(12);
+
+        // Idempotent second run applies 0 new migrations
+        const secondClean = await runMigrations(cleanMigratorUrl);
+        expect(secondClean).toBe(0);
+
+        // 2. Upgrade from migration 0010 (pre-0011 trusted_auth_secrets schema)
+        await initTempDatabase(upgradeDb);
+        const upgradeMigratorUrl = `postgresql://luggage_migrator:migrator_password@${parsedUrl.hostname}:${parsedUrl.port || "5432"}/${upgradeDb}`;
+        const upgPool = new Pool({ connectionString: upgradeMigratorUrl, max: 1 });
+        try {
+          const thisDir = path.dirname(fileURLToPath(import.meta.url));
+          const migrationsFolder = path.resolve(
+            thisDir,
+            "../src/infrastructure/database/migrations"
+          );
+          const allMigrations = readMigrationFiles({ migrationsFolder });
+          const through0010 = allMigrations.slice(0, 11); // idx 0..10
+
+          await upgPool.query(`
+            CREATE TABLE IF NOT EXISTS public.__drizzle_migrations (
+              id SERIAL PRIMARY KEY,
+              hash text NOT NULL,
+              created_at bigint
+            );
+          `);
+
+          for (const m of through0010) {
+            await upgPool.query("BEGIN");
+            for (const stmt of m.sql) {
+              await upgPool.query(stmt);
+            }
+            await upgPool.query(
+              `INSERT INTO public.__drizzle_migrations ("hash", "created_at") VALUES ($1, $2);`,
+              [m.hash, m.folderMillis]
+            );
+            await upgPool.query("COMMIT");
+          }
+
+          // Seed pre-0011 single-column active secret + stale extra row to test upgrade normalization
+          await upgPool.query(
+            `INSERT INTO public.trusted_auth_secrets (key_id, secret)
+             VALUES ('active', $1), ('legacy_old', $2);`,
+            [
+              "pre_0011_active_secret_minimum_32_characters_long_01",
+              "pre_0011_legacy_secret_minimum_32_characters_long_02"
+            ]
+          );
+        } finally {
+          await upgPool.end();
+        }
+
+        const upgradedCount = await runMigrations(upgradeMigratorUrl);
+        expect(upgradedCount).toBeGreaterThanOrEqual(1);
+
+        // Verify upgraded database has single ACTIVE key and REVOKED legacy key
+        const verifyUpgPool = new Pool({ connectionString: upgradeMigratorUrl, max: 1 });
+        try {
+          const rows = await verifyUpgPool.query<{ key_id: string; status: string }>(
+            "SELECT key_id, status FROM public.trusted_auth_secrets ORDER BY key_id ASC;"
+          );
+          const activeRows = rows.rows.filter((r) => r.status === "ACTIVE");
+          expect(activeRows.length).toBe(1);
+          expect(activeRows[0]?.key_id).toBe(env.DB_IDENTITY_KEY_ID);
+          const legacyRow = rows.rows.find((r) => r.key_id === "legacy_old");
+          expect(legacyRow?.status).toBe("REVOKED");
+        } finally {
+          await verifyUpgPool.end();
+        }
+      } finally {
+        await adminPool.query(`DROP DATABASE IF EXISTS ${cleanDb} WITH (FORCE);`).catch(() => {});
+        await adminPool.query(`DROP DATABASE IF EXISTS ${upgradeDb} WITH (FORCE);`).catch(() => {});
+        await adminPool.end();
       }
     });
   });

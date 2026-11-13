@@ -10,6 +10,7 @@
 -- 1. Enable required extensions (executed as superuser during initialization)
 CREATE EXTENSION IF NOT EXISTS postgis;
 CREATE EXTENSION IF NOT EXISTS postgis_topology;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 -- 2. Create the Schema Migration Role (Tier 2: Authorized DDL execution)
 DO $$

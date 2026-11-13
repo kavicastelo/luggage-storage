@@ -24,7 +24,12 @@ DATABASE_SSL_CA=REPLACE_WITH_BASE64_CA_CERT_IF_CUSTOM
 # 2. Production Cryptographic Secrets (High Entropy, >= 32 characters)
 # -----------------------------------------------------------------------------
 # Database Identity Assertion HMAC Secret (MUST NOT start with dev_ or test_)
+DB_IDENTITY_KEY_ID=prod_identity_v1
 DB_IDENTITY_SECRET=REPLACE_WITH_64_CHAR_HEX_SECRET_FROM_SECRET_MANAGER
+# Optional bounded overlap parameters during key rotation (30-3600s)
+DB_IDENTITY_RETIRING_KEY_ID=
+DB_IDENTITY_RETIRING_SECRET=
+DB_IDENTITY_RETIRING_WINDOW_SECONDS=300
 
 # Bank Account Payout Encryption Master Key (AES-256-GCM via scrypt)
 PAYOUT_ENCRYPTION_KEY=REPLACE_WITH_64_CHAR_HEX_SECRET_FROM_SECRET_MANAGER

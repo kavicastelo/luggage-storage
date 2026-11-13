@@ -106,9 +106,31 @@ export const EnvSchema = z
       (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
       z.string().min(32, "PAYOUT_ENCRYPTION_KEY_PREVIOUS must be at least 32 characters").optional()
     ),
+    DB_IDENTITY_KEY_ID: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z
+        .string()
+        .regex(/^[a-zA-Z0-9_-]{1,64}$/, "DB_IDENTITY_KEY_ID must match ^[a-zA-Z0-9_-]{1,64}$")
+        .default("active")
+    ),
     DB_IDENTITY_SECRET: z.preprocess(
       (val) => (typeof val === "string" ? val.trim() : val),
       z.string().min(32, "DB_IDENTITY_SECRET must be at least 32 characters")
+    ),
+    DB_IDENTITY_RETIRING_KEY_ID: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z
+        .string()
+        .regex(/^[a-zA-Z0-9_-]{1,64}$/, "DB_IDENTITY_RETIRING_KEY_ID must match ^[a-zA-Z0-9_-]{1,64}$")
+        .optional()
+    ),
+    DB_IDENTITY_RETIRING_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().min(32, "DB_IDENTITY_RETIRING_SECRET must be at least 32 characters").optional()
+    ),
+    DB_IDENTITY_RETIRING_WINDOW_SECONDS: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.coerce.number().int().min(30).max(3600).default(300)
     )
   })
   .superRefine((data, ctx) => {
@@ -118,6 +140,27 @@ export const EnvSchema = z
         code: z.ZodIssueCode.custom,
         message: "DB_IDENTITY_SECRET matches a known compromised secret and is prohibited",
         path: ["DB_IDENTITY_SECRET"]
+      });
+    }
+    if (data.DB_IDENTITY_RETIRING_SECRET === "dev_db_identity_secret_key_minimum_32_characters_12345") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DB_IDENTITY_RETIRING_SECRET matches a known compromised secret and is prohibited",
+        path: ["DB_IDENTITY_RETIRING_SECRET"]
+      });
+    }
+    if (Boolean(data.DB_IDENTITY_RETIRING_KEY_ID) !== Boolean(data.DB_IDENTITY_RETIRING_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DB_IDENTITY_RETIRING_KEY_ID and DB_IDENTITY_RETIRING_SECRET must both be set when rotating keys",
+        path: ["DB_IDENTITY_RETIRING_KEY_ID"]
+      });
+    }
+    if (data.DB_IDENTITY_RETIRING_KEY_ID && data.DB_IDENTITY_RETIRING_KEY_ID === data.DB_IDENTITY_KEY_ID) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DB_IDENTITY_RETIRING_KEY_ID must differ from active DB_IDENTITY_KEY_ID",
+        path: ["DB_IDENTITY_RETIRING_KEY_ID"]
       });
     }
 
@@ -190,6 +233,13 @@ export const EnvSchema = z
           code: z.ZodIssueCode.custom,
           message: "DB_IDENTITY_SECRET cannot use default dev secret in production",
           path: ["DB_IDENTITY_SECRET"]
+        });
+      }
+      if (data.DB_IDENTITY_RETIRING_SECRET?.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "DB_IDENTITY_RETIRING_SECRET cannot use default dev secret in production",
+          path: ["DB_IDENTITY_RETIRING_SECRET"]
         });
       }
       if (!data.DATABASE_SSL) {
