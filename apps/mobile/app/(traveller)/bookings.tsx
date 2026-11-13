@@ -8,15 +8,57 @@ import {
   Modal
 } from "react-native";
 import { useRouter } from "expo-router";
+import { BookingDetail } from "@luggage-storage/contracts";
 import { DEMO_BOOKINGS, TravellerBookingItem } from "../../src/data/mock-marketplace";
 import { Card, Button, Badge, MobileIcon, MascotIllustration } from "../../src/components";
 import { mobileColors, mobileRadius, mobileTypography } from "../../src/lib/theme";
+import { useAuthStore } from "../../src/store/useAuthStore";
+import { marketplaceApi } from "../../src/services/marketplace-api";
+
+const BOOKING_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function mapLiveBookingToMobileItem(b: BookingDetail): TravellerBookingItem {
+  const mappedStatus: TravellerBookingItem["status"] =
+    b.status === "IN_STORAGE"
+      ? "IN_STORAGE"
+      : b.status === "COMPLETED"
+        ? "COMPLETED"
+        : b.status.startsWith("CANCELLED") || b.status === "REJECTED" || b.status === "EXPIRED"
+          ? "CANCELLED"
+          : "CONFIRMED";
+  return {
+    id: b.id,
+    reference: `#${b.referenceCode}`,
+    locationId: b.location.id,
+    locationName: b.location.name,
+    city: b.location.city,
+    exactAddress: b.location.addressDisclosed
+      ? `${b.location.addressLine1 || ""}, ${b.location.city}`
+      : b.location.approximateArea,
+    landmark: b.location.approximateArea,
+    hostPhone: "In-App Concierge",
+    status: mappedStatus,
+    dropOffTime: new Date(b.dropOffAt).toLocaleString(),
+    pickUpTime: new Date(b.collectionAt).toLocaleString(),
+    bags: { SMALL: 0, MEDIUM: b.totalBags, LARGE: 0, OVERSIZED: 0 },
+    totalBags: b.totalBags,
+    totalLkr: Math.round(b.totalAmountMinor / 100),
+    qrPayload: "SINGLE_USE_HASHED",
+    pinFallback: "Issued on Pass",
+    zoneCode: "COUNTER",
+    seals: b.status === "IN_STORAGE" ? ["SEAL-ACTIVE"] : [],
+    photoLogged: false,
+    refundAmountLkr: b.refundSummary ? Math.round(b.refundSummary.amountMinor / 100) : undefined
+  };
+}
 
 const SUB_TABS = ["Active", "Upcoming", "Completed", "Cancelled"] as const;
 
 export default function TravellerBookingsHubScreen() {
   const router = useRouter();
+  const { isAuthenticated } = useAuthStore();
   const [selectedSubTab, setSelectedSubTab] = useState<typeof SUB_TABS[number]>("Active");
+  const [allBookings, setAllBookings] = useState<TravellerBookingItem[]>(DEMO_BOOKINGS);
 
   // Live Active Custody Countdown Timer State (seconds remaining)
   // Initial: 2 hours 15 minutes = 8100 seconds
@@ -63,10 +105,26 @@ export default function TravellerBookingsHubScreen() {
     ? mobileColors.amber[600]
     : mobileColors.emerald[600];
 
-  const activeBooking = DEMO_BOOKINGS.find((b) => b.status === "IN_STORAGE");
-  const upcomingBookings = DEMO_BOOKINGS.filter((b) => b.status === "CONFIRMED");
-  const completedBookings = DEMO_BOOKINGS.filter((b) => b.status === "COMPLETED");
-  const cancelledBookings = DEMO_BOOKINGS.filter((b) => b.status === "CANCELLED");
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let active = true;
+    marketplaceApi
+      .getMyBookings()
+      .then((res) => {
+        if (active && res.bookings.length > 0) {
+          setAllBookings(res.bookings.map(mapLiveBookingToMobileItem));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated]);
+
+  const activeBooking = allBookings.find((b) => b.status === "IN_STORAGE");
+  const upcomingBookings = allBookings.filter((b) => b.status === "CONFIRMED");
+  const completedBookings = allBookings.filter((b) => b.status === "COMPLETED");
+  const cancelledBookings = allBookings.filter((b) => b.status === "CANCELLED");
 
   return (
     <View style={styles.screenWrapper}>
@@ -254,7 +312,9 @@ export default function TravellerBookingsHubScreen() {
                     onPress={() =>
                       router.push({
                         pathname: "/(traveller)/pass",
-                        params: { ref: b.reference }
+                        params: BOOKING_UUID_REGEX.test(b.id)
+                          ? { bookingId: b.id, ref: b.reference }
+                          : { ref: b.reference }
                       })
                     }
                     style={{ flex: 1 }}
@@ -464,7 +524,22 @@ export default function TravellerBookingsHubScreen() {
                   <Button
                     title="Confirm Cancellation"
                     variant="danger"
-                    onPress={() => {
+                    onPress={async () => {
+                      if (cancelBookingTarget && BOOKING_UUID_REGEX.test(cancelBookingTarget.id)) {
+                        try {
+                          const updated = await marketplaceApi.cancelBooking(
+                            cancelBookingTarget.id,
+                            { reason: "Cancelled via Traveller Mobile App" }
+                          );
+                          setAllBookings((prev) =>
+                            prev.map((item) =>
+                              item.id === updated.id ? mapLiveBookingToMobileItem(updated) : item
+                            )
+                          );
+                        } catch {
+                          // Fall back to local UI state if offline
+                        }
+                      }
                       setCancelledSuccess(true);
                       setRefundStage(3); // Capacity released & ledger reversed
                     }}

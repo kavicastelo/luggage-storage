@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,13 +7,20 @@ import {
   StyleSheet
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
+import { BookingQuoteResponse } from "@luggage-storage/contracts";
 import { DEMO_LOCATIONS, StorageLocationItem } from "../../src/data/mock-marketplace";
 import { Card, Button, Badge, MobileIcon } from "../../src/components";
 import { mobileColors, mobileRadius, mobileTypography } from "../../src/lib/theme";
+import { useAuthStore } from "../../src/store/useAuthStore";
+import { marketplaceApi } from "../../src/services/marketplace-api";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default function TravellerCheckoutScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ locId?: string }>();
+  const { isAuthenticated } = useAuthStore();
+  const isLiveLocation = Boolean(params.locId && UUID_REGEX.test(params.locId));
 
   const location: StorageLocationItem =
     DEMO_LOCATIONS.find((l) => l.id === params.locId) || DEMO_LOCATIONS[0];
@@ -21,11 +28,11 @@ export default function TravellerCheckoutScreen() {
   // Wizard Step (1: Schedule -> 2: Bags -> 3: Review & Payment)
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
-  // Step 1: Schedule State (TM-017)
+  // Step 1: Schedule State
   const [dropOffHour, _setDropOffHour] = useState("09:00 AM");
   const [pickUpHour, _setPickUpHour] = useState("18:30 PM");
 
-  // Step 2: Bag Counters State (TM-018)
+  // Step 2: Bag Counters State
   const [bagCounts, setBagCounts] = useState({
     SMALL: 0,
     MEDIUM: 1,
@@ -33,22 +40,65 @@ export default function TravellerCheckoutScreen() {
     OVERSIZED: 0
   });
 
-  // Step 3: Payment Method State (TM-019 / TM-020)
+  // Step 3: Payment Method State
   const [paymentMethod, setPaymentMethod] = useState<"CARD" | "LANKA_QR" | "PAYHERE">("CARD");
   const [isProcessing, setIsProcessing] = useState(false);
+  const [liveQuote, setLiveQuote] = useState<BookingQuoteResponse | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const totalBags =
     bagCounts.SMALL + bagCounts.MEDIUM + bagCounts.LARGE + bagCounts.OVERSIZED;
 
-  const basePriceLkr =
-    bagCounts.SMALL * location.dailyCapLkr.SMALL +
-    bagCounts.MEDIUM * location.dailyCapLkr.MEDIUM +
-    bagCounts.LARGE * location.dailyCapLkr.LARGE +
-    bagCounts.OVERSIZED * location.dailyCapLkr.OVERSIZED;
+  useEffect(() => {
+    if (!isLiveLocation || !params.locId || totalBags === 0) {
+      setLiveQuote(null);
+      return;
+    }
+    let active = true;
+    const dropOffIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const collectionIso = new Date(Date.now() + 33 * 60 * 60 * 1000).toISOString();
+    const items = [
+      ...(bagCounts.SMALL > 0 ? [{ bagCategory: "BAG_SMALL" as const, quantity: bagCounts.SMALL }] : []),
+      ...(bagCounts.MEDIUM > 0 ? [{ bagCategory: "BAG_MEDIUM" as const, quantity: bagCounts.MEDIUM }] : []),
+      ...(bagCounts.LARGE > 0 ? [{ bagCategory: "BAG_LARGE" as const, quantity: bagCounts.LARGE }] : []),
+      ...(bagCounts.OVERSIZED > 0
+        ? [{ bagCategory: "BAG_OVERSIZED" as const, quantity: bagCounts.OVERSIZED }]
+        : [])
+    ];
+    marketplaceApi
+      .quoteBooking({
+        locationId: params.locId,
+        dropOffAt: dropOffIso,
+        collectionAt: collectionIso,
+        items
+      })
+      .then((q) => {
+        if (active) setLiveQuote(q);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [
+    isLiveLocation,
+    params.locId,
+    totalBags,
+    bagCounts.SMALL,
+    bagCounts.MEDIUM,
+    bagCounts.LARGE,
+    bagCounts.OVERSIZED
+  ]);
 
-  const totalLkr = basePriceLkr;
+  const basePriceLkr = liveQuote
+    ? Math.round(liveQuote.storageSubtotalMinor / 100)
+    : bagCounts.SMALL * location.dailyCapLkr.SMALL +
+      bagCounts.MEDIUM * location.dailyCapLkr.MEDIUM +
+      bagCounts.LARGE * location.dailyCapLkr.LARGE +
+      bagCounts.OVERSIZED * location.dailyCapLkr.OVERSIZED;
 
-  const handleNext = () => {
+  const totalLkr = liveQuote ? Math.round(liveQuote.totalAmountMinor / 100) : basePriceLkr;
+
+  const handleNext = async () => {
     if (currentStep === 1) {
       setCurrentStep(2);
     } else if (currentStep === 2) {
@@ -58,6 +108,46 @@ export default function TravellerCheckoutScreen() {
       }
       setCurrentStep(3);
     } else if (currentStep === 3) {
+      setCheckoutError(null);
+      if (isLiveLocation && params.locId && isAuthenticated) {
+        setIsProcessing(true);
+        try {
+          const dropOffIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+          const collectionIso = new Date(Date.now() + 33 * 60 * 60 * 1000).toISOString();
+          const items = [
+            ...(bagCounts.SMALL > 0 ? [{ bagCategory: "BAG_SMALL" as const, quantity: bagCounts.SMALL }] : []),
+            ...(bagCounts.MEDIUM > 0 ? [{ bagCategory: "BAG_MEDIUM" as const, quantity: bagCounts.MEDIUM }] : []),
+            ...(bagCounts.LARGE > 0 ? [{ bagCategory: "BAG_LARGE" as const, quantity: bagCounts.LARGE }] : []),
+            ...(bagCounts.OVERSIZED > 0
+              ? [{ bagCategory: "BAG_OVERSIZED" as const, quantity: bagCounts.OVERSIZED }]
+              : [])
+          ];
+          const created = await marketplaceApi.createBooking({
+            locationId: params.locId,
+            dropOffAt: dropOffIso,
+            collectionAt: collectionIso,
+            items,
+            idempotencyKey: `mob-chk-${params.locId}-${Date.now()}`
+          });
+          if (created.status === "PENDING_PAYMENT") {
+            const intent = await marketplaceApi.createPaymentIntent({
+              bookingId: created.id,
+              idempotencyKey: `mob-pay-${created.id}`
+            });
+            await marketplaceApi.simulateSandboxPayment(intent.id, { outcome: "SUCCEEDED" });
+          }
+          router.replace({
+            pathname: "/(traveller)/pass",
+            params: { bookingId: created.id, ref: created.referenceCode }
+          });
+        } catch (err: unknown) {
+          setCheckoutError(err instanceof Error ? err.message : "Failed to complete reservation.");
+        } finally {
+          setIsProcessing(false);
+        }
+        return;
+      }
+
       setIsProcessing(true);
       setTimeout(() => {
         setIsProcessing(false);
@@ -135,6 +225,13 @@ export default function TravellerCheckoutScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.container}>
+        {checkoutError && (
+          <Card style={{ marginBottom: 12, padding: 12 }} variant="outlined">
+            <Text style={{ color: mobileColors.rose[600], fontSize: 12, fontWeight: "700" }}>
+              {checkoutError}
+            </Text>
+          </Card>
+        )}
         {/* Selected Hub Summary */}
         <Card style={styles.hubHeaderCard} variant="outlined">
           <View style={{ flex: 1 }}>

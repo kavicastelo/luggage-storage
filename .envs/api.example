@@ -25,7 +25,12 @@ DATABASE_SSL_CA=
 # 2. Cryptographic Secrets (MUST be unique, high-entropy, >= 32 characters)
 # -----------------------------------------------------------------------------
 # Database Identity Assertion HMAC Secret (provisioned into trusted_auth_secrets)
+DB_IDENTITY_KEY_ID=active
 DB_IDENTITY_SECRET=REPLACE_WITH_UNIQUE_RANDOM_HMAC_SECRET_MINIMUM_32_CHARACTERS
+# Optional bounded overlap parameters during key rotation (30-3600s)
+DB_IDENTITY_RETIRING_KEY_ID=
+DB_IDENTITY_RETIRING_SECRET=
+DB_IDENTITY_RETIRING_WINDOW_SECONDS=300
 
 # Bank Account Payout Encryption Master Key (AES-256-GCM via scrypt)
 PAYOUT_ENCRYPTION_KEY=REPLACE_WITH_UNIQUE_RANDOM_AES256_SECRET_MINIMUM_32_CHARACTERS
@@ -89,10 +94,21 @@ ZOHO_SMTP_HOST=smtp.zoho.eu
 ZOHO_SMTP_PORT=587
 ZOHO_SMTP_SECURE=false
 ZOHO_SMTP_REQUIRE_TLS=true
-ZOHO_SMTP_USER=no-reply@talnova.io
+ZOHO_SMTP_USER=no-reply@luggagestorage.lk
 ZOHO_SMTP_PASSWORD=REPLACE_WITH_ZOHO_APPLICATION_PASSWORD
 ZOHO_SMTP_TIMEOUT_MS=10000
-EMAIL_FROM_ADDRESS=no-reply@talnova.io
+EMAIL_FROM_ADDRESS=no-reply@luggagestorage.lk
 EMAIL_FROM_NAME=Luggage Storage Marketplace
+# Optional: required only when EMAIL_PROVIDER=resend in non-production environments
 RESEND_API_KEY=
+
+# -----------------------------------------------------------------------------
+# 7. Payment Collection & Signed Gateway Webhooks (Phase B)
+# -----------------------------------------------------------------------------
+# Options: 'sandbox' (local dev/test only), 'payhere' (production mandatory)
+PAYMENT_PROVIDER=sandbox
+PAYMENT_WEBHOOK_SECRET=REPLACE_WITH_UNIQUE_RANDOM_WEBHOOK_HMAC_SECRET_MINIMUM_32_CHARS
+PAYHERE_MERCHANT_ID=
+PAYHERE_MERCHANT_SECRET=
+PAYHERE_SANDBOX_MODE=true
 

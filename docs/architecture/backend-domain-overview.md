@@ -386,3 +386,70 @@ flowchart TB
 - **Important Architectural Considerations:**
   - While `FR-14 Multiple Languages` and `FR -14 Multiple Currencies` are classified as `Later` in the FRS (initial Sri Lanka launch operates with English `en` and `LKR`), the `localization` domain is established in Phase 0/Phase 1 so no domain hardcodes `LK`, `LKR`, or `Asia/Colombo`.
 
+---
+
+## 4. Implemented Phase A Security Closure & Phase B Transactional Architecture (`0011`–`0012`)
+
+This section records the authoritative as-built implementation across migrations `0011_phase_a_final_security_corrections.sql` and `0012_phase_b_booking_escrow_custody.sql`.
+
+### 4.1 Phase A Final Security Closure (`0011_phase_a_final_security_corrections.sql`)
+
+1. **Identity Assertion Signature Comparison Guarantees & Limitations:**
+   - `security_internal.constant_time_hex_equals(a text, b text)` validates that both inputs are exact 64-character lowercase hexadecimal `HMAC-SHA-256` digests and accumulates byte-wise XOR differences across all 64 characters without early-return branching on the first mismatched character.
+   - **Honest Cryptographic Scope:** Because PostgreSQL executes SQL and PL/pgSQL inside a high-level interpreted runtime with `TEXT` allocations, this function **reduces naive early-exit string-comparison leakage** at the application/SQL layer, and **does not claim formal hardware-, CPU-, or C-compiler-level constant-time execution guarantees**. Primary defense-in-depth relies on short-lived transaction-local (`set_config(..., true)`) assertions, per-statement nonce + timestamp freshness bounds (`<= 60s`), and strict `luggage_migrator`-only secret-table isolation (`security_internal.db_identity_secrets`).
+2. **Multi-Key Identity Secret Provisioning & Zero-Downtime Key Rotation Procedure:**
+   - `security_internal.db_identity_secrets` supports multiple concurrent active keys keyed by `key_id` (`PRIMARY KEY`), with `is_active`, `activated_at`, and `retired_at` lifecycle columns.
+   - Canonical assertion payload binds `v1|<key_id>|<user_id>|<issued_epoch>|<nonce>` (`apps/api/src/common/crypto/database-identity.ts`).
+   - **Tested Zero-Downtime Rotation Runbook:**
+     1. Provision the new key (`key_id = k2`, ≥32-byte CSPRNG secret) into `security_internal.db_identity_secrets` via `pnpm db:migrate` (`DB_IDENTITY_HMAC_KEY_ID=k2`, `DB_IDENTITY_HMAC_SECRET=<new-secret>`) while keeping `k1` `is_active = true`.
+     2. Roll API instances to sign new database identity assertions with `k2`; in-flight requests signed with `k1` continue verifying cleanly during rollout.
+     3. Once all API instances emit `k2`, retire `k1` (`SELECT security_internal.deactivate_identity_secret('k1');`) so retired keys are immediately rejected.
+
+### 4.2 Phase B Domain Entities & Forward-Only Migration (`0012_phase_b_booking_escrow_custody.sql`)
+
+Migration `0012` adds **15 tables** (bringing verified `public` schema tables from `28` to **`43`**):
+
+- **Bookings & Capacity Holds:** `bookings`, `booking_items`, `booking_pricing_snapshots` *(immutable)*, `booking_capacity_reservations`, `booking_status_history` *(immutable)*.
+- **Payments, Webhooks & Refunds:** `payment_intents`, `payment_transactions`, `payment_webhook_events`, `refunds`, `refund_events`.
+- **Non-Escrow Double-Entry Ledger & Host Payables:** `financial_ledger_entries` *(immutable)*, `host_payables`.
+- **Physical Counter Custody:** `custody_records`, `custody_verification_tokens`, `bag_custody_items`, `custody_events` *(immutable)*.
+- **Append-Only SQL Immutability:** `prevent_phase_b_immutable_mutation()` (`BEFORE UPDATE OR DELETE` trigger) and `REVOKE UPDATE, DELETE, TRUNCATE` enforce append-only integrity on `booking_status_history`, `booking_pricing_snapshots`, `financial_ledger_entries`, and `custody_events`.
+
+### 4.3 Booking Lifecycle, Capacity Concurrency & Pricing Snapshots
+
+- **Concurrency-Safe Pool Locking:** `createBooking` (`apps/api/src/modules/bookings/bookings.service.ts`) acquires row-level `SELECT ... FOR UPDATE` locks on the location's `storage_capacity_pools` in deterministic `id` order inside a PostgreSQL transaction, sweeps expired holds lazily (`sweepExpiredHolds`), and sums overlapping `HOLD_ACTIVE`, `CONFIRMED_ACTIVE`, and `IN_STORAGE_ACTIVE` reservations before inserting new holds.
+- **State Machine:**
+  - `INSTANT` mode: `PENDING_PAYMENT` (10m hold default) -> verified webhook -> `CONFIRMED` -> counter check-in -> `IN_STORAGE` -> counter collection -> `COMPLETED`.
+  - `HOST_APPROVAL` mode (`OQ-004`): `PENDING_HOST_APPROVAL` (15m SLA default, no payment captured upfront) -> host accept -> `PENDING_PAYMENT` (10m hold) -> verified webhook -> `CONFIRMED` (or `REJECTED` / `EXPIRED` with immediate capacity release).
+  - Cancellation & Exception states: `CANCELLED_BY_TRAVELLER`, `CANCELLED_BY_HOST`, `CANCELLED_BY_ADMIN`, `EXPIRED`, `DISPUTED`.
+- **Immutable Pricing Snapshots (`OQ-005`, `OQ-008`, `OQ-010`):** Authoritative quotes and snapshots (`quotation-availability.service.ts`) use `LKR` integer minor units (`currency_exponent = 2`), snapshotting `gross_storage_minor`, `discount_minor`, `storage_subtotal_minor`, `commission_rate_bps` (`1500` default), `platform_commission_minor`, `host_payable_minor`, `tax_rate_bps` (`0` default pending external Sri Lankan tax sign-off), and `total_amount_minor`. Subsequent host rate edits never mutate existing booking snapshots.
+- **Privacy Disclosure (`OQ-012`):** `BookingLocationDisclosure` withholds `addressLine1`, `postalCode`, `directionsNotes`, and exact coordinates (`null`, `addressDisclosed: false`) until verified payment moves the booking to `CONFIRMED`, `IN_STORAGE`, or `COMPLETED` (or caller is the owning host/admin).
+
+### 4.4 Payment Provider Boundary, Non-Escrow Financial Ledger & Refunds
+
+- **Provider Adapter Port (`payment-gateway.port.ts`):** `PaymentGatewayPort` decouples booking/ledger logic from gateway wire protocols. `SandboxPaymentGatewayAdapter` signs webhook payloads with `PAYMENT_WEBHOOK_HMAC_SECRET`; `PAYMENT_SANDBOX_ENABLED=true` is rejected at startup in `NODE_ENV=production`. PayHere live merchant collection remains gated on written vendor approval (`OQ-003`).
+- **Webhook Idempotency & Late-Payment Protection (`payments.service.ts`):** Webhooks verify cryptographic signatures first, deduplicate replays via `UNIQUE (provider, provider_event_id)` on `payment_webhook_events`, and if a valid payment webhook arrives after a booking hold already transitioned to `EXPIRED` or `CANCELLED_*`, automatically create a `100%` `LATE_WEBHOOK_EXPIRED_HOLD` refund record and ledger liability without reviving the expired reservation or overbooking capacity.
+- **Honest Non-Escrow Ledger Model (`ledger.service.ts`):** The system **does not claim regulated third-party escrow**. Instead, it posts balanced double-entry ledger groups (`SUM(DEBIT) = SUM(CREDIT)`):
+  1. *Payment Capture:* `DR PLATFORM_CLEARING_RECEIVABLE` / `CR UNEARNED_BOOKING_LIABILITY`.
+  2. *Service Split Allocation:* `DR UNEARNED_BOOKING_LIABILITY` / `CR PLATFORM_COMMISSION_REVENUE` + `CR HOST_PAYABLE_LIABILITY` (creating `host_payables` in `ACCRUED`, promoted to `ELIGIBLE` on `COMPLETED`, or frozen to `ON_HOLD` if `DISPUTED`).
+  3. *Cancellation Refund (`OQ-009`, `OQ-013`):* Reverses proportional host payable and commission into `REFUND_LIABILITY` across the 7-stage refund state machine (`REQUESTED`, `AUTHORIZED`, `INITIATED`, `PROCESSING`, `SUCCEEDED`, `FAILED`, `MANUAL_REVIEW_REQUIRED`).
+
+### 4.5 Custody Credential Security, Staff Scoping & Zero Possessory Lien
+
+- **Single-Use Hashed Passes (`OQ-014`):** `issueCustodyPass` generates a 64-character CSPRNG hex `qrToken` and 6-digit `verificationPin`, storing only keyed `HMAC-SHA-256` digests in `custody_verification_tokens` and invalidating any prior unconsumed token for the same `(booking_id, operation)`.
+- **Brute-Force Rate Limiting & Bag Reconciliation:** Counter verification (`POST /api/v1/hosts/custody/verify`, `check-in`, `check-out`) enforces PostgreSQL rate limiting (`custody_pin_verify`), atomically consumes tokens on handover, and requires physical bag count to match `expected_bag_count` unless `bagCountExceptionReason` is explicitly recorded.
+- **Host Staff Assignment Scoping (`OQ-017`):** `HOST_STAFF` may access bookings and execute counter custody operations strictly for locations with an active `host_staff_assignments` row, and receives `403` on unassigned locations and host financial summary endpoints.
+- **Zero Possessory Lien (`OQ-015`):** When collection occurs past `collection_at + grace_period_minutes`, `completeCollection` records `overdue_minutes` and `overdue_fee_minor` (`handover_condition = 'UNPAID_FEES_PENDING'`) while **unconditionally completing physical baggage release** (`RELEASED_TO_TRAVELLER` / booking `COMPLETED`) with zero silent card charges and zero payment gating.
+
+### 4.6 API Endpoints, Contracts & Verification Commands
+
+- **Shared Contracts (`packages/contracts`):** `src/bookings/index.ts`, `src/payments/index.ts`, `src/custody/index.ts`, `src/finance/index.ts`, and Phase B audit constants in `src/audit/index.ts`.
+- **Fastify Routes (`/api/v1`):**
+  - Public/Traveller: `GET /availability/search`, `POST /bookings/quote`, `POST /bookings`, `GET /bookings`, `GET /bookings/:bookingId`, `POST /bookings/:bookingId/cancel`, `POST /bookings/:bookingId/exceptions`, `POST /bookings/:bookingId/custody-pass`, `POST /payments/intents`, `POST /payments/intents/:intentId/sandbox-simulate`, `POST /payments/webhooks/:provider`.
+  - Host: `GET /hosts/bookings`, `POST /hosts/bookings/:bookingId/{accept,reject,cancel}`, `POST /hosts/custody/verify`, `GET /hosts/custody/:bookingId`, `POST /hosts/custody/:bookingId/{check-in,check-out}`, `GET /hosts/finance/summary`.
+  - Admin/Support (`OQ-011`): `GET /admin/bookings`, `POST /admin/bookings/:bookingId/cancel`, `GET /admin/bookings/:bookingId/custody`, `GET /admin/payments/transactions`, `GET /admin/refunds`, `POST /admin/refunds/:refundId/transition`, `GET /admin/finance/ledger`.
+- **Verification Commands:**
+  - Apply & verify migrations (`43` public tables + PostGIS): `pnpm db:migrate`
+  - Full monorepo lint, typecheck, PostgreSQL integration & unit tests, and production builds: `pnpm verify`
+
+

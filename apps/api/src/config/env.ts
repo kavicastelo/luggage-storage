@@ -106,10 +106,52 @@ export const EnvSchema = z
       (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
       z.string().min(32, "PAYOUT_ENCRYPTION_KEY_PREVIOUS must be at least 32 characters").optional()
     ),
+    DB_IDENTITY_KEY_ID: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z
+        .string()
+        .regex(/^[a-zA-Z0-9_-]{1,64}$/, "DB_IDENTITY_KEY_ID must match ^[a-zA-Z0-9_-]{1,64}$")
+        .default("active")
+    ),
     DB_IDENTITY_SECRET: z.preprocess(
       (val) => (typeof val === "string" ? val.trim() : val),
       z.string().min(32, "DB_IDENTITY_SECRET must be at least 32 characters")
-    )
+    ),
+    DB_IDENTITY_RETIRING_KEY_ID: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z
+        .string()
+        .regex(/^[a-zA-Z0-9_-]{1,64}$/, "DB_IDENTITY_RETIRING_KEY_ID must match ^[a-zA-Z0-9_-]{1,64}$")
+        .optional()
+    ),
+    DB_IDENTITY_RETIRING_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().min(32, "DB_IDENTITY_RETIRING_SECRET must be at least 32 characters").optional()
+    ),
+    DB_IDENTITY_RETIRING_WINDOW_SECONDS: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.coerce.number().int().min(30).max(3600).default(300)
+    ),
+    PAYMENT_PROVIDER: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.enum(["sandbox", "payhere"]).default("sandbox")
+    ),
+    PAYMENT_WEBHOOK_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z
+        .string()
+        .min(32, "PAYMENT_WEBHOOK_SECRET must be at least 32 characters")
+        .default("dev_payment_webhook_hmac_secret_minimum_32_characters_12345")
+    ),
+    PAYHERE_MERCHANT_ID: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    PAYHERE_MERCHANT_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().min(16, "PAYHERE_MERCHANT_SECRET must be at least 16 characters").optional()
+    ),
+    PAYHERE_SANDBOX_MODE: booleanFlagSchema(true)
   })
   .superRefine((data, ctx) => {
     // Universal security checks (all environments)
@@ -118,6 +160,27 @@ export const EnvSchema = z
         code: z.ZodIssueCode.custom,
         message: "DB_IDENTITY_SECRET matches a known compromised secret and is prohibited",
         path: ["DB_IDENTITY_SECRET"]
+      });
+    }
+    if (data.DB_IDENTITY_RETIRING_SECRET === "dev_db_identity_secret_key_minimum_32_characters_12345") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DB_IDENTITY_RETIRING_SECRET matches a known compromised secret and is prohibited",
+        path: ["DB_IDENTITY_RETIRING_SECRET"]
+      });
+    }
+    if (Boolean(data.DB_IDENTITY_RETIRING_KEY_ID) !== Boolean(data.DB_IDENTITY_RETIRING_SECRET)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DB_IDENTITY_RETIRING_KEY_ID and DB_IDENTITY_RETIRING_SECRET must both be set when rotating keys",
+        path: ["DB_IDENTITY_RETIRING_KEY_ID"]
+      });
+    }
+    if (data.DB_IDENTITY_RETIRING_KEY_ID && data.DB_IDENTITY_RETIRING_KEY_ID === data.DB_IDENTITY_KEY_ID) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "DB_IDENTITY_RETIRING_KEY_ID must differ from active DB_IDENTITY_KEY_ID",
+        path: ["DB_IDENTITY_RETIRING_KEY_ID"]
       });
     }
 
@@ -190,6 +253,27 @@ export const EnvSchema = z
           code: z.ZodIssueCode.custom,
           message: "DB_IDENTITY_SECRET cannot use default dev secret in production",
           path: ["DB_IDENTITY_SECRET"]
+        });
+      }
+      if (data.DB_IDENTITY_RETIRING_SECRET?.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "DB_IDENTITY_RETIRING_SECRET cannot use default dev secret in production",
+          path: ["DB_IDENTITY_RETIRING_SECRET"]
+        });
+      }
+      if (data.PAYMENT_PROVIDER === "sandbox") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYMENT_PROVIDER cannot be 'sandbox' in production; simulated payments are prohibited",
+          path: ["PAYMENT_PROVIDER"]
+        });
+      }
+      if (data.PAYMENT_WEBHOOK_SECRET.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYMENT_WEBHOOK_SECRET cannot use default dev secret in production",
+          path: ["PAYMENT_WEBHOOK_SECRET"]
         });
       }
       if (!data.DATABASE_SSL) {
@@ -307,6 +391,30 @@ export const EnvSchema = z
         message: "RESEND_API_KEY is required when EMAIL_PROVIDER is set to 'resend'",
         path: ["RESEND_API_KEY"]
       });
+    }
+
+    if (data.PAYMENT_PROVIDER === "payhere") {
+      if (!data.PAYHERE_MERCHANT_ID) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYHERE_MERCHANT_ID is required when PAYMENT_PROVIDER is 'payhere'",
+          path: ["PAYHERE_MERCHANT_ID"]
+        });
+      }
+      if (!data.PAYHERE_MERCHANT_SECRET) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYHERE_MERCHANT_SECRET is required when PAYMENT_PROVIDER is 'payhere'",
+          path: ["PAYHERE_MERCHANT_SECRET"]
+        });
+      }
+      if (data.NODE_ENV === "production" && data.PAYHERE_SANDBOX_MODE) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYHERE_SANDBOX_MODE must be false in production",
+          path: ["PAYHERE_SANDBOX_MODE"]
+        });
+      }
     }
   });
 

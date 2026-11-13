@@ -17,12 +17,12 @@ Following Phase A delivery and initial security gates, an independent security r
 
 This final release gate definitively resolves every outstanding finding:
 
-1. **Database Identity Secret Remediation (Migration 0010 & Migration 0009 Hardening):**
-   - The leaked placeholder secret was completely removed from `0009_phase_a_trusted_identity_boundary.sql` so clean installations never seed it.
-   - Forward migration `0010_phase_a_identity_secret_provisioning_hardening.sql` added database-level constraint `trusted_auth_secrets_uncompromised_check` blocking insertion of the revoked key or any secret under 32 characters.
-   - Purged the compromised secret from database instances.
-   - Hardened `verify_identity_assertion()`: fails closed if no active high-entropy secret is provisioned, enforces strict timestamp bounds (no more than 5s past, no more than 120s future), and performs timing-safe digest comparison via `pgcrypto`.
-   - `migrate.ts` `syncTrustedAuthSecret()` enforces fail-closed provisioning from `process.env.DB_IDENTITY_SECRET`, guaranteeing that no role-assignment routine can be executed until a cryptographically random secret is provisioned.
+1. **Database Identity Secret Remediation & Key-ID-Aware Rotation (Migrations 0009, 0010 & 0011):**
+   - The leaked placeholder secret was removed from `0009_phase_a_trusted_identity_boundary.sql` so clean installations never seed it.
+   - Forward migration `0010_phase_a_identity_secret_provisioning_hardening.sql` purged the compromised secret and added constraint `trusted_auth_secrets_uncompromised_check` blocking the revoked key and any secret under 32 characters.
+   - Forward migration `0011_phase_a_final_security_corrections.sql` introduced explicit key-ID-aware lifecycle columns (`status` `ACTIVE`/`RETIRING`/`REVOKED`, `retires_at`, `updated_at`), partial unique index `trusted_auth_secrets_single_active_idx` guaranteeing at most one `ACTIVE` key, `keyId` binding in canonical HMAC payloads, strict 64-hex signature validation before decoding, and a fixed-length (32-byte), fixed-iteration bitwise XOR/OR byte comparison in PL/pgSQL avoiding SQL `bytea <>` (`memcmp`) short-circuiting.
+   - **Honest Runtime Guarantee:** While Node.js assertion verification uses `crypto.timingSafeEqual`, PL/pgSQL is an interpreted database language and does **not** provide formal hardware/compiler constant-time execution guarantees. Practical timing exposure is mitigated by fixed-iteration 32-byte byte comparison, `luggage_user` role isolation (`trusted_auth_secrets` unreadable), $\le 120\text{s}$ max TTL, and single-use nonces.
+   - `migrate.ts` `syncTrustedAuthSecret()` enforces fail-closed provisioning (`DB_IDENTITY_KEY_ID`, `DB_IDENTITY_SECRET`, plus optional bounded `DB_IDENTITY_RETIRING_*` overlap).
 2. **Dual-Key Payout Encryption & Zero-Downtime Rotation:**
    - `apps/api/src/common/crypto/payout-encryption.ts` supports `PAYOUT_ENCRYPTION_KEY_PREVIOUS` for zero-downtime key rotation.
    - Records encrypted under the previous key decrypt seamlessly via authenticated AES-256-GCM fallback and can be rotated online via `reencryptPayoutAccountNumber()`.
@@ -58,42 +58,29 @@ This final release gate definitively resolves every outstanding finding:
 
 ## 3. Deep-Dive Technical Remediations
 
-### 3.1 Cryptographic Database Identity Boundary (Migrations 0009 & 0010)
+### 3.1 Cryptographic Database Identity Boundary (Migrations 0009, 0010 & 0011)
 
 #### The Problem with Caller-Settable GUCs & Leaked Secret
 Previously, `assign_user_role` and `revoke_user_role` relied on `current_setting('app.current_user_id', true)`. PostgreSQL custom settings (GUCs) are mutable session parameters. Any client possessing SQL query execution privileges on the application connection pool could run `SELECT set_config('app.current_user_id', '<superadmin_uuid>', false)` to forge an administrator context.
 
-While migration `0009` introduced HMAC-SHA256 assertions, it initially contained an inline seed insert with a development placeholder key. This created a critical security concern: if deployed to production without overriding the table, an attacker knowing the public key could forge assertions.
+While migration `0009` introduced HMAC-SHA256 assertions, it initially contained an inline seed insert with a development placeholder key, and migration `0010` compared hashed signatures with ordinary SQL `<>` (`bytea` `memcmp` short-circuiting) while referencing a single hardcoded key row.
 
 #### Cryptographic Remediation Architecture
-1. **Migration 0009 Cleansed:** The default insert was removed from migration `0009_phase_a_trusted_identity_boundary.sql`.
-2. **Forward Migration 0010 Established:**
-   ```sql
-   -- Purge any instance of the compromised secret
-   DELETE FROM public.trusted_auth_secrets
-   WHERE secret = 'dev_db_identity_secret_key_minimum_32_characters_12345';
-
-   -- Database constraint permanently forbidding the compromised secret and short secrets
-   ALTER TABLE public.trusted_auth_secrets
-     ADD CONSTRAINT trusted_auth_secrets_uncompromised_check
-     CHECK (
-       secret <> 'dev_db_identity_secret_key_minimum_32_characters_12345'
-       AND length(secret) >= 32
-     );
-   ```
+1. **Migration 0009 Cleansed & Migration 0010 Hardened:** The default insert was removed from `0009`, and `0010` purged any compromised secret and added `trusted_auth_secrets_uncompromised_check` (`secret <> 'dev_db_identity_secret_key_minimum_32_characters_12345' AND length(secret) >= 32`).
+2. **Forward Migration 0011 (`0011_phase_a_final_security_corrections.sql`):**
+   - Evolves `public.trusted_auth_secrets` with `status varchar(16) NOT NULL DEFAULT 'ACTIVE'` (`CHECK (status IN ('ACTIVE', 'RETIRING', 'REVOKED'))`), `retires_at timestamptz` (`CHECK (status <> 'RETIRING' OR retires_at IS NOT NULL)`), `updated_at timestamptz`, `key_id` format check (`^[a-zA-Z0-9_-]{1,64}$`), and partial unique index `trusted_auth_secrets_single_active_idx` enforcing at most one `ACTIVE` key.
 3. **Hardened In-Database Verification (`public.verify_identity_assertion`):**
    A `SECURITY DEFINER` routine owned by `luggage_role_assigner`:
-   - Checks that an active secret exists and satisfies length $\ge 32$ and $\ne$ revoked key; otherwise fails closed immediately with error `42501`.
-   - Checks assertion expiration: rejects if expired ($v\_now > v\_expires\_at + 5$) or if future TTL exceeds maximum allowable window ($v\_expires\_at > v\_now + 120$).
-   - Computes HMAC-SHA256 over canonical payload `actor_id:action:target_id:role_code:expires_at:nonce` using PostgreSQL `pgcrypto` (`public.hmac(..., 'sha256')`).
-   - Compares computed signature with assertion signature in constant time using `digest(lower(v_computed_sig), 'sha256') <> digest(lower(v_sig), 'sha256')`.
-   - Records single-use nonce in `consumed_auth_assertions` to prevent replay attacks.
-4. **Fail-Closed Migration Synchronizer (`migrate.ts`):**
-   `syncTrustedAuthSecret(client)` inspects `env.DB_IDENTITY_SECRET`:
-   - Rejects missing keys, keys $< 32$ characters, or the revoked key.
-   - Deletes any revoked secrets.
-   - Upserts the active secret with `key_id = 'default'`.
-   - Verifies that exactly one active secret exists.
+   - Fails closed with `42501` if no valid `ACTIVE` secret ($\ge 32$ chars, uncompromised) is provisioned in `public.trusted_auth_secrets`.
+   - Validates `keyId`, action, target UUID, role code, 64-character hex signature encoding, and timestamp bounds ($\le 5\text{s}$ past skew, $\le 120\text{s}$ max future lifetime).
+   - Resolves the secret matching the assertion's declared `keyId` where `status = 'ACTIVE'` or `(status = 'RETIRING' AND retires_at > now())`.
+   - Computes 32-byte HMAC-SHA256 over canonical payload `keyId:actorId:action:targetId:roleCode:expiresAt:nonce` using `pgcrypto` (`public.hmac(..., 'sha256')`).
+   - Compares all 32 bytes via a fixed-length, fixed-iteration bitwise XOR/OR accumulator (`FOR v_idx IN 0..31 LOOP v_diff := v_diff | (get_byte(v_computed_mac, v_idx) # get_byte(v_provided_mac, v_idx)); END LOOP`) without early exit. This avoids PostgreSQL `bytea <>` (`memcmp`) first-byte short-circuiting; note that PL/pgSQL is an interpreted runtime and does not guarantee formal hardware/compiler constant-time execution.
+   - Records single-use `nonce` in `consumed_auth_assertions` globally across active and retiring keys.
+4. **Fail-Closed Key-ID-Aware Synchronizer (`migrate.ts`):**
+   `syncTrustedAuthSecret(client)` validates `DB_IDENTITY_KEY_ID` (default `'active'`) and `DB_IDENTITY_SECRET` ($\ge 32$ chars, uncompromised), atomically transitions any stale active key to `RETIRING` (when `DB_IDENTITY_RETIRING_KEY_ID` + `DB_IDENTITY_RETIRING_SECRET` are configured within `DB_IDENTITY_RETIRING_WINDOW_SECONDS`) or `REVOKED`, upserts the `ACTIVE` key, expires elapsed `RETIRING` keys, and verifies in PostgreSQL that exactly one `ACTIVE` key exists.
+5. **Authentication & Refresh Token Contract Clarity:**
+   Access tokens are short-lived (`15m`) JWTs signed with `JWT_SECRET`. Refresh tokens are opaque 256-bit CSPRNG hex tokens (`TokenService.generateRefreshToken()`) stored as SHA-256 hashes in `auth_sessions` (`REFRESH_TOKEN_TTL_DAYS`), with web cookies signed via `COOKIE_SECRET`; no separate `JWT_REFRESH_SECRET` exists or is required.
 
 ---
 

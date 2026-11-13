@@ -491,3 +491,39 @@ All items in this register use the standardized 7-status governance model so int
 
 ---
 
+## 4. Phase B Implementation & Open-Question Reconciliation (`0012_phase_b_booking_escrow_custody.sql`)
+
+Following Phase B implementation (Booking, Non-Escrow Settlement Ledger & Custody Engine), each Phase B governance item is reconciled below against actual repository code, database migrations, and remaining external commercial/legal/tax gates:
+
+### 4.1 Non-Escrow Marketplace Financial Model Disclosure
+
+The platform implements a **non-escrow, double-entry ledger-backed marketplace payment collection and settlement accounting engine** (`financial_ledger_entries`, `host_payables`, `refunds`):
+
+- **No Regulated Third-Party Escrow Claim:** Neither the backend, API contracts, nor Web/Mobile UI claims regulated bank or fiduciary escrow.
+- **Explicit Liability & Revenue Separation:** Verified customer payments post balanced integer minor-unit (`LKR`) journal entries separating:
+  - `PLATFORM_CLEARING_RECEIVABLE` (gateway clearing asset),
+  - `UNEARNED_BOOKING_LIABILITY` (deferred service obligation prior to completion),
+  - `PLATFORM_COMMISSION_REVENUE` (recognized 15% platform commission on eligible storage subtotal),
+  - `HOST_PAYABLE_LIABILITY` (85% net host settlement payable tracked in `host_payables`), and
+  - `REFUND_LIABILITY` (customer refund obligations reversed deterministically under `OQ-009` policy tiers).
+
+### 4.2 Phase B Classification Matrix
+
+| ID | Topic | Phase B Classification | Implemented Repository Evidence & Remaining Gate |
+| :--- | :--- | :--- | :--- |
+| `OQ-003` | PayHere Marketplace Payment Model | **Requires owner/provider decision** (Gateway Port + Signed Sandbox Adapter **Implemented**) | `PaymentGatewayPort` (`payment-gateway.port.ts`), `SandboxPaymentGatewayAdapter`, and PayHere MD5/HMAC verification scaffold implemented; `PAYMENT_SANDBOX_ENABLED=true` is rejected in `NODE_ENV=production`. Written PayHere marketplace approval and live merchant credentials remain an external owner/vendor launch gate. |
+| `OQ-004` | Booking Modes (`INSTANT` & `HOST_APPROVAL`) & Hold Windows | **Confirmed & Implemented** | Implemented in `bookings.service.ts` with PostgreSQL `SELECT ... FOR UPDATE` pool locking (`storage_capacity_pools`), configurable 15-minute host approval SLA (`BOOKING_HOST_APPROVAL_MINUTES`) and 10-minute payment hold (`BOOKING_PAYMENT_HOLD_MINUTES`), plus lazy expiry release. |
+| `OQ-005` | 15% Platform Commission & Immutable Pricing Snapshots | **Confirmed & Implemented** | Implemented in `quotation-availability.service.ts` and `booking_pricing_snapshots` (append-only SQL trigger + `REVOKE UPDATE, DELETE, TRUNCATE`). Commission (`1500` bps default) applies strictly to eligible storage subtotal excluding statutory taxes. |
+| `OQ-006` | Four Bag Categories & Pool Capacity Reservations | **Confirmed & Implemented** | `BAG_SMALL`, `BAG_MEDIUM`, `BAG_LARGE`, `BAG_OVERSIZED` enforced across quotation, `booking_items`, `booking_capacity_reservations`, and counter check-in (`bag_custody_items`). |
+| `OQ-008` | `LKR` Launch Currency & Integer Minor-Unit Precision | **Confirmed & Implemented** (`Multi-currency`: **Deferred**) | All Phase B tables, contracts, quotes, payments, payables, refunds, and ledger entries use integer minor units (`currency = 'LKR'`, `currency_exponent = 2`) with zero floating-point arithmetic. Multi-currency expansion remains **Deferred** to Phase C+. |
+| `OQ-009` | Customer, Host & Platform Cancellation Refund Tiers | **Confirmed & Implemented** | Implemented in `bookings.service.ts`: `>= 24h` (`100%`), `< 24h` before drop-off (`50%`), post-drop-off (`0%` default), host/platform cancellation (`100%`), and late-webhook-after-expiry auto-refund (`100%` without reviving expired holds). |
+| `OQ-010` | Sri Lankan VAT / SSCL Tax & Invoicing Compliance | **Requires owner/provider decision** (Configurable Tax Snapshot Fields **Implemented**) | `tax_rate_bps` and `tax_amount_minor` are persisted on `booking_pricing_snapshots` (defaulting to `0` bps). Formal Sri Lankan legal/tax classification (agent vs principal, VAT/SSCL registration, fiscal invoice numbering) requires external legal/tax sign-off before commercial launch. |
+| `OQ-011` | `SUPERADMIN` vs `SUPPORT` Least-Privilege Separation | **Confirmed & Implemented** | Enforced in migration `0012` RBAC permissions and `admin-phase-b.routes.ts`: `SUPPORT` has read-only access (`admin:bookings:read`, `admin:refunds:read`) and receives `403` on cancellations, refund transitions, payment transaction logs, and financial ledger routes. |
+| `OQ-012` | Approximate Pre-Booking Privacy & Post-Payment Exact Address Disclosure | **Confirmed & Implemented** (Storefront phone/photo extras: **Assumed / Requires owner decision**) | Public discovery uses ~550m (`0.005` deg) coordinate-grid snapping and 100m rounded distance. Exact street address and coordinates in `BookingLocationDisclosure` remain `null` (`addressDisclosed: false`) until verified payment moves booking to `CONFIRMED` / `IN_STORAGE` / `COMPLETED`. |
+| `OQ-013` | 7-Stage Refund Lifecycle & Provider Refund Capabilities | **Implemented** (Live PayHere Refund API specifics: **Requires owner/provider decision**) | Explicit 7-state `refunds` state machine (`REQUESTED`, `AUTHORIZED`, `INITIATED`, `PROCESSING`, `SUCCEEDED`, `FAILED`, `MANUAL_REVIEW_REQUIRED`) with append-only `refund_events` and balanced ledger reversal implemented. Live PayHere refund settlement SLAs/fees await vendor confirmation. |
+| `OQ-014` | Single-Use QR / 6-Digit PIN Custody Verification & Bag Reconciliation | **Confirmed & Implemented** | `custody_verification_tokens` stores only keyed `HMAC-SHA-256` digests of CSPRNG 64-hex QR tokens and 6-digit PINs, rate-limited against brute-force attempts, consumed atomically on check-in/collection, with mandatory bag-count reconciliation or logged exception reason. |
+| `OQ-015` | Zero Possessory Lien / Decoupled Overdue Fee & Physical Release | **Confirmed & Implemented** | `completeCollection` in `custody.service.ts` computes overdue minutes after location grace period and records `overdue_fee_minor` (`handover_condition = 'UNPAID_FEES_PENDING'`), while **always** releasing physical baggage (`RELEASED_TO_TRAVELLER`) without silent card auto-debits or payment gating. |
+| `OQ-017` | `HOST_STAFF` Assignment Scoping & Financial Isolation | **Confirmed & Implemented** (Custom per-staff ACL: **Deferred**) | Enforced in `host-access.helper.ts`: `HOST_STAFF` can verify passes and execute check-in/check-out only for actively assigned locations (`host_staff_assignments`), and is blocked (`403`) from unassigned locations and `GET /api/v1/hosts/finance/summary`. |
+| Phase C Scope | Automated Payout Batches, Split Settlements, Loyalty & Subscriptions | **Deferred** | Intentionally excluded from Phase B (`host_payables` accrues net host balances for Superadmin settlement governance; automated bank batch disbursement is deferred to Phase C). |
+
+

@@ -24,7 +24,14 @@ import {
 import {
   SecurityAuditEvent,
   HostVerificationQueueItem,
-  LocationModerationQueueItem
+  LocationModerationQueueItem,
+  BookingDetail,
+  CustodyRecordDetail,
+  PaymentTransactionRecord,
+  RefundRecord,
+  AdminTransitionRefundRequest,
+  AdminLedgerResponse,
+  RefundStatus
 } from "@luggage-storage/contracts";
 import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { ScreenHeaderBadge, DeferredBackendNotice } from "@/components/ui/DeferredBackendNotice";
@@ -617,6 +624,54 @@ export function AdminStorageLocationModerationPage() {
 // AD-005: Global Bookings Ledger (/admin/bookings)
 // ============================================================================
 export function AdminGlobalBookingsLedgerPage() {
+  const { isAuthenticated, user } = useAuthStore();
+  const canReadBookings = Boolean(
+    isAuthenticated &&
+      (user?.roles?.includes("SUPERADMIN") || user?.roles?.includes("SUPPORT"))
+  );
+  const [liveBookings, setLiveBookings] = useState<BookingDetail[]>([]);
+  const [selectedCustody, setSelectedCustody] = useState<CustodyRecordDetail | null>(null);
+  const [adminNotice, setAdminNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canReadBookings) return;
+    let active = true;
+    marketplaceApi
+      .getAdminBookings()
+      .then((res) => {
+        if (active) setLiveBookings(res.bookings);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [canReadBookings]);
+
+  const handleAdminCancel = async (bookingId: string) => {
+    setAdminNotice(null);
+    try {
+      const updated = await marketplaceApi.adminCancelBooking(bookingId, {
+        reason: "Administrative operational cancellation"
+      });
+      setLiveBookings((prev) => prev.map((b) => (b.id === bookingId ? updated : b)));
+      setAdminNotice(
+        `Booking ${updated.referenceCode} cancelled (${updated.status}). Refund evaluation recorded.`
+      );
+    } catch (err: unknown) {
+      setAdminNotice(err instanceof Error ? err.message : "Cancellation failed.");
+    }
+  };
+
+  const handleInspectCustody = async (bookingId: string) => {
+    setAdminNotice(null);
+    try {
+      const detail = await marketplaceApi.getAdminCustodyDetail(bookingId);
+      setSelectedCustody(detail);
+    } catch (err: unknown) {
+      setAdminNotice(err instanceof Error ? err.message : "Could not load custody events.");
+    }
+  };
+
   return (
     <div className="space-y-6" data-screen-id="AD-005">
       <ScreenHeaderBadge
@@ -625,29 +680,104 @@ export function AdminGlobalBookingsLedgerPage() {
         subtitle="Cross-location visibility into every active, completed, overdue, and refunded booking."
         workflows={["WF-018", "WF-028", "WF-029"]}
         roleScope="Superadmin / Support"
+        backendStatus="LIVE_PHASE_1B"
         rightSlot={<MascotIllustration mascot="suitcase-hug" size="sm" caption="Global Custody" />}
       />
 
+      {adminNotice && (
+        <div className="p-3 rounded-xl bg-purple-50 border border-purple-200 text-xs font-bold text-purple-950">
+          {adminNotice}
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2.5 text-xs">
-        {DEMO_BOOKINGS.map((b) => (
-          <div
-            key={b.id}
-            className="flex flex-wrap items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
-          >
-            <div>
-              <span className="font-mono font-bold text-purple-700">{b.reference}</span>
-              <span className="ml-2 font-bold text-slate-900">{b.travellerName}</span>
-              <span className="ml-2 text-slate-500">• {b.locationName}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="font-bold">{formatLkr(b.totalAmountLkr)}</span>
-              <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono">
-                {b.status}
-              </span>
-            </div>
-          </div>
-        ))}
+        {liveBookings.length > 0
+          ? liveBookings.map((b) => (
+              <div
+                key={b.id}
+                className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-100"
+              >
+                <div>
+                  <span className="font-mono font-bold text-purple-700">{b.referenceCode}</span>
+                  <span className="ml-2 font-bold text-slate-900">
+                    Traveller {b.travellerUserId.slice(0, 8)}
+                  </span>
+                  <span className="ml-2 text-slate-500">• {b.location.name}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold">
+                    {formatLkr(Math.round(b.totalAmountMinor / 100))}
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono">
+                    {b.status}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleInspectCustody(b.id)}
+                    className="px-2.5 py-1 rounded bg-slate-800 text-white font-bold"
+                  >
+                    Custody Trail
+                  </button>
+                  {(b.status === "CONFIRMED" ||
+                    b.status === "PENDING_PAYMENT" ||
+                    b.status === "PENDING_HOST_APPROVAL") && (
+                    <button
+                      type="button"
+                      onClick={() => handleAdminCancel(b.id)}
+                      className="px-2.5 py-1 rounded bg-rose-600 text-white font-bold"
+                    >
+                      Admin Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          : DEMO_BOOKINGS.map((b) => (
+              <div
+                key={b.id}
+                className="flex flex-wrap items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+              >
+                <div>
+                  <span className="font-mono font-bold text-purple-700">{b.reference}</span>
+                  <span className="ml-2 font-bold text-slate-900">{b.travellerName}</span>
+                  <span className="ml-2 text-slate-500">• {b.locationName}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold">{formatLkr(b.totalAmountLkr)}</span>
+                  <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono">
+                    {b.status}
+                  </span>
+                </div>
+              </div>
+            ))}
       </div>
+
+      {selectedCustody && (
+        <div className="bg-white rounded-2xl border border-slate-300 p-5 space-y-2 text-xs">
+          <div className="flex items-center justify-between">
+            <strong className="text-slate-900">
+              Custody Audit Trail — Booking {selectedCustody.bookingId}
+            </strong>
+            <button
+              type="button"
+              onClick={() => setSelectedCustody(null)}
+              className="text-slate-500 hover:text-slate-900 font-bold"
+            >
+              Close
+            </button>
+          </div>
+          {selectedCustody.events.length === 0 ? (
+            <p className="text-slate-500">No physical custody events recorded yet.</p>
+          ) : (
+            selectedCustody.events.map((evt) => (
+              <div key={evt.id} className="p-2 rounded bg-slate-50 border font-mono">
+                [{evt.eventType}] actor={evt.actorRole} • status={evt.newStatus} • at=
+                {evt.createdAt}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -656,32 +786,73 @@ export function AdminGlobalBookingsLedgerPage() {
 // AD-006: Payment Transactions Log (/admin/payments)
 // ============================================================================
 export function AdminPaymentTransactionsLogPage() {
+  const { isAuthenticated, user } = useAuthStore();
+  const isSuperadmin = Boolean(isAuthenticated && user?.roles?.includes("SUPERADMIN"));
+  const [transactions, setTransactions] = useState<PaymentTransactionRecord[]>([]);
+
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    let active = true;
+    marketplaceApi
+      .getAdminPaymentTransactions()
+      .then((res) => {
+        if (active) setTransactions(res.transactions);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isSuperadmin]);
+
   return (
     <div className="space-y-6" data-screen-id="AD-006">
       <ScreenHeaderBadge
         screenId="AD-006"
-        title="PayHere Payment Gateway Transactions & Webhook Log"
-        subtitle="Inspect cryptographic MD5/HMAC webhook signatures, authorization codes, and LKR captures."
+        title="Payment Gateway Transactions & Signed Webhook Log"
+        subtitle="Inspect verified HMAC webhook signatures, provider order IDs, and LKR payment captures."
         workflows={["WF-019", "WF-020"]}
         roleScope="Superadmin"
+        backendStatus="LIVE_PHASE_1B"
         rightSlot={<MascotIllustration mascot="phone" size="sm" caption="Gateway Webhooks" />}
       />
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2.5 text-xs">
-        {DEMO_BOOKINGS.map((b) => (
-          <div
-            key={b.id}
-            className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
-          >
-            <div>
-              <span className="font-mono font-bold text-slate-900">PAYHERE-{b.id.toUpperCase()}</span>
-              <span className="ml-2 text-slate-500">Booking {b.reference}</span>
-            </div>
-            <span className="font-bold text-emerald-700">
-              CAPTURED • {formatLkr(b.totalAmountLkr)}
-            </span>
-          </div>
-        ))}
+        {transactions.length > 0
+          ? transactions.map((tx) => (
+              <div
+                key={tx.id}
+                className="flex flex-wrap items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+              >
+                <div>
+                  <span className="font-mono font-bold text-slate-900">
+                    {tx.provider} • {tx.providerTransactionId || tx.id.slice(0, 8)}
+                  </span>
+                  <span className="ml-2 text-slate-500">
+                    Booking {tx.referenceCode || tx.bookingId.slice(0, 8)} • sigVerified=
+                    {String(tx.signatureVerified)}
+                  </span>
+                </div>
+                <span className="font-bold text-emerald-700">
+                  {tx.status} • {formatLkr(Math.round(tx.amountMinor / 100))}
+                </span>
+              </div>
+            ))
+          : DEMO_BOOKINGS.map((b) => (
+              <div
+                key={b.id}
+                className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+              >
+                <div>
+                  <span className="font-mono font-bold text-slate-900">
+                    PAYHERE-{b.id.toUpperCase()}
+                  </span>
+                  <span className="ml-2 text-slate-500">Booking {b.reference}</span>
+                </div>
+                <span className="font-bold text-emerald-700">
+                  CAPTURED • {formatLkr(b.totalAmountLkr)}
+                </span>
+              </div>
+            ))}
       </div>
     </div>
   );
@@ -691,30 +862,133 @@ export function AdminPaymentTransactionsLogPage() {
 // AD-007: Refund Management Queue (/admin/refunds)
 // ============================================================================
 export function AdminRefundManagementQueuePage() {
+  const { isAuthenticated, user } = useAuthStore();
+  const canReadRefunds = Boolean(
+    isAuthenticated &&
+      (user?.roles?.includes("SUPERADMIN") || user?.roles?.includes("SUPPORT"))
+  );
+  const canExecuteRefunds = Boolean(isAuthenticated && user?.roles?.includes("SUPERADMIN"));
+  const [refunds, setRefunds] = useState<RefundRecord[]>([]);
+  const [refundNotice, setRefundNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canReadRefunds) return;
+    let active = true;
+    marketplaceApi
+      .getAdminRefunds()
+      .then((res) => {
+        if (active) setRefunds(res.refunds);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [canReadRefunds]);
+
+  const nextRefundStage = (
+    current: RefundStatus
+  ): AdminTransitionRefundRequest["targetStatus"] | null => {
+    switch (current) {
+      case "REQUESTED":
+        return "AUTHORIZED";
+      case "AUTHORIZED":
+        return "INITIATED";
+      case "INITIATED":
+        return "PROCESSING";
+      case "PROCESSING":
+        return "SUCCEEDED";
+      default:
+        return null;
+    }
+  };
+
+  const handleAdvanceRefund = async (item: RefundRecord) => {
+    const next = nextRefundStage(item.status);
+    if (!next) return;
+    setRefundNotice(null);
+    try {
+      const updated = await marketplaceApi.adminTransitionRefund(item.id, {
+        targetStatus: next,
+        providerRefundId: next === "INITIATED" ? `RFD-GW-${Date.now()}` : undefined,
+        notes: `Advanced to ${next} via Superadmin Queue`
+      });
+      setRefunds((prev) => prev.map((r) => (r.id === item.id ? updated : r)));
+      setRefundNotice(
+        `Refund ${updated.referenceCode || updated.bookingId.slice(0, 8)} transitioned to ${updated.status}.`
+      );
+    } catch (err: unknown) {
+      setRefundNotice(err instanceof Error ? err.message : "Refund transition failed.");
+    }
+  };
+
   return (
     <div className="space-y-6" data-screen-id="AD-007">
       <ScreenHeaderBadge
         screenId="AD-007"
         title="Refund Management & 7-Stage Settlement Queue"
-        subtitle="Adjudicate cancellation policy windows (>24h 100%, <24h 50%) and monitor acquiring bank reversals."
+        subtitle="Adjudicate cancellation policy windows (>=24h 100%, <24h 50%) and execute gateway reversals."
         workflows={["WF-030", "WF-031", "WF-032"]}
-        roleScope="Superadmin"
-        rightSlot={<MascotIllustration mascot="sitting-suitcase" size="sm" caption="7-Stage Tracking" />}
+        roleScope="Superadmin / Support (Read-Only)"
+        backendStatus="LIVE_PHASE_1B"
+        rightSlot={
+          <MascotIllustration mascot="sitting-suitcase" size="sm" caption="7-Stage Tracking" />
+        }
       />
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
-        <p className="font-bold text-slate-900">
-          Active Refund #RFD-8799 — Sophie Laurent ({formatLkr(15980)} • 100% Policy Window)
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {REFUND_SEVEN_STAGES.map((s) => (
-            <div key={s.stage} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-              <span className="font-mono font-bold text-purple-700">Stage {s.stage}:</span>{" "}
-              <span>{s.label}</span>
-            </div>
-          ))}
+      {refundNotice && (
+        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-950">
+          {refundNotice}
         </div>
-      </div>
+      )}
+
+      {refunds.length > 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
+          {refunds.map((item) => {
+            const next = nextRefundStage(item.status);
+            return (
+              <div
+                key={item.id}
+                className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3"
+              >
+                <div>
+                  <span className="font-mono font-bold text-purple-700">
+                    {item.referenceCode || item.bookingId.slice(0, 8)}
+                  </span>
+                  <span className="ml-2 font-bold text-slate-900">
+                    {formatLkr(Math.round(item.amountMinor / 100))} ({item.refundPercentage}%)
+                  </span>
+                  <p className="text-slate-600 mt-0.5">
+                    Reason: {item.reasonCategory} • Current Stage: <strong>{item.status}</strong>
+                  </p>
+                </div>
+                {canExecuteRefunds && next && (
+                  <button
+                    type="button"
+                    onClick={() => handleAdvanceRefund(item)}
+                    className="px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-bold"
+                  >
+                    Advance to {next}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
+          <p className="font-bold text-slate-900">
+            Active Refund #RFD-8799 — Sophie Laurent ({formatLkr(15980)} • 100% Policy Window)
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {REFUND_SEVEN_STAGES.map((s) => (
+              <div key={s.stage} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <span className="font-mono font-bold text-purple-700">Stage {s.stage}:</span>{" "}
+                <span>{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -771,36 +1045,94 @@ export function AdminManualPayoutDisbursementPage() {
 // AD-010: Double-Entry Financial Ledger (/admin/finance/ledger)
 // ============================================================================
 export function AdminDoubleEntryFinancialLedgerPage() {
-  const entries = [
-    { id: "JRN-901", account: "1100_ESCROW_CASH_ASSET", debit: 3800, credit: 0, ref: "LS-2026-8841" },
-    { id: "JRN-902", account: "2100_HOST_PAYABLE_85", debit: 0, credit: 3230, ref: "LS-2026-8841" },
-    { id: "JRN-903", account: "4100_PLATFORM_REVENUE_15", debit: 0, credit: 570, ref: "LS-2026-8841" }
+  const { isAuthenticated, user } = useAuthStore();
+  const isSuperadmin = Boolean(isAuthenticated && user?.roles?.includes("SUPERADMIN"));
+  const [liveLedger, setLiveLedger] = useState<AdminLedgerResponse | null>(null);
+
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    let active = true;
+    marketplaceApi
+      .getAdminLedger()
+      .then((res) => {
+        if (active && res.entries.length > 0) {
+          setLiveLedger(res);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isSuperadmin]);
+
+  const demoEntries = [
+    {
+      id: "JRN-901",
+      account: "PLATFORM_CLEARING_RECEIVABLE",
+      debit: 3800,
+      credit: 0,
+      ref: "LS-2026-8841"
+    },
+    { id: "JRN-902", account: "HOST_PAYABLE_LIABILITY", debit: 0, credit: 3230, ref: "LS-2026-8841" },
+    { id: "JRN-903", account: "PLATFORM_COMMISSION_REVENUE", debit: 0, credit: 570, ref: "LS-2026-8841" }
   ];
   return (
     <div className="space-y-6" data-screen-id="AD-010">
       <ScreenHeaderBadge
         screenId="AD-010"
         title="Immutable Double-Entry Financial Ledger"
-        subtitle="Every LKR booking capture, 85/15 split, and refund reversal balanced to zero discrepancy."
+        subtitle="Append-only non-escrow marketplace settlement ledger balanced across clearing, unearned liability, commission revenue, host payable, and refund liability."
         workflows={["WF-036"]}
         roleScope="Superadmin"
-        rightSlot={<MascotIllustration mascot="blank-tag" size="sm" caption="Balanced Debit = Credit" />}
+        backendStatus="LIVE_PHASE_1B"
+        rightSlot={
+          <MascotIllustration mascot="blank-tag" size="sm" caption="Balanced Debit = Credit" />
+        }
       />
 
+      {liveLedger && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs flex flex-wrap items-center justify-between gap-2">
+          <span className="font-bold text-emerald-950">
+            Ledger Trial Balance:{" "}
+            {liveLedger.totals.isBalanced ? "BALANCED (0 Discrepancy)" : "UNBALANCED"}
+          </span>
+          <span className="font-mono font-bold text-emerald-900">
+            Total Debits: {formatLkr(Math.round(liveLedger.totals.totalDebitsMinor / 100))} | Total
+            Credits: {formatLkr(Math.round(liveLedger.totals.totalCreditsMinor / 100))}
+          </span>
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2 text-xs font-mono">
-        {entries.map((e) => (
-          <div
-            key={e.id}
-            className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
-          >
-            <span>
-              {e.id} • {e.account} ({e.ref})
-            </span>
-            <span>
-              DR: {formatLkr(e.debit)} | CR: {formatLkr(e.credit)}
-            </span>
-          </div>
-        ))}
+        {liveLedger
+          ? liveLedger.entries.map((e) => (
+              <div
+                key={e.id}
+                className="flex flex-wrap items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+              >
+                <span>
+                  {e.transactionGroupId.slice(0, 8)} • {e.accountCode} ({e.referenceType})
+                </span>
+                <span>
+                  {e.entryType === "DEBIT"
+                    ? `DR: ${formatLkr(Math.round(e.amountMinor / 100))} | CR: LKR 0`
+                    : `DR: LKR 0 | CR: ${formatLkr(Math.round(e.amountMinor / 100))}`}
+                </span>
+              </div>
+            ))
+          : demoEntries.map((e) => (
+              <div
+                key={e.id}
+                className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+              >
+                <span>
+                  {e.id} • {e.account} ({e.ref})
+                </span>
+                <span>
+                  DR: {formatLkr(e.debit)} | CR: {formatLkr(e.credit)}
+                </span>
+              </div>
+            ))}
       </div>
     </div>
   );

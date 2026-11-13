@@ -16,6 +16,7 @@ DATABASE_SSL=false
 DATABASE_SSL_REJECT_UNAUTHORIZED=false
 
 # Test Cryptographic Secrets (Dedicated test secrets; never use in production)
+DB_IDENTITY_KEY_ID=active
 DB_IDENTITY_SECRET=test_db_identity_secret_key_minimum_32_chars_for_automated_tests
 PAYOUT_ENCRYPTION_KEY=test_payout_encryption_key_32_chars_for_automated_tests!
 JWT_SECRET=test_jwt_secret_key_minimum_32_characters_for_automated_tests!
@@ -27,6 +28,9 @@ STORAGE_PROVIDER=memory
 EMAIL_PROVIDER=test
 EMAIL_FROM_ADDRESS=test@luggagestorage.lk
 EMAIL_FROM_NAME=Test Runner
+PAYMENT_PROVIDER=sandbox
+PAYMENT_WEBHOOK_SECRET=test_payment_webhook_hmac_secret_minimum_32_characters_long!
+PAYHERE_SANDBOX_MODE=true
 
 # Fast test hashing parameters (Reduced CPU cost for fast test runs)
 ARGON2_MEMORY_COST=4096

@@ -28,24 +28,34 @@ To prevent client-side credential leakage, the monorepo strictly separates runti
 ### Server-Only Secrets (NEVER expose to clients)
 These variables must **never** be prefixed with `VITE_` or `EXPO_PUBLIC_`, and must never be referenced by `apps/web` or `apps/mobile`:
 - `DATABASE_URL` / `MIGRATION_DATABASE_URL`: Direct database connection strings.
-- `DB_IDENTITY_SECRET`: HMAC-SHA256 signing secret for PostgreSQL database identity assertions.
+- `DB_IDENTITY_SECRET` / `DB_IDENTITY_RETIRING_SECRET`: HMAC-SHA256 signing secrets for PostgreSQL database identity assertions (`DB_IDENTITY_KEY_ID` / `DB_IDENTITY_RETIRING_KEY_ID` identify keys).
 - `PAYOUT_ENCRYPTION_KEY` / `PAYOUT_ENCRYPTION_KEY_PREVIOUS`: AES-256-GCM bank account encryption keys.
-- `JWT_SECRET` / `COOKIE_SECRET`: Authentication token and cookie signing keys.
+- `JWT_SECRET` / `COOKIE_SECRET`: Short-lived access JWT and signed web cookie keys.
 - `RATE_LIMIT_HASH_SECRET`: HMAC secret for client identifier anonymization.
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`: Cloudflare R2 object storage access keys.
-- `ZOHO_SMTP_PASSWORD`: Transactional email credentials.
+- `ZOHO_SMTP_PASSWORD` / `RESEND_API_KEY`: Transactional email credentials.
+- `PAYMENT_WEBHOOK_SECRET` / `PAYHERE_MERCHANT_SECRET`: Payment webhook HMAC signing secret and PayHere merchant verification secret.
 
 ### Public Client Configuration (Safe for Bundling)
 Only variables explicitly designed for client bundle inclusion are permitted:
 - `VITE_API_URL`: Fastify API backend URL consumed by React web app.
-- `VITE_ENABLE_DEMO_PREVIEW`: Boolean flag toggling read-only sandbox preview mode.
+- `VITE_ENABLE_DEMO_PREVIEW`: Boolean flag toggling read-only sandbox preview mode (`false` in production).
 - `EXPO_PUBLIC_API_URL`: Fastify API backend URL consumed by React Native mobile app.
 
 ---
 
-## 3. Cryptographic Secret Generation
+## 3. Authentication & Refresh Token Design
 
-For local development and testing, generate high-entropy 256-bit cryptographic secrets using either:
+The platform uses a split token architecture (`apps/api/src/modules/auth/token.service.ts` and `session.service.ts`):
+1. **Access Tokens (Stateless JWT):** Signed using `JWT_SECRET` via `@fastify/jwt` with short lifetime `JWT_ACCESS_EXPIRATION` (default `15m`).
+2. **Refresh Tokens (Opaque CSPRNG + SHA-256 Hash):** Refresh tokens are **not** JWTs and there is **no** `JWT_REFRESH_SECRET` environment variable. `TokenService.generateRefreshToken()` generates 256-bit cryptographically random hex strings (`crypto.randomBytes(32).toString('hex')`) and persists only SHA-256 hashes (`refresh_token_hash`, `previous_token_hash`) in PostgreSQL `auth_sessions` bounded by `REFRESH_TOKEN_TTL_DAYS` (default `7` days), with row-locked rotation and automatic session revocation on token reuse.
+3. **Web Session Cookies:** HTTP-only refresh cookies for web clients are signed using `COOKIE_SECRET` (`COOKIE_SECURE=true` in production).
+
+---
+
+## 4. Cryptographic Secret Generation
+
+Generate distinct, high-entropy 256-bit cryptographic secrets for each domain:
 
 ```bash
 # Using OpenSSL:
@@ -55,46 +65,55 @@ openssl rand -hex 32
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Each security domain (`DB_IDENTITY_SECRET`, `PAYOUT_ENCRYPTION_KEY`, `JWT_SECRET`, `COOKIE_SECRET`, `RATE_LIMIT_HASH_SECRET`) **must have its own distinct, randomly generated key**. Reusing a secret across multiple domains is prohibited.
+Each security domain (`DB_IDENTITY_SECRET`, `PAYOUT_ENCRYPTION_KEY`, `JWT_SECRET`, `COOKIE_SECRET`, `RATE_LIMIT_HASH_SECRET`) **must have its own distinct, randomly generated key**. Reusing a secret across domains is prohibited.
 
 ---
 
-## 4. Database Identity Secret Provisioning Lifecycle
+## 5. Database Identity Secret Provisioning & Verification Guarantees
 
-The `DB_IDENTITY_SECRET` authorizes role assignment and revocation operations in PostgreSQL:
+The `DB_IDENTITY_SECRET` authorizes privileged role assignment and revocation operations in PostgreSQL:
 
-1. **Environment Validation:** `EnvSchema` validates that `DB_IDENTITY_SECRET` is present, $\ge 32$ characters, and does not match any revoked development secret.
-2. **Database Provisioning:** When `pnpm db:migrate` runs, `syncTrustedAuthSecret()` inserts or updates the secret in `public.trusted_auth_secrets` under `key_id = 'active'`.
-3. **Table Isolation:** Table `public.trusted_auth_secrets` is owned by `luggage_role_assigner`. The runtime application role `luggage_user` is explicitly denied `SELECT`, `INSERT`, `UPDATE`, and `DELETE` access.
-4. **Assertion Verification:** In-database function `public.verify_identity_assertion()` (a `SECURITY DEFINER` routine owned by `luggage_role_assigner`) reads the secret to verify HMAC-SHA256 signatures, validates TTL ($\le 120\text{s}$), and writes the assertion nonce to `public.consumed_auth_assertions` to prevent replay attacks.
-5. **Fail-Closed Protection:** If `trusted_auth_secrets` lacks an active secret, or if the secret matches a revoked key, `verify_identity_assertion` raises an exception, rendering privileged operations impossible.
+1. **Environment Validation:** `EnvSchema` validates `DB_IDENTITY_KEY_ID` (`^[a-zA-Z0-9_-]{1,64}$`, default `active`) and `DB_IDENTITY_SECRET` ($\ge 32$ chars, never matching any revoked development secret).
+2. **Database Provisioning (`public.trusted_auth_secrets`):** When `pnpm db:migrate` runs, `syncTrustedAuthSecret()` synchronizes `trusted_auth_secrets (key_id, secret, status, retires_at, updated_at)`. Partial unique index `trusted_auth_secrets_single_active_idx` enforces at most one `ACTIVE` key at any instant.
+3. **Table Isolation:** `public.trusted_auth_secrets` and `public.consumed_auth_assertions` are inaccessible to `PUBLIC` and runtime role `luggage_user`. Only `luggage_role_assigner` (owner of the `SECURITY DEFINER` routines) can read `trusted_auth_secrets` and manage `consumed_auth_assertions`.
+4. **Assertion Verification (`public.verify_identity_assertion`):**
+   - Validates `keyId`, action, target UUID, role code, and timestamp bounds ($\le 5\text{s}$ clock skew past, $\le 120\text{s}$ max future lifetime).
+   - Validates 64-character hex signature encoding prior to decoding.
+   - Computes HMAC-SHA256 over canonical payload `keyId:actorId:action:targetId:roleCode:expiresAt:nonce` using `pgcrypto`.
+   - Compares all 32 MAC bytes via a fixed-length, fixed-iteration bitwise XOR/OR accumulator without early exit (avoiding SQL `bytea <>` short-circuiting). Note: PL/pgSQL is an interpreted runtime and does not provide formal hardware/compiler constant-time guarantees; practical timing exposure is further bounded by role isolation, $\le 120\text{s}$ TTL, and single-use nonces.
+   - Records single-use `nonce` in `public.consumed_auth_assertions` globally across active and retiring keys.
+5. **Fail-Closed Protection:** If `trusted_auth_secrets` has no valid `ACTIVE` row, or if an assertion references an unknown, `REVOKED`, or expired `RETIRING` `keyId`, `verify_identity_assertion` raises error `42501`.
 
 ---
 
-## 5. Secret Rotation Procedures
+## 6. Secret Rotation Procedures
 
-### 5.1 Rotating `DB_IDENTITY_SECRET`
-1. Generate a new 64-character random hex secret.
-2. Update the environment variable `DB_IDENTITY_SECRET` in your secret manager.
-3. Run the migration runner or trigger `syncTrustedAuthSecret()` on the database.
-4. Deploy the updated backend service. Previous assertions expire within 60 seconds.
+### 6.1 Rotating `DB_IDENTITY_SECRET` (Key-ID-Aware Bounded Overlap)
+1. Generate a new 64-character hex secret and choose a new key identifier (e.g. `key_2026_11_b`).
+2. Configure the rotation overlap in the migration/API environment:
+   - `DB_IDENTITY_KEY_ID=key_2026_11_b`
+   - `DB_IDENTITY_SECRET=<NEW_64_CHAR_HEX_SECRET>`
+   - `DB_IDENTITY_RETIRING_KEY_ID=<PREVIOUS_KEY_ID>` (e.g. `active`)
+   - `DB_IDENTITY_RETIRING_SECRET=<PREVIOUS_SECRET>`
+   - `DB_IDENTITY_RETIRING_WINDOW_SECONDS=300` (bounded overlap: 30–3600s)
+3. Run `pnpm --filter @luggage-storage/api db:migrate` (invokes `syncTrustedAuthSecret()`), which atomically sets the new key to `ACTIVE` and transitions the previous key to `RETIRING` until `NOW() + 300s`.
+4. Roll out API instances with the new `DB_IDENTITY_KEY_ID` and `DB_IDENTITY_SECRET`. In-flight assertions signed with the retiring key continue to verify during the bounded window while nonce replay protection remains enforced globally.
+5. After `DB_IDENTITY_RETIRING_WINDOW_SECONDS` elapses (exceeding the 60s assertion TTL), PostgreSQL automatically rejects the expired `RETIRING` key (`retires_at <= now()`). Unset `DB_IDENTITY_RETIRING_KEY_ID` and `DB_IDENTITY_RETIRING_SECRET`; subsequent runs of `syncTrustedAuthSecret()` mark the retired row `REVOKED`.
+6. **Emergency Immediate Revocation:** To invalidate a suspected key immediately without an overlap window, omit `DB_IDENTITY_RETIRING_*`, set the new `DB_IDENTITY_KEY_ID` and `DB_IDENTITY_SECRET`, and run `pnpm --filter @luggage-storage/api db:migrate`. All previous keys are immediately marked `REVOKED` in the same transaction.
 
-### 5.2 Rotating `PAYOUT_ENCRYPTION_KEY` (Dual-Key Cutover)
+### 6.2 Rotating `PAYOUT_ENCRYPTION_KEY` (Dual-Key Cutover)
 1. Generate a new 64-character random hex secret for the new primary key.
-2. Set `PAYOUT_ENCRYPTION_KEY_PREVIOUS` to the current key.
-3. Set `PAYOUT_ENCRYPTION_KEY` to the new key.
-4. Deploy the application. `decryptPayoutAccountNumber()` attempts the new key first; if authentication tag validation fails, it falls back to `PAYOUT_ENCRYPTION_KEY_PREVIOUS`.
-5. Run the re-encryption utility to update historical records to the new key.
-6. Once all records are re-encrypted, unset `PAYOUT_ENCRYPTION_KEY_PREVIOUS`.
+2. Set `PAYOUT_ENCRYPTION_KEY_PREVIOUS` to the current key and `PAYOUT_ENCRYPTION_KEY` to the new key.
+3. Deploy the application (`decryptPayoutAccountNumber()` tries primary first and falls back to `PAYOUT_ENCRYPTION_KEY_PREVIOUS`).
+4. Re-encrypt historical records with `reencryptPayoutAccountNumber()`, then unset `PAYOUT_ENCRYPTION_KEY_PREVIOUS`.
 
-### 5.3 Rotating Session Tokens (`JWT_SECRET` & `COOKIE_SECRET`)
-1. Generate new 64-character random hex secrets.
-2. Update `JWT_SECRET` and `COOKIE_SECRET` in the secret manager.
-3. Deploy the application. Existing short-lived access tokens (15m TTL) will expire, prompting clients to refresh using their session tokens or re-authenticate.
+### 6.3 Rotating Session Signing Secrets (`JWT_SECRET` & `COOKIE_SECRET`)
+1. Generate new 64-character random hex secrets for `JWT_SECRET` and/or `COOKIE_SECRET`.
+2. Update the secret manager and deploy. Short-lived access JWTs (`15m`) signed with the old `JWT_SECRET` expire or trigger opaque refresh-token rotation; rotating `COOKIE_SECRET` invalidates existing signed web cookies and requires web re-authentication.
 
 ---
 
-## 6. Production Security Checklist
+## 7. Production Security Checklist
 
 - [ ] All `.env` files are excluded from version control via `.gitignore`.
 - [ ] `NODE_ENV` is set to `production`.
@@ -104,4 +123,3 @@ The `DB_IDENTITY_SECRET` authorizes role assignment and revocation operations in
 - [ ] `CORS_ORIGIN` contains explicit trusted domains (no wildcard `*`).
 - [ ] No secret begins with `dev_` or `test_`.
 - [ ] `VITE_ENABLE_DEMO_PREVIEW` is set to `false`.
-
