@@ -79,7 +79,16 @@ EMAIL_FROM_ADDRESS=no-reply@luggagestorage.lk
 EMAIL_FROM_NAME=Luggage Storage Marketplace
 
 # -----------------------------------------------------------------------------
-# 6. Production Frontend Client Configuration
+# 6. Production Payment Gateway (PayHere Live Merchant Mandatory)
+# -----------------------------------------------------------------------------
+PAYMENT_PROVIDER=payhere
+PAYMENT_WEBHOOK_SECRET=REPLACE_WITH_PRODUCTION_WEBHOOK_HMAC_SECRET_MINIMUM_32_CHARS
+PAYHERE_MERCHANT_ID=REPLACE_WITH_LIVE_PAYHERE_MERCHANT_ID
+PAYHERE_MERCHANT_SECRET=REPLACE_WITH_LIVE_PAYHERE_MERCHANT_SECRET
+PAYHERE_SANDBOX_MODE=false
+
+# -----------------------------------------------------------------------------
+# 7. Production Frontend Client Configuration
 # -----------------------------------------------------------------------------
 VITE_API_URL=https://api.luggagestorage.lk/api/v1
 VITE_ENABLE_DEMO_PREVIEW=false

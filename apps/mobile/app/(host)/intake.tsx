@@ -10,15 +10,20 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { useAuthStore } from "../../src/store/useAuthStore";
 import { useHostStore } from "../../src/store/useHostStore";
+import { marketplaceApi } from "../../src/services/marketplace-api";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
+
+const INTAKE_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type IntakeStep = 1 | 2 | 3 | 4;
 
 export default function HostIntakeWizardScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ ref?: string }>();
+  const { isAuthenticated } = useAuthStore();
   const {
     intakeSession,
     updateIntake,
@@ -157,7 +162,32 @@ export default function HostIntakeWizardScreen() {
     setCurrentStep(4);
   };
 
-  const handleCompleteIntake = () => {
+  const handleCompleteIntake = async () => {
+    if (booking && isAuthenticated && INTAKE_UUID_REGEX.test(booking.id)) {
+      const bags = Array.from({ length: Math.max(1, intakeSession.reconciledBags) }, (_, idx) => ({
+        bagTagCode: `TAG-${idx + 1}`,
+        bagCategory: "BAG_MEDIUM" as const,
+        securitySealNumber: `${intakeSession.sealNumber}-${idx + 1}`
+      }));
+      try {
+        await marketplaceApi.completeCheckIn(booking.id, {
+          verificationPin: /^\d{6}$/.test(booking.pinCode) ? booking.pinCode : undefined,
+          qrToken: booking.qrPayload.length === 64 ? booking.qrPayload : undefined,
+          bags,
+          bagCountExceptionReason:
+            intakeSession.reconciledBags !== booking.totalBags
+              ? "Reconciled at mobile counter desk"
+              : undefined
+        });
+        setCompletedSuccessMsg(
+          `Checked in ${intakeSession.reconciledBags} bags into Zone ${intakeSession.assignedZone}.`
+        );
+        return;
+      } catch (err: unknown) {
+        setSealInputError(err instanceof Error ? err.message : "Unable to complete intake.");
+        return;
+      }
+    }
     const result = confirmIntake();
     if (result && result.success) {
       setCompletedSuccessMsg(result.message);

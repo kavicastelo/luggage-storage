@@ -14,7 +14,11 @@ export type RateLimitScope =
   | "auth_recovery_email"
   | "auth_recovery_ip"
   | "auth_verify_resend_email"
-  | "auth_verify_resend_ip";
+  | "auth_verify_resend_ip"
+  | "custody_verify_actor"
+  | "custody_verify_booking"
+  | "booking_create_user"
+  | "payment_webhook_ip";
 
 export interface RateLimitPolicy {
   maxPoints: number;
@@ -64,6 +68,22 @@ export const RATE_LIMIT_POLICIES: Record<RateLimitScope, RateLimitPolicy> = {
   auth_recovery_email: {
     maxPoints: env.RATE_LIMIT_RECOVERY_MAX,
     windowSeconds: env.RATE_LIMIT_WINDOW_SECONDS
+  },
+  custody_verify_actor: {
+    maxPoints: 20,
+    windowSeconds: 300
+  },
+  custody_verify_booking: {
+    maxPoints: 8,
+    windowSeconds: 300
+  },
+  booking_create_user: {
+    maxPoints: 30,
+    windowSeconds: 300
+  },
+  payment_webhook_ip: {
+    maxPoints: 120,
+    windowSeconds: 60
   }
 };
 

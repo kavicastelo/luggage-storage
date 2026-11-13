@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Link, Outlet, useLocation, useParams, useSearchParams } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -36,7 +36,14 @@ import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { useAuthStore } from "@/store/useAuthStore";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { marketplaceApi } from "@/services/marketplace-api";
-import { StorageLocation, HostBusiness, HostVerification } from "@luggage-storage/contracts";
+import {
+  StorageLocation,
+  HostBusiness,
+  HostVerification,
+  BookingDetail,
+  CustodyRecordDetail,
+  HostFinanceSummaryResponse
+} from "@luggage-storage/contracts";
 import {
   DEMO_LOCATIONS,
   DEMO_BOOKINGS,
@@ -44,6 +51,69 @@ import {
   StorageLocationItem,
   formatLkr
 } from "@/data/mock-marketplace";
+
+const HOST_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isHostUuid(value: string | null | undefined): value is string {
+  return Boolean(value && HOST_UUID_REGEX.test(value));
+}
+
+function mapHostBookingToRecord(detail: BookingDetail): DemoBookingRecord {
+  const bags = { SMALL: 0, MEDIUM: 0, LARGE: 0, OVERSIZED: 0 };
+  for (const item of detail.items) {
+    if (item.bagCategory === "BAG_SMALL") bags.SMALL += item.quantity;
+    if (item.bagCategory === "BAG_MEDIUM") bags.MEDIUM += item.quantity;
+    if (item.bagCategory === "BAG_LARGE") bags.LARGE += item.quantity;
+    if (item.bagCategory === "BAG_OVERSIZED") bags.OVERSIZED += item.quantity;
+  }
+
+  let mappedStatus: DemoBookingRecord["status"] = "CONFIRMED";
+  if (detail.status === "IN_STORAGE") {
+    mappedStatus =
+      new Date(detail.collectionAt).getTime() < Date.now() ? "OVERDUE" : "CHECKED_IN";
+  } else if (detail.status === "COMPLETED") {
+    mappedStatus = "COMPLETED";
+  } else if (detail.status === "PENDING_HOST_APPROVAL") {
+    mappedStatus = "PENDING_HOST_APPROVAL";
+  } else if (
+    detail.status.startsWith("CANCELLED") ||
+    detail.status === "REJECTED" ||
+    detail.status === "EXPIRED"
+  ) {
+    mappedStatus = "CANCELLED_REFUNDED";
+  }
+
+  const commissionMinor =
+    detail.pricingSnapshot?.platformCommissionMinor ??
+    Math.round(detail.totalAmountMinor * 0.15);
+  const hostPayableMinor =
+    detail.pricingSnapshot?.hostPayableMinor ??
+    detail.totalAmountMinor - commissionMinor;
+
+  return {
+    id: detail.id,
+    reference: detail.referenceCode,
+    travellerName: detail.travellerDisplayName || `Guest (${detail.travellerUserId.slice(0, 8)})`,
+    travellerEmail: detail.travellerEmailMasked || "Verified Platform Account",
+    travellerPhone: "In-App Protected Contact",
+    locationId: detail.location.id,
+    locationName: detail.location.name,
+    city: detail.location.city,
+    dropOffIso: detail.dropOffAt,
+    pickUpIso: detail.collectionAt,
+    bags,
+    totalBags: detail.totalBags,
+    totalAmountLkr: Math.round(detail.totalAmountMinor / 100),
+    platformCommissionLkr: Math.round(commissionMinor / 100),
+    hostNetPayoutLkr: Math.round(hostPayableMinor / 100),
+    status: mappedStatus,
+    pinCode: "Hashed Single-Use",
+    qrPayload: "Hashed Single-Use",
+    sealIds: [],
+    zoneCode: detail.location.city.toUpperCase().slice(0, 6),
+    evidencePhotosCount: 0
+  };
+}
 
 // ============================================================================
 // Shared Host Venue Context & Helper Hooks
@@ -1847,33 +1917,110 @@ export function HostPricingRulesMultipliersPage() {
 // HD-007 & HD-008: Booking Management Hub & Custody Investigation Drawer
 // ============================================================================
 export function HostBookingManagementHubPage() {
+  const { isAuthenticated } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const inspectId = searchParams.get("inspect");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [bookings, setBookings] = useState<DemoBookingRecord[]>(DEMO_BOOKINGS);
+  const [liveCustodyDetail, setLiveCustodyDetail] = useState<CustodyRecordDetail | null>(null);
+  const [hubNotice, setHubNotice] = useState<string | null>(null);
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
   const [inspectedBooking, setInspectedBooking] = useState<DemoBookingRecord | null>(() =>
     inspectId ? DEMO_BOOKINGS.find((b) => b.id === inspectId) || DEMO_BOOKINGS[0] : null
   );
 
-  const openInvestigationModal = (b: DemoBookingRecord) => {
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let mounted = true;
+    marketplaceApi
+      .getHostBookings()
+      .then((res) => {
+        if (mounted && res.bookings.length > 0) {
+          setBookings(res.bookings.map(mapHostBookingToRecord));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated]);
+
+  const openInvestigationModal = async (b: DemoBookingRecord) => {
     setInspectedBooking(b);
+    setLiveCustodyDetail(null);
     setSearchParams({ inspect: b.id });
+    if (isHostUuid(b.id) && isAuthenticated) {
+      try {
+        const detail = await marketplaceApi.getCustodyDetail(b.id);
+        setLiveCustodyDetail(detail);
+      } catch {
+        // Keep booking summary visible
+      }
+    }
   };
 
   const closeInvestigationModal = () => {
     setInspectedBooking(null);
+    setLiveCustodyDetail(null);
     setSearchParams({});
   };
 
+  const handleHostDecision = async (
+    bookingId: string,
+    decision: "ACCEPT" | "REJECT" | "CANCEL"
+  ) => {
+    setHubNotice(null);
+    if (!isHostUuid(bookingId)) {
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === bookingId
+            ? {
+                ...b,
+                status: decision === "ACCEPT" ? "CONFIRMED" : "CANCELLED_REFUNDED"
+              }
+            : b
+        )
+      );
+      setHubNotice(`Updated booking ${bookingId} (${decision}) in local preview session.`);
+      return;
+    }
+
+    setActionBusyId(bookingId);
+    try {
+      const updated =
+        decision === "ACCEPT"
+          ? await marketplaceApi.acceptHostBooking(bookingId, {
+              reason: "Approved at host counter desk"
+            })
+          : decision === "REJECT"
+            ? await marketplaceApi.rejectHostBooking(bookingId, {
+                reason: "Unable to accommodate requested window"
+              })
+            : await marketplaceApi.cancelHostBooking(bookingId, {
+                reason: "Cancelled by host facility"
+              });
+      setBookings((prev) =>
+        prev.map((b) => (b.id === bookingId ? mapHostBookingToRecord(updated) : b))
+      );
+      setHubNotice(`Booking ${updated.referenceCode} updated to ${updated.status}.`);
+    } catch (err: unknown) {
+      setHubNotice(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
   const filteredBookings = useMemo(() => {
-    return DEMO_BOOKINGS.filter((b) => {
+    return bookings.filter((b) => {
       const matchesSearch =
         b.reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
         b.travellerName.toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesStatus =
         statusFilter === "ALL" ||
+        (statusFilter === "PENDING_HOST_APPROVAL" && b.status === "PENDING_HOST_APPROVAL") ||
         (statusFilter === "CHECKED_IN" && b.status === "CHECKED_IN") ||
         (statusFilter === "CONFIRMED" && b.status === "CONFIRMED") ||
         (statusFilter === "OVERDUE" && b.status === "OVERDUE") ||
@@ -1881,10 +2028,15 @@ export function HostBookingManagementHubPage() {
 
       return matchesSearch && matchesStatus;
     });
-  }, [searchTerm, statusFilter]);
+  }, [bookings, searchTerm, statusFilter]);
 
   return (
     <div className="space-y-6">
+      {hubNotice && (
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-xs font-bold text-emerald-950">
+          {hubNotice}
+        </div>
+      )}
       {/* Header */}
       <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1898,7 +2050,7 @@ export function HostBookingManagementHubPage() {
           </div>
           <button
             type="button"
-            onClick={() => openInvestigationModal(DEMO_BOOKINGS[0])}
+            onClick={() => openInvestigationModal(bookings[0] || DEMO_BOOKINGS[0])}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold shadow-sm transition"
           >
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
@@ -1919,7 +2071,7 @@ export function HostBookingManagementHubPage() {
             />
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {["ALL", "CHECKED_IN", "CONFIRMED", "OVERDUE", "COMPLETED"].map((st) => (
+            {["ALL", "PENDING_HOST_APPROVAL", "CHECKED_IN", "CONFIRMED", "OVERDUE", "COMPLETED"].map((st) => (
               <button
                 key={st}
                 type="button"
@@ -1930,7 +2082,11 @@ export function HostBookingManagementHubPage() {
                     : "bg-sand-100 text-navy-700 hover:bg-sand-200"
                 }`}
               >
-                {st === "ALL" ? "All Bookings" : st.replace("_", " ")}
+                {st === "ALL"
+                  ? "All Bookings"
+                  : st === "PENDING_HOST_APPROVAL"
+                    ? "Pending Approval"
+                    : st.replace("_", " ")}
               </button>
             ))}
           </div>
@@ -1970,25 +2126,57 @@ export function HostBookingManagementHubPage() {
                           ? "bg-blue-50 text-blue-800 border border-blue-200"
                           : b.status === "OVERDUE"
                           ? "bg-rose-50 text-rose-800 border border-rose-200"
-                          : b.status === "CONFIRMED"
+                          : b.status === "CONFIRMED" || b.status === "PENDING_HOST_APPROVAL"
                           ? "bg-amber-50 text-amber-800 border border-amber-200"
                           : "bg-emerald-50 text-emerald-800 border border-emerald-200"
                       }`}
                     >
-                      {b.status.replace("_", " ")}
+                      {b.status.replace(/_/g, " ")}
                     </span>
                   </td>
                   <td className="p-3.5 font-bold text-emerald-700">
                     {formatLkr(b.hostNetPayoutLkr)}
                   </td>
                   <td className="p-3.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => openInvestigationModal(b)}
-                      className="px-3 py-1.5 rounded-lg bg-navy-100 hover:bg-navy-200 text-navy-900 font-bold text-xs transition"
-                    >
-                      Investigate Custody
-                    </button>
+                    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                      {b.status === "PENDING_HOST_APPROVAL" && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={actionBusyId === b.id}
+                            onClick={() => handleHostDecision(b.id, "ACCEPT")}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            disabled={actionBusyId === b.id}
+                            onClick={() => handleHostDecision(b.id, "REJECT")}
+                            className="px-2.5 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold text-xs transition"
+                          >
+                            Decline
+                          </button>
+                        </>
+                      )}
+                      {b.status === "CONFIRMED" && isHostUuid(b.id) && (
+                        <button
+                          type="button"
+                          disabled={actionBusyId === b.id}
+                          onClick={() => handleHostDecision(b.id, "CANCEL")}
+                          className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs transition"
+                        >
+                          Host Cancel
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openInvestigationModal(b)}
+                        className="px-3 py-1.5 rounded-lg bg-navy-100 hover:bg-navy-200 text-navy-900 font-bold text-xs transition"
+                      >
+                        Investigate Custody
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1997,7 +2185,7 @@ export function HostBookingManagementHubPage() {
         </div>
       </div>
 
-      {/* HD-008: Booking Custody Investigation Modal / Drawer */}
+      {/* Booking Custody Investigation Modal / Drawer */}
       {inspectedBooking && (
         <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-sand-200 max-w-2xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -2025,40 +2213,68 @@ export function HostBookingManagementHubPage() {
               <p className="font-bold text-navy-900 uppercase text-[10px] tracking-wider">
                 Custody Lifecycle Events
               </p>
-              <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 space-y-2 text-navy-800">
-                <div className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-navy-950">1. Reservation Confirmed</strong>
-                    <p className="text-[11px] text-navy-500">Gross {formatLkr(inspectedBooking.totalAmountLkr)} • Host Net {formatLkr(inspectedBooking.hostNetPayoutLkr)}</p>
+              {liveCustodyDetail && liveCustodyDetail.events.length > 0 ? (
+                <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 space-y-2 text-navy-800">
+                  {liveCustodyDetail.events.map((evt) => (
+                    <div key={evt.id} className="flex items-start gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="text-navy-950">{evt.eventType}</strong>
+                        <p className="text-[11px] text-navy-500">
+                          {new Date(evt.createdAt).toLocaleString()} • Actor {evt.actorRole} • Status{" "}
+                          {evt.newStatus}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  {liveCustodyDetail.bags.length > 0 && (
+                    <div className="pt-2 border-t border-sand-200 text-[11px] text-navy-700">
+                      <strong>Tagged Storage Items:</strong>{" "}
+                      {liveCustodyDetail.bags
+                        .map(
+                          (bag) =>
+                            `${bag.bagTagCode}${bag.securitySealNumber ? ` (${bag.securitySealNumber})` : ""}`
+                        )
+                        .join(", ")}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 space-y-2 text-navy-800">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-navy-950">1. Reservation Confirmed</strong>
+                      <p className="text-[11px] text-navy-500">Gross {formatLkr(inspectedBooking.totalAmountLkr)} • Host Net {formatLkr(inspectedBooking.hostNetPayoutLkr)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-navy-950">2. Physical Intake Handover</strong>
+                      <p className="text-[11px] text-navy-500">Prototype Intake: Handover recorded against demo session fixture • Backup PIN: <span className="font-mono">{inspectedBooking.pinCode}</span></p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-navy-950">3. Tamper-Evident Security Seals Applied</strong>
+                      <p className="text-[11px] text-navy-500">
+                        {inspectedBooking.sealIds.length > 0
+                          ? inspectedBooking.sealIds.join(", ")
+                          : "Pending seal application"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-navy-950">4. Vault Compartment Assigned</strong>
+                      <p className="text-[11px] text-navy-500">Placed in Zone {inspectedBooking.zoneCode} • Attributed to Staff <span className="font-mono">staff-usr-204</span></p>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-navy-950">2. Physical Intake Handover</strong>
-                    <p className="text-[11px] text-navy-500">Prototype Intake: Handover recorded against demo session fixture • Backup PIN: <span className="font-mono">{inspectedBooking.pinCode}</span></p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-navy-950">3. Tamper-Evident Security Seals Applied</strong>
-                    <p className="text-[11px] text-navy-500">
-                      {inspectedBooking.sealIds.length > 0
-                        ? inspectedBooking.sealIds.join(", ")
-                        : "Pending seal application"}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-navy-950">4. Vault Compartment Assigned</strong>
-                    <p className="text-[11px] text-navy-500">Placed in Zone {inspectedBooking.zoneCode} • Attributed to Staff <span className="font-mono">staff-usr-204</span></p>
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Traveller & Contact Dossier */}
@@ -2109,6 +2325,7 @@ export function HostBookingManagementHubPage() {
 // HD-009: Web Check-in/Out Operations (/host/operations)
 // ============================================================================
 export function HostWebCheckInOutOperationsPage() {
+  const { isAuthenticated } = useAuthStore();
   const [operationMode, setOperationMode] = useState<"CHECK_IN" | "CHECK_OUT">("CHECK_IN");
   const [verificationMethod, setVerificationMethod] = useState<"QR_SCAN" | "PIN_FALLBACK">("QR_SCAN");
   const [lookupQuery, setLookupQuery] = useState("LS-2026-8841");
@@ -2117,8 +2334,74 @@ export function HostWebCheckInOutOperationsPage() {
   const [sealInput, setSealInput] = useState("SEAL-LK-90211");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [handoverSuccessMessage, setHandoverSuccessMessage] = useState<string | null>(null);
+  const [handoverErrorMessage, setHandoverErrorMessage] = useState<string | null>(null);
 
-  const handleSimulateHandover = () => {
+  const handleSimulateHandover = async () => {
+    setHandoverErrorMessage(null);
+    setHandoverSuccessMessage(null);
+    const trimmedBookingId = lookupQuery.trim();
+    const trimmedCredential = pinInput.trim().replace(/\s+/g, "");
+
+    if (isAuthenticated && isHostUuid(trimmedBookingId)) {
+      setIsSubmitting(true);
+      try {
+        const operation = operationMode === "CHECK_IN" ? "CHECK_IN" : "COLLECTION";
+        const verification = await marketplaceApi.verifyCustodyPass(
+          verificationMethod === "QR_SCAN"
+            ? {
+                bookingId: trimmedBookingId,
+                operation,
+                qrToken: trimmedCredential
+              }
+            : {
+                bookingId: trimmedBookingId,
+                operation,
+                verificationPin: trimmedCredential
+              }
+        );
+
+        const targetBookingId = verification.bookingId;
+        if (operationMode === "CHECK_IN") {
+          const bagList = Array.from({ length: reconciledBags }, (_, idx) => ({
+            bagTagCode: `TAG-${idx + 1}`,
+            bagCategory: "BAG_MEDIUM" as const,
+            securitySealNumber: `${sealInput}-${idx + 1}`
+          }));
+          const checkInRes = await marketplaceApi.completeCheckIn(targetBookingId, {
+            qrToken: verificationMethod === "QR_SCAN" ? trimmedCredential : undefined,
+            verificationPin: verificationMethod === "PIN_FALLBACK" ? trimmedCredential : undefined,
+            bags: bagList,
+            bagCountExceptionReason:
+              reconciledBags !== verification.expectedBagCount
+                ? "Bag count reconciled at Host Counter Web Desk"
+                : undefined
+          });
+          setHandoverSuccessMessage(
+            `Live Custody Check-In Completed: Booking ${verification.referenceCode} transitioned to ${checkInRes.status}. Reconciled ${reconciledBags} bags with tamper seals recorded.`
+          );
+        } else {
+          const collectionRes = await marketplaceApi.completeCollection(targetBookingId, {
+            qrToken: verificationMethod === "QR_SCAN" ? trimmedCredential : undefined,
+            verificationPin: verificationMethod === "PIN_FALLBACK" ? trimmedCredential : undefined,
+            releasedBagCount: reconciledBags,
+            exceptionNotes: "Released via Host Counter Web Desk"
+          });
+          const overdueNote =
+            collectionRes.overdueMinutes > 0
+              ? ` Overdue notice logged (${collectionRes.overdueMinutes} min late) — baggage released immediately without possessory lien.`
+              : "";
+          setHandoverSuccessMessage(
+            `Live Baggage Release Completed: Booking ${verification.referenceCode} transitioned to ${collectionRes.status}.${overdueNote}`
+          );
+        }
+      } catch (err: unknown) {
+        setHandoverErrorMessage(err instanceof Error ? err.message : "Counter verification failed.");
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     setIsSubmitting(true);
     setTimeout(() => {
       setIsSubmitting(false);
@@ -2367,6 +2650,12 @@ export function HostWebCheckInOutOperationsPage() {
         </div>
 
         {/* Feedback Message */}
+        {handoverErrorMessage && (
+          <div className="p-4 rounded-xl bg-rose-50 border border-rose-300 text-xs font-bold text-rose-950 flex items-start gap-2.5">
+            <AlertTriangle className="h-4 w-4 text-rose-600 flex-shrink-0 mt-0.5" />
+            <p>{handoverErrorMessage}</p>
+          </div>
+        )}
         {handoverSuccessMessage && (
           <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-xs font-bold text-emerald-950 flex items-start gap-2.5">
             <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
@@ -2379,10 +2668,47 @@ export function HostWebCheckInOutOperationsPage() {
 }
 
 // ============================================================================
-// HD-010: Financial Revenue & Ledger (/host/finance)
+// Financial Revenue & Ledger (/host/finance)
 // ============================================================================
 export function HostFinancialRevenueLedgerPage() {
+  const { isAuthenticated } = useAuthStore();
   const [downloadNotice, setDownloadNotice] = useState(false);
+  const [liveFinance, setLiveFinance] = useState<HostFinanceSummaryResponse | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let mounted = true;
+    marketplaceApi
+      .getHostFinanceSummary()
+      .then((res) => {
+        if (mounted && res.payables.length > 0) {
+          setLiveFinance(res);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated]);
+
+  const grossDisplayLkr = liveFinance
+    ? Math.round(
+        liveFinance.payables.reduce((sum, p) => sum + p.grossSubtotalMinor, 0) / 100
+      )
+    : 217058;
+  const commissionDisplayLkr = liveFinance
+    ? Math.round(
+        liveFinance.payables.reduce((sum, p) => sum + p.commissionMinor, 0) / 100
+      )
+    : 32558;
+  const netDisplayLkr = liveFinance
+    ? Math.round(
+        (liveFinance.totalAccruedMinor +
+          liveFinance.totalEligibleMinor +
+          liveFinance.totalPaidMinor) /
+          100
+      )
+    : 184500;
 
   return (
     <div className="space-y-6">
@@ -2415,7 +2741,15 @@ export function HostFinancialRevenueLedgerPage() {
       <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
         <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
         <div>
-          <strong className="text-navy-950">Financial Ledger (Demo Figures):</strong> Financial volumes, deductions, and batch settlement dates are calculated from local mock bookings for Fort Hub demonstration. Export actions generate simulated client exports. Production ledger queries will connect to the payments service in Phase 3+.
+          {liveFinance ? (
+            <>
+              <strong className="text-navy-950">Live Non-Escrow Settlement Ledger:</strong> Showing real server-backed host settlement payables accrued from confirmed and completed LKR bookings. Automated bank batch disbursement remains scheduled for Phase C.
+            </>
+          ) : (
+            <>
+              <strong className="text-navy-950">Financial Ledger (Demo Figures):</strong> Financial volumes, deductions, and batch settlement dates are calculated from local mock bookings for Fort Hub demonstration. Export actions generate simulated client exports. Production ledger queries will connect to the payments service in Phase 3+.
+            </>
+          )}
         </div>
       </div>
 
@@ -2430,20 +2764,24 @@ export function HostFinancialRevenueLedgerPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-1">
           <span className="text-xs font-bold text-navy-500 uppercase tracking-wider">Gross Booking Volume</span>
-          <p className="text-2xl font-extrabold text-navy-950">{formatLkr(217058)}</p>
+          <p className="text-2xl font-extrabold text-navy-950">{formatLkr(grossDisplayLkr)}</p>
           <span className="text-[11px] text-navy-500">Total customer checkout value</span>
         </div>
 
         <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-1">
           <span className="text-xs font-bold text-navy-500 uppercase tracking-wider">Platform Fee (15%)</span>
-          <p className="text-2xl font-extrabold text-navy-600">-{formatLkr(32558)}</p>
-          <span className="text-[11px] text-navy-500">Payment processing &amp; platform insurance</span>
+          <p className="text-2xl font-extrabold text-navy-600">-{formatLkr(commissionDisplayLkr)}</p>
+          <span className="text-[11px] text-navy-500">Payment processing &amp; platform commission</span>
         </div>
 
         <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-1">
           <span className="text-xs font-bold text-navy-500 uppercase tracking-wider">Net Host Payout (85%)</span>
-          <p className="text-2xl font-extrabold text-emerald-700">{formatLkr(184500)}</p>
-          <span className="text-[11px] text-emerald-800 font-semibold">Illustrative Friday batch estimate (DEC-006)</span>
+          <p className="text-2xl font-extrabold text-emerald-700">{formatLkr(netDisplayLkr)}</p>
+          <span className="text-[11px] text-emerald-800 font-semibold">
+            {liveFinance
+              ? `Eligible now: ${formatLkr(Math.round(liveFinance.totalEligibleMinor / 100))}`
+              : "Illustrative Friday batch estimate (DEC-006)"}
+          </span>
         </div>
       </div>
 
@@ -2466,20 +2804,43 @@ export function HostFinancialRevenueLedgerPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-sand-100">
-              {DEMO_BOOKINGS.map((b) => (
-                <tr key={b.id} className="hover:bg-sand-50/70 transition">
-                  <td className="p-3.5 font-mono font-bold text-navy-900">{b.reference}</td>
-                  <td className="p-3.5 font-semibold text-navy-950">{b.travellerName}</td>
-                  <td className="p-3.5 text-navy-800">{formatLkr(b.totalAmountLkr)}</td>
-                  <td className="p-3.5 text-navy-500">-{formatLkr(b.platformCommissionLkr)}</td>
-                  <td className="p-3.5 font-bold text-emerald-700">{formatLkr(b.hostNetPayoutLkr)}</td>
-                  <td className="p-3.5">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                      Cleared
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {liveFinance
+                ? liveFinance.payables.map((p) => (
+                    <tr key={p.id} className="hover:bg-sand-50/70 transition">
+                      <td className="p-3.5 font-mono font-bold text-navy-900">
+                        {p.referenceCode || p.bookingId.slice(0, 8)}
+                      </td>
+                      <td className="p-3.5 font-semibold text-navy-950">Verified Booking</td>
+                      <td className="p-3.5 text-navy-800">
+                        {formatLkr(Math.round(p.grossSubtotalMinor / 100))}
+                      </td>
+                      <td className="p-3.5 text-navy-500">
+                        -{formatLkr(Math.round(p.commissionMinor / 100))}
+                      </td>
+                      <td className="p-3.5 font-bold text-emerald-700">
+                        {formatLkr(Math.round(p.netPayableMinor / 100))}
+                      </td>
+                      <td className="p-3.5">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          {p.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                : DEMO_BOOKINGS.map((b) => (
+                    <tr key={b.id} className="hover:bg-sand-50/70 transition">
+                      <td className="p-3.5 font-mono font-bold text-navy-900">{b.reference}</td>
+                      <td className="p-3.5 font-semibold text-navy-950">{b.travellerName}</td>
+                      <td className="p-3.5 text-navy-800">{formatLkr(b.totalAmountLkr)}</td>
+                      <td className="p-3.5 text-navy-500">-{formatLkr(b.platformCommissionLkr)}</td>
+                      <td className="p-3.5 font-bold text-emerald-700">{formatLkr(b.hostNetPayoutLkr)}</td>
+                      <td className="p-3.5">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          Cleared
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
             </tbody>
           </table>
         </div>

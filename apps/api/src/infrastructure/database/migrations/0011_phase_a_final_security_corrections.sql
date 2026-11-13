@@ -307,3 +307,4 @@ DO $$ BEGIN
     GRANT EXECUTE ON FUNCTION public.verify_identity_assertion(jsonb, text, uuid, text) TO luggage_user;
   END IF;
 END $$;
+

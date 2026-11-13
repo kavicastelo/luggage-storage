@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,18 +7,66 @@ import {
   StyleSheet
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
+import { BookingDetail, CustodyPassResponse } from "@luggage-storage/contracts";
 import { DEMO_BOOKINGS, TravellerBookingItem } from "../../src/data/mock-marketplace";
 import { Card, Button, Badge, MobileIcon, MascotIllustration } from "../../src/components";
 import { mobileColors, mobileRadius, mobileTypography } from "../../src/lib/theme";
+import { useAuthStore } from "../../src/store/useAuthStore";
+import { marketplaceApi } from "../../src/services/marketplace-api";
+
+const PASS_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default function TravellerCustodyPassScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ ref?: string }>();
+  const params = useLocalSearchParams<{ ref?: string; bookingId?: string }>();
+  const { isAuthenticated } = useAuthStore();
 
-  const booking: TravellerBookingItem =
+  const demoBooking: TravellerBookingItem =
     DEMO_BOOKINGS.find((b) => b.reference === params.ref) || DEMO_BOOKINGS[0];
 
+  const [liveBooking, setLiveBooking] = useState<BookingDetail | null>(null);
+  const [issuedPass, setIssuedPass] = useState<CustodyPassResponse | null>(null);
   const [savedOffline, setSavedOffline] = useState(false);
+
+  useEffect(() => {
+    const targetId = params.bookingId;
+    if (!isAuthenticated || !targetId || !PASS_UUID_REGEX.test(targetId)) return;
+    let mounted = true;
+    marketplaceApi
+      .getBookingDetail(targetId)
+      .then(async (detail) => {
+        if (!mounted) return;
+        setLiveBooking(detail);
+        if (detail.status === "CONFIRMED" || detail.status === "IN_STORAGE") {
+          const pass = await marketplaceApi.issueCustodyPass(targetId, {
+            operation: detail.status === "IN_STORAGE" ? "COLLECTION" : "CHECK_IN"
+          });
+          if (mounted) setIssuedPass(pass);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated, params.bookingId]);
+
+  const booking: TravellerBookingItem = liveBooking
+    ? {
+        ...demoBooking,
+        id: liveBooking.id,
+        reference: `#${liveBooking.referenceCode}`,
+        locationName: liveBooking.location.name,
+        totalBags: liveBooking.totalBags,
+        pickUpTime: new Date(liveBooking.collectionAt).toLocaleString(),
+        pinFallback: issuedPass
+          ? `${issuedPass.verificationPin.slice(0, 3)} ${issuedPass.verificationPin.slice(3)}`
+          : "Pending Payment",
+        exactAddress: liveBooking.location.addressDisclosed
+          ? `${liveBooking.location.addressLine1 || ""}, ${liveBooking.location.city}`
+          : `${liveBooking.location.approximateArea} (Unlocks after payment)`,
+        landmark: liveBooking.location.approximateArea
+      }
+    : demoBooking;
 
   return (
     <View style={styles.screenWrapper}>

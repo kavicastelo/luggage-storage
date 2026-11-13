@@ -21,6 +21,14 @@ import { locationRoutes } from "./modules/locations/locations.routes.js";
 import { locationModerationRoutes } from "./modules/locations/location-moderation.routes.js";
 import { capacityRoutes } from "./modules/capacity/capacity.routes.js";
 import { pricingRoutes } from "./modules/pricing/pricing.routes.js";
+import {
+  availabilityRoutes,
+  bookingRoutes,
+  hostBookingAndFinanceRoutes
+} from "./modules/bookings/bookings.routes.js";
+import { paymentRoutes } from "./modules/payments/payments.routes.js";
+import { hostCustodyRoutes } from "./modules/custody/custody.routes.js";
+import { adminPhaseBRoutes } from "./modules/admin/admin-phase-b.routes.js";
 import { sessionService } from "./modules/auth/session.service.js";
 import { rbacService } from "./modules/auth/rbac.service.js";
 import { auditService, SecurityEventType } from "./modules/audit/audit.service.js";
@@ -338,6 +346,20 @@ export function buildApp(): FastifyInstance {
   app.register(uploadRoutes, { prefix: "/uploads" });
   app.register(discoveryRoutes, { prefix: `${env.API_PREFIX}/discovery` });
   app.register(discoveryRoutes, { prefix: "/discovery" });
+
+  // Phase B: Availability, Bookings, Payments, Custody & Admin Governance routes
+  app.register(availabilityRoutes, { prefix: `${env.API_PREFIX}/availability` });
+  app.register(availabilityRoutes, { prefix: "/availability" });
+  app.register(bookingRoutes, { prefix: `${env.API_PREFIX}/bookings` });
+  app.register(bookingRoutes, { prefix: "/bookings" });
+  app.register(paymentRoutes, { prefix: `${env.API_PREFIX}/payments` });
+  app.register(paymentRoutes, { prefix: "/payments" });
+  app.register(hostBookingAndFinanceRoutes, { prefix: `${env.API_PREFIX}/hosts` });
+  app.register(hostBookingAndFinanceRoutes, { prefix: "/hosts" });
+  app.register(hostCustodyRoutes, { prefix: `${env.API_PREFIX}/hosts` });
+  app.register(hostCustodyRoutes, { prefix: "/hosts" });
+  app.register(adminPhaseBRoutes, { prefix: `${env.API_PREFIX}/admin` });
+  app.register(adminPhaseBRoutes, { prefix: "/admin" });
 
   return app;
 }

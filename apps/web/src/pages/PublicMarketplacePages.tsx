@@ -39,7 +39,12 @@ import {
 } from "@/components/ui";
 import { useAuthStore } from "@/store/useAuthStore";
 import { marketplaceApi } from "@/services/marketplace-api";
-import { PublicStorageLocation } from "@luggage-storage/contracts";
+import {
+  PublicStorageLocation,
+  BookingQuoteResponse,
+  BookingDetail,
+  CustodyPassResponse
+} from "@luggage-storage/contracts";
 import {
   DEMO_LOCATIONS,
   DEMO_BOOKINGS,
@@ -48,6 +53,32 @@ import {
   DemoBookingRecord,
   StorageLocationItem
 } from "@/data/mock-marketplace";
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuidId(value: string | null | undefined): value is string {
+  return Boolean(value && UUID_PATTERN.test(value));
+}
+
+function mapRefundStatusToStage(status?: string): number {
+  switch (status) {
+    case "REQUESTED":
+      return 1;
+    case "AUTHORIZED":
+      return 4;
+    case "INITIATED":
+      return 5;
+    case "PROCESSING":
+      return 6;
+    case "SUCCEEDED":
+      return 7;
+    case "FAILED":
+    case "MANUAL_REVIEW_REQUIRED":
+      return 2;
+    default:
+      return 2;
+  }
+}
 
 function mapPublicLocationToItem(loc: PublicStorageLocation): StorageLocationItem {
   const baseRate = Math.round((loc.baseRateMinor ?? 15000) / 100);
@@ -70,7 +101,7 @@ function mapPublicLocationToItem(loc: PublicStorageLocation): StorageLocationIte
     insuranceLimitLkr: 250000,
     photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
     gracePeriodMinutes: 30,
-    lateFeePolicyLabel: "Standard Tier LKR 300 / hr",
+    lateFeePolicyLabel: "Illustrative Tier LKR 300 / hr",
     hourlyRateLkr: {
       SMALL: Math.round(baseRate * 0.7),
       MEDIUM: baseRate,
@@ -90,7 +121,7 @@ function mapPublicLocationToItem(loc: PublicStorageLocation): StorageLocationIte
       lng: loc.approximateLongitude
     },
     addressMasked: loc.approximateArea,
-    addressExact: `${loc.approximateArea} (Revealed upon confirmed booking per OQ-012)`,
+    addressExact: `${loc.approximateArea} (Exact entrance address unlocked upon payment confirmation)`,
     zones: [{ id: "z1", code: "Z1", name: "Main Storage Room", capacity: 50, occupied: 5 }],
     description: loc.description || "Secure, convenient storage facility in Sri Lanka."
   };
@@ -1020,8 +1051,9 @@ export function LocationProfileDetailPage() {
           <div className="bg-white rounded-3xl border border-sand-200 p-6 space-y-5 shadow-sm">
             <h3 className="font-bold text-lg text-navy-950">Ready to Book?</h3>
             <p className="text-xs text-sand-700 leading-relaxed">
-              Reserve your storage slot instantly. Payment is held in secure platform escrow and only
-              released to the partner upon verified drop-off.
+              Reserve your storage slot instantly. Payment is recorded in our ledger-backed
+              marketplace settlement system and host payout eligibility accrues upon verified
+              custody completion.
             </p>
 
             <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-1 text-xs text-emerald-900">
@@ -1055,23 +1087,104 @@ export function LocationProfileDetailPage() {
 export function WebCheckoutSchedulePage() {
   const { locId } = useParams<{ locId: string }>();
   const navigate = useNavigate();
-  const location = DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0];
+  const { isAuthenticated, user } = useAuthStore();
+  const isLiveLocation = isUuidId(locId);
+
+  const [liveLocation, setLiveLocation] = useState<PublicStorageLocation | null>(null);
+  const [liveQuote, setLiveQuote] = useState<BookingQuoteResponse | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  const location = useMemo(() => {
+    if (liveLocation) {
+      return mapPublicLocationToItem(liveLocation);
+    }
+    return DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0];
+  }, [liveLocation, locId]);
 
   const [dropOffDate, setDropOffDate] = useState("2026-11-10T09:00");
   const [pickUpDate, setPickUpDate] = useState("2026-11-10T17:00");
   const [bags, setBags] = useState({ SMALL: 1, MEDIUM: 1, LARGE: 0, OVERSIZED: 0 });
   const [promoCode, setPromoCode] = useState("SLWELCOME10");
-  const [travellerName, setTravellerName] = useState("Maya Perera");
-  const [travellerEmail, setTravellerEmail] = useState("maya.perera@example.com");
+  const [travellerName, setTravellerName] = useState(user?.displayName || "Maya Perera");
+  const [travellerEmail, setTravellerEmail] = useState(user?.email || "maya.perera@example.com");
+
+  useEffect(() => {
+    if (!isLiveLocation || !locId) return;
+    let mounted = true;
+    marketplaceApi
+      .getPublicLocationDetails(locId)
+      .then((loc) => {
+        if (mounted) setLiveLocation(loc);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isLiveLocation, locId]);
+
+  useEffect(() => {
+    if (!isLiveLocation || !locId) return;
+    const items = (
+      [
+        { bagCategory: "BAG_SMALL" as const, quantity: bags.SMALL },
+        { bagCategory: "BAG_MEDIUM" as const, quantity: bags.MEDIUM },
+        { bagCategory: "BAG_LARGE" as const, quantity: bags.LARGE },
+        { bagCategory: "BAG_OVERSIZED" as const, quantity: bags.OVERSIZED }
+      ] as const
+    ).filter((item) => item.quantity > 0);
+
+    if (items.length === 0) {
+      setLiveQuote(null);
+      return;
+    }
+
+    let mounted = true;
+    setQuoteLoading(true);
+    setCheckoutError(null);
+    const dropIso = dropOffDate.includes("+") ? dropOffDate : `${dropOffDate}:00+05:30`;
+    const pickIso = pickUpDate.includes("+") ? pickUpDate : `${pickUpDate}:00+05:30`;
+
+    marketplaceApi
+      .quoteBooking({
+        locationId: locId,
+        dropOffAt: new Date(dropIso).toISOString(),
+        collectionAt: new Date(pickIso).toISOString(),
+        items
+      })
+      .then((q) => {
+        if (mounted) setLiveQuote(q);
+      })
+      .catch((err: unknown) => {
+        if (mounted) {
+          setCheckoutError(err instanceof Error ? err.message : "Unable to calculate live quote.");
+        }
+      })
+      .finally(() => {
+        if (mounted) setQuoteLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [isLiveLocation, locId, dropOffDate, pickUpDate, bags.SMALL, bags.MEDIUM, bags.LARGE, bags.OVERSIZED]);
 
   const totalBags = bags.SMALL + bags.MEDIUM + bags.LARGE + bags.OVERSIZED;
-  const subtotalLkr =
+  const fallbackSubtotalLkr =
     bags.SMALL * location.dailyCapLkr.SMALL +
     bags.MEDIUM * location.dailyCapLkr.MEDIUM +
     bags.LARGE * location.dailyCapLkr.LARGE +
     bags.OVERSIZED * location.dailyCapLkr.OVERSIZED;
-  const discountLkr = promoCode.toUpperCase() === "SLWELCOME10" ? Math.round(subtotalLkr * 0.1) : 0;
-  const totalPayableLkr = Math.max(0, subtotalLkr - discountLkr);
+  const subtotalLkr = liveQuote ? Math.round(liveQuote.storageSubtotalMinor / 100) : fallbackSubtotalLkr;
+  const discountLkr = liveQuote
+    ? 0
+    : promoCode.toUpperCase() === "SLWELCOME10"
+      ? Math.round(subtotalLkr * 0.1)
+      : 0;
+  const totalPayableLkr = liveQuote
+    ? Math.round(liveQuote.totalAmountMinor / 100)
+    : Math.max(0, subtotalLkr - discountLkr);
 
   const adjustBag = (tier: keyof typeof bags, delta: number) => {
     setBags((prev) => ({
@@ -1080,12 +1193,65 @@ export function WebCheckoutSchedulePage() {
     }));
   };
 
-  const handleCheckoutSubmit = (e: React.FormEvent) => {
+  const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (totalBags === 0) return;
-    navigate(
-      `/booking/confirm?loc=${location.id}&total=${totalPayableLkr}&bags=${totalBags}&name=${encodeURIComponent(travellerName)}`
-    );
+
+    if (!isLiveLocation || !locId) {
+      navigate(
+        `/booking/confirm?loc=${location.id}&total=${totalPayableLkr}&bags=${totalBags}&name=${encodeURIComponent(travellerName)}`
+      );
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setCheckoutError("Please sign in to place a live storage reservation.");
+      navigate("/login");
+      return;
+    }
+
+    if (liveQuote && !liveQuote.available) {
+      setCheckoutError(liveQuote.unavailabilityReason || "Selected time slot is unavailable.");
+      return;
+    }
+
+    setSubmitting(true);
+    setCheckoutError(null);
+    try {
+      const items = (
+        [
+          { bagCategory: "BAG_SMALL" as const, quantity: bags.SMALL },
+          { bagCategory: "BAG_MEDIUM" as const, quantity: bags.MEDIUM },
+          { bagCategory: "BAG_LARGE" as const, quantity: bags.LARGE },
+          { bagCategory: "BAG_OVERSIZED" as const, quantity: bags.OVERSIZED }
+        ] as const
+      ).filter((item) => item.quantity > 0);
+
+      const dropIso = dropOffDate.includes("+") ? dropOffDate : `${dropOffDate}:00+05:30`;
+      const pickIso = pickUpDate.includes("+") ? pickUpDate : `${pickUpDate}:00+05:30`;
+
+      const created = await marketplaceApi.createBooking({
+        locationId: locId,
+        dropOffAt: new Date(dropIso).toISOString(),
+        collectionAt: new Date(pickIso).toISOString(),
+        items,
+        idempotencyKey: `web-chk-${locId}-${Date.now()}`
+      });
+
+      if (created.status === "PENDING_PAYMENT") {
+        const intent = await marketplaceApi.createPaymentIntent({
+          bookingId: created.id,
+          idempotencyKey: `web-pay-${created.id}`
+        });
+        navigate(`/booking/confirm?bookingId=${created.id}&intentId=${intent.id}`);
+      } else {
+        navigate(`/booking/confirm?bookingId=${created.id}`);
+      }
+    } catch (err: unknown) {
+      setCheckoutError(err instanceof Error ? err.message : "Failed to create booking.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -1098,6 +1264,18 @@ export function WebCheckoutSchedulePage() {
           Reserve capacity at {location.name} ({location.city}).
         </p>
       </div>
+
+      {checkoutError && (
+        <Alert variant="danger" title="Reservation Notice">
+          {checkoutError}
+        </Alert>
+      )}
+
+      {liveQuote && !liveQuote.available && (
+        <Alert variant="warning" title="Capacity or Operating Window Unavailable">
+          {liveQuote.unavailabilityReason || "This storage hub cannot accommodate the selected window or bag mix."}
+        </Alert>
+      )}
 
       <form onSubmit={handleCheckoutSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left: Schedule & Luggage Details */}
@@ -1206,7 +1384,14 @@ export function WebCheckoutSchedulePage() {
         {/* Right: Price Breakdown & Confirmation */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white rounded-3xl border border-sand-200 p-6 shadow-sm space-y-4">
-            <h2 className="text-lg font-bold text-navy-950">Price Breakdown</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-navy-950">Price Breakdown</h2>
+              {liveQuote && (
+                <Badge variant={liveQuote.available ? "success" : "warning"}>
+                  {liveQuote.bookingMode === "HOST_APPROVAL" ? "Host Approval Mode" : "Instant Confirmation"}
+                </Badge>
+              )}
+            </div>
             <div className="space-y-2 text-sm border-b border-sand-100 pb-4">
               <div className="flex justify-between text-sand-700">
                 <span>Total Items</span>
@@ -1214,28 +1399,42 @@ export function WebCheckoutSchedulePage() {
               </div>
               <div className="flex justify-between text-sand-700">
                 <span>Storage Subtotal</span>
-                <span className="font-semibold text-navy-900">{formatLkr(subtotalLkr)}</span>
+                <span className="font-semibold text-navy-900">
+                  {quoteLoading ? "Calculating..." : formatLkr(subtotalLkr)}
+                </span>
               </div>
-              <div className="flex justify-between text-emerald-800">
-                <span>Promo Discount ({promoCode || "None"})</span>
-                <span className="font-semibold">- {formatLkr(discountLkr)}</span>
-              </div>
+              {!liveQuote && (
+                <div className="flex justify-between text-emerald-800">
+                  <span>Promo Discount ({promoCode || "None"})</span>
+                  <span className="font-semibold">- {formatLkr(discountLkr)}</span>
+                </div>
+              )}
+              {liveQuote && (
+                <div className="flex justify-between text-sand-600 text-xs">
+                  <span>Billing Basis</span>
+                  <span className="font-semibold text-navy-900">
+                    {liveQuote.durationUnits} × {liveQuote.pricingUnit === "24_HOUR_BLOCK" ? "24h Block" : "Calendar Day"}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between text-sand-600 text-xs">
                 <span>Tamper Seals & Protection Shield</span>
                 <span className="font-semibold text-emerald-800">Included</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={promoCode}
-                onChange={(e) => setPromoCode(e.target.value)}
-                placeholder="Promo Code"
-                className="flex-1 rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono uppercase focus:outline-none focus:ring-2 focus:ring-terracotta-500"
-              />
-              <span className="text-xs text-emerald-800 font-bold">10% Applied</span>
-            </div>
+            {!liveQuote && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                  placeholder="Promo Code"
+                  className="flex-1 rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono uppercase focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                />
+                <span className="text-xs text-emerald-800 font-bold">10% Applied</span>
+              </div>
+            )}
 
             <div className="flex justify-between items-baseline pt-2">
               <span className="text-base font-bold text-navy-950">Total Payable</span>
@@ -1243,6 +1442,12 @@ export function WebCheckoutSchedulePage() {
                 {formatLkr(totalPayableLkr)}
               </span>
             </div>
+
+            {liveQuote && (
+              <p className="text-[11px] text-sand-600">
+                {liveQuote.cancellationPolicySummary}
+              </p>
+            )}
 
             <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200/80 text-[11px] text-sand-700 space-y-1">
               <p className="font-bold text-navy-900">Late Collection Notice:</p>
@@ -1256,16 +1461,21 @@ export function WebCheckoutSchedulePage() {
             <Button
               type="submit"
               variant="primary"
-              disabled={totalBags === 0}
+              disabled={totalBags === 0 || submitting || Boolean(liveQuote && !liveQuote.available)}
               className="w-full justify-center font-bold text-sm shadow-md"
             >
-              Confirm Reservation & View Custody Pass
+              {submitting
+                ? "Reserving Storage Capacity..."
+                : liveQuote?.bookingMode === "HOST_APPROVAL"
+                  ? "Submit Host Approval Request"
+                  : "Confirm Reservation & View Custody Pass"}
             </Button>
           </div>
 
-          <Alert variant="info" title="Demo & Prototype Mode">
-            Online checkout simulation active. Completing this step generates a verified digital
-            custody pass without executing a live bank card debit.
+          <Alert variant="info" title={isLiveLocation ? "Sandbox Payment Gateway Active" : "Demo & Prototype Mode"}>
+            {isLiveLocation
+              ? "Capacity hold is locked server-side in PostgreSQL. Payment collection uses the signed sandbox gateway adapter without charging a live bank card."
+              : "Online checkout simulation active. Completing this step generates a verified digital custody pass without executing a live bank card debit."}
           </Alert>
         </div>
       </form>
@@ -1278,14 +1488,300 @@ export function WebCheckoutSchedulePage() {
 // ============================================================================
 export function WebPaymentConfirmationPage() {
   const [searchParams] = useSearchParams();
+  const bookingIdParam = searchParams.get("bookingId");
+  const intentIdParam = searchParams.get("intentId");
   const locId = searchParams.get("loc") || DEMO_LOCATIONS[0].id;
   const totalLkr = Number(searchParams.get("total") || 2115);
   const bagsCount = Number(searchParams.get("bags") || 2);
   const location = DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0];
 
+  const isLiveBooking = isUuidId(bookingIdParam);
+  const [liveBooking, setLiveBooking] = useState<BookingDetail | null>(null);
+  const [liveIntentId, setLiveIntentId] = useState<string | null>(intentIdParam);
+  const [issuedPass, setIssuedPass] = useState<CustodyPassResponse | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLiveBooking || !bookingIdParam) return;
+    let mounted = true;
+    marketplaceApi
+      .getBookingDetail(bookingIdParam)
+      .then((detail) => {
+        if (mounted) {
+          setLiveBooking(detail);
+          if (detail.paymentSummary?.intentId) {
+            setLiveIntentId(detail.paymentSummary.intentId);
+          }
+        }
+      })
+      .catch((err: unknown) => {
+        if (mounted) {
+          setActionError(err instanceof Error ? err.message : "Unable to load booking detail.");
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [isLiveBooking, bookingIdParam]);
+
+  const handleSandboxPayment = async (outcome: "SUCCEEDED" | "FAILED") => {
+    if (!bookingIdParam) return;
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      let targetIntentId = liveIntentId;
+      if (!targetIntentId) {
+        const intent = await marketplaceApi.createPaymentIntent({
+          bookingId: bookingIdParam,
+          idempotencyKey: `confirm-pay-${bookingIdParam}`
+        });
+        targetIntentId = intent.id;
+        setLiveIntentId(intent.id);
+      }
+      await marketplaceApi.simulateSandboxPayment(targetIntentId, { outcome });
+      const updated = await marketplaceApi.getBookingDetail(bookingIdParam);
+      setLiveBooking(updated);
+      if (updated.status === "CONFIRMED") {
+        const pass = await marketplaceApi.issueCustodyPass(bookingIdParam, {
+          operation: "CHECK_IN"
+        });
+        setIssuedPass(pass);
+      }
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Payment simulation failed.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleIssueLivePass = async (operation: "CHECK_IN" | "COLLECTION") => {
+    if (!bookingIdParam) return;
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      const pass = await marketplaceApi.issueCustodyPass(bookingIdParam, { operation });
+      setIssuedPass(pass);
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Could not issue custody pass.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
+
+  if (isLiveBooking && liveBooking) {
+    const formattedPin = issuedPass
+      ? `${issuedPass.verificationPin.slice(0, 3)} ${issuedPass.verificationPin.slice(3)}`
+      : null;
+    const isAddressUnlocked = liveBooking.location.addressDisclosed;
+
+    return (
+      <div className="space-y-8 max-w-4xl mx-auto">
+        {actionError && (
+          <Alert variant="danger" title="Booking Action Notice">
+            {actionError}
+          </Alert>
+        )}
+
+        {/* Live Status Banner */}
+        <div
+          className={`rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5 shadow-sm border ${
+            liveBooking.status === "CONFIRMED" || liveBooking.status === "IN_STORAGE"
+              ? "bg-emerald-50 border-emerald-200"
+              : "bg-amber-50 border-amber-200"
+          }`}
+        >
+          <div className="flex items-start gap-4">
+            <div
+              className={`w-12 h-12 rounded-full text-white flex items-center justify-center flex-shrink-0 ${
+                liveBooking.status === "CONFIRMED" || liveBooking.status === "IN_STORAGE"
+                  ? "bg-emerald-600"
+                  : "bg-amber-600"
+              }`}
+            >
+              <CheckCircle2 className="h-7 w-7" />
+            </div>
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-navy-900">
+                Status: {liveBooking.status} • Reference #{liveBooking.referenceCode}
+              </span>
+              <h1 className="text-2xl font-extrabold text-navy-950 mt-0.5">
+                {liveBooking.status === "PENDING_HOST_APPROVAL"
+                  ? "Awaiting Host Approval"
+                  : liveBooking.status === "PENDING_PAYMENT"
+                    ? "Complete Sandbox LKR Payment to Unlock Pass"
+                    : "Your Digital Custody Pass Is Ready"}
+              </h1>
+              <p className="text-xs text-navy-900 mt-1">
+                {isAddressUnlocked ? (
+                  <>
+                    Exact concierge desk address unlocked:{" "}
+                    <strong>
+                      {liveBooking.location.addressLine1}, {liveBooking.location.city}
+                    </strong>
+                  </>
+                ) : (
+                  <>
+                    Approximate area: <strong>{liveBooking.location.approximateArea}</strong> (Exact
+                    street address unlocks immediately after payment confirmation).
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {liveBooking.status === "PENDING_PAYMENT" && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                disabled={actionLoading}
+                onClick={() => handleSandboxPayment("SUCCEEDED")}
+              >
+                {actionLoading ? "Processing..." : "Authorize Sandbox Payment"}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={actionLoading}
+                onClick={() => handleSandboxPayment("FAILED")}
+              >
+                Simulate Failure
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Live Printable Digital Custody Pass */}
+        <div className="bg-white rounded-3xl border-2 border-navy-900 overflow-hidden shadow-xl">
+          <div className="bg-navy-950 text-white p-6 flex flex-wrap items-center justify-between gap-4 border-b border-navy-800">
+            <div className="flex items-center gap-3">
+              <Shield className="h-6 w-6 text-terracotta-400" />
+              <div>
+                <span className="text-[10px] font-mono tracking-widest text-sand-400 uppercase">
+                  Global Luggage Storage Marketplace
+                </span>
+                <h2 className="text-lg font-bold text-white">Digital Custody Pass</h2>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="text-[10px] text-sand-400 block">Booking Reference</span>
+              <span className="font-mono font-bold text-amber-400 text-sm">
+                #{liveBooking.referenceCode}
+              </span>
+            </div>
+          </div>
+
+          <div className="p-6 sm:p-8 space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-6 border-b border-sand-100">
+              <div>
+                <span className="text-xs font-bold text-sand-600 uppercase">Storage Hub</span>
+                <h3 className="text-lg font-bold text-navy-950 mt-0.5">
+                  {liveBooking.location.name}
+                </h3>
+                <p className="text-xs text-sand-700 mt-1">
+                  {isAddressUnlocked
+                    ? `${liveBooking.location.addressLine1}, ${liveBooking.location.city}`
+                    : `${liveBooking.location.approximateArea} (Locked until payment)`}
+                </p>
+              </div>
+              <div>
+                <span className="text-xs font-bold text-sand-600 uppercase">Schedule Window</span>
+                <p className="text-sm font-bold text-navy-950 mt-0.5">
+                  Drop-off: {new Date(liveBooking.dropOffAt).toLocaleString()}
+                </p>
+                <p className="text-sm font-bold text-navy-950">
+                  Pick-up: {new Date(liveBooking.collectionAt).toLocaleString()}
+                </p>
+                <p className="text-xs text-sand-600 mt-1">
+                  Items: {liveBooking.totalBags} Luggage Bags • Total:{" "}
+                  {formatLkr(Math.round(liveBooking.totalAmountMinor / 100))}
+                </p>
+              </div>
+            </div>
+
+            {(liveBooking.status === "CONFIRMED" || liveBooking.status === "IN_STORAGE") && (
+              <div className="space-y-4">
+                {!issuedPass ? (
+                  <div className="p-6 rounded-2xl bg-sand-50 border border-sand-200 text-center space-y-3">
+                    <p className="text-sm font-bold text-navy-950">
+                      Generate Single-Use Counter Handover Credentials
+                    </p>
+                    <p className="text-xs text-sand-600 max-w-md mx-auto">
+                      For security, QR tokens and 6-digit PINs are hashed server-side and revealed
+                      only at issuance.
+                    </p>
+                    <Button
+                      variant="primary"
+                      disabled={actionLoading}
+                      onClick={() =>
+                        handleIssueLivePass(
+                          liveBooking.status === "IN_STORAGE" ? "COLLECTION" : "CHECK_IN"
+                        )
+                      }
+                    >
+                      <QrCode className="h-4 w-4 mr-2" />
+                      {actionLoading
+                        ? "Issuing..."
+                        : liveBooking.status === "IN_STORAGE"
+                          ? "Issue Collection Pass"
+                          : "Issue Check-In Pass"}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
+                    <div className="bg-sand-50 rounded-2xl p-5 border border-sand-200 text-center space-y-2">
+                      <span className="text-[10px] font-mono uppercase font-bold text-navy-900 block">
+                        Single-Use {issuedPass.operation} QR Token
+                      </span>
+                      <div className="inline-block p-3 bg-white rounded-xl border border-sand-300 shadow-inner">
+                        <QrCode className="h-28 w-28 text-navy-950" />
+                      </div>
+                      <p className="text-[10px] font-mono text-sand-600 break-all">
+                        {issuedPass.qrToken}
+                      </p>
+                    </div>
+
+                    <div className="bg-sand-50 rounded-2xl p-6 border border-sand-200 text-center space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-sand-700 block">
+                        Offline 6-Digit PIN Fallback
+                      </span>
+                      <div className="text-4xl font-mono font-extrabold tracking-widest text-navy-950 py-2">
+                        {formattedPin}
+                      </div>
+                      <p className="text-xs text-sand-600 max-w-xs mx-auto leading-relaxed">
+                        Valid until {new Date(issuedPass.expiresAt).toLocaleString()}. Single-use
+                        credential consumed upon counter handover.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-sand-50 p-6 border-t border-sand-200 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Button variant="secondary" onClick={handlePrint}>
+                <Printer className="h-4 w-4 mr-2" />
+                <span>Print / Save Pass</span>
+              </Button>
+              <Link to="/portal/bookings">
+                <Button variant="outline">
+                  <span>View in My Bookings</span>
+                </Button>
+              </Link>
+            </div>
+            <Link to="/search">
+              <Button variant="ghost">Book Another Hub</Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
@@ -1996,18 +2492,115 @@ export function TermsPrivacyLegalPage() {
   );
 }
 
+function mapBookingDetailToPortalRecord(
+  detail: BookingDetail,
+  userEmail?: string | null,
+  userName?: string | null
+): DemoBookingRecord {
+  const bags = { SMALL: 0, MEDIUM: 0, LARGE: 0, OVERSIZED: 0 };
+  for (const item of detail.items) {
+    if (item.bagCategory === "BAG_SMALL") bags.SMALL += item.quantity;
+    if (item.bagCategory === "BAG_MEDIUM") bags.MEDIUM += item.quantity;
+    if (item.bagCategory === "BAG_LARGE") bags.LARGE += item.quantity;
+    if (item.bagCategory === "BAG_OVERSIZED") bags.OVERSIZED += item.quantity;
+  }
+
+  let mappedStatus: DemoBookingRecord["status"] = "CONFIRMED";
+  if (detail.status === "IN_STORAGE") mappedStatus = "CHECKED_IN";
+  else if (detail.status === "COMPLETED") mappedStatus = "COMPLETED";
+  else if (detail.status === "PENDING_HOST_APPROVAL") mappedStatus = "PENDING_HOST_APPROVAL";
+  else if (detail.status === "PENDING_PAYMENT") mappedStatus = "CONFIRMED";
+  else if (
+    detail.status.startsWith("CANCELLED") ||
+    detail.status === "REJECTED" ||
+    detail.status === "EXPIRED"
+  ) {
+    mappedStatus = "CANCELLED_REFUNDED";
+  }
+
+  const commissionMinor =
+    detail.pricingSnapshot?.platformCommissionMinor ??
+    Math.round(detail.totalAmountMinor * 0.15);
+  const hostPayableMinor =
+    detail.pricingSnapshot?.hostPayableMinor ??
+    detail.totalAmountMinor - commissionMinor;
+
+  return {
+    id: detail.id,
+    reference: detail.referenceCode,
+    travellerName: userName || "Traveller",
+    travellerEmail: userEmail || "",
+    travellerPhone: "",
+    locationId: detail.location.id,
+    locationName: detail.location.name,
+    city: detail.location.city,
+    dropOffIso: detail.dropOffAt,
+    pickUpIso: detail.collectionAt,
+    bags,
+    totalBags: detail.totalBags,
+    totalAmountLkr: Math.round(detail.totalAmountMinor / 100),
+    platformCommissionLkr: Math.round(commissionMinor / 100),
+    hostNetPayoutLkr: Math.round(hostPayableMinor / 100),
+    status: mappedStatus,
+    pinCode: "Issued on demand",
+    qrPayload:
+      detail.status === "PENDING_PAYMENT"
+        ? "Complete payment to unlock single-use pass"
+        : "Click View Digital Custody Pass to issue single-use token",
+    sealIds: detail.status === "IN_STORAGE" ? ["Recorded at Check-In"] : [],
+    zoneCode: detail.location.addressDisclosed
+      ? detail.location.addressLine1 || "Assigned Counter"
+      : detail.location.approximateArea,
+    evidencePhotosCount: 0,
+    refundStage: detail.refundSummary ? mapRefundStatusToStage(detail.refundSummary.status) : undefined
+  };
+}
+
 // ============================================================================
 // PW-011: Traveller Web Portal (/portal/bookings)
 // ============================================================================
 export function TravellerWebPortalPage() {
-  const { user } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
   const [activeTab, setActiveTab] = useState<"ACTIVE" | "COMPLETED" | "REFUNDS">("ACTIVE");
   const [bookings, setBookings] = useState<DemoBookingRecord[]>(DEMO_BOOKINGS);
+  const [liveStatusById, setLiveStatusById] = useState<Record<string, string>>({});
+  const [portalError, setPortalError] = useState<string | null>(null);
+  const [passLoading, setPassLoading] = useState(false);
   const [selectedBookingForPass, setSelectedBookingForPass] = useState<DemoBookingRecord | null>(null);
   const [selectedBookingForCancel, setSelectedBookingForCancel] = useState<DemoBookingRecord | null>(null);
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let mounted = true;
+    marketplaceApi
+      .getMyBookings()
+      .then((res) => {
+        if (!mounted) return;
+        if (res.bookings.length > 0) {
+          const statusMap: Record<string, string> = {};
+          for (const b of res.bookings) {
+            statusMap[b.id] = b.status;
+          }
+          setLiveStatusById(statusMap);
+          setBookings(
+            res.bookings.map((b) => mapBookingDetailToPortalRecord(b, user?.email, user?.displayName))
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [isAuthenticated, user?.email, user?.displayName]);
+
   const activeBookings = useMemo(
-    () => bookings.filter((b) => b.status === "CHECKED_IN" || b.status === "CONFIRMED"),
+    () =>
+      bookings.filter(
+        (b) =>
+          b.status === "CHECKED_IN" ||
+          b.status === "CONFIRMED" ||
+          b.status === "PENDING_HOST_APPROVAL"
+      ),
     [bookings]
   );
   const completedBookings = useMemo(
@@ -2019,7 +2612,59 @@ export function TravellerWebPortalPage() {
     [bookings]
   );
 
-  const handleConfirmCancel = (id: string) => {
+  const handleOpenPassModal = async (booking: DemoBookingRecord) => {
+    setPortalError(null);
+    if (!isUuidId(booking.id)) {
+      setSelectedBookingForPass(booking);
+      return;
+    }
+
+    const rawStatus = liveStatusById[booking.id];
+    if (rawStatus === "PENDING_PAYMENT" || rawStatus === "PENDING_HOST_APPROVAL") {
+      setSelectedBookingForPass(booking);
+      return;
+    }
+
+    setPassLoading(true);
+    try {
+      const operation = booking.status === "CHECKED_IN" ? "COLLECTION" : "CHECK_IN";
+      const pass = await marketplaceApi.issueCustodyPass(booking.id, { operation });
+      setSelectedBookingForPass({
+        ...booking,
+        pinCode: `${pass.verificationPin.slice(0, 3)} ${pass.verificationPin.slice(3)}`,
+        qrPayload: pass.qrToken
+      });
+    } catch (err: unknown) {
+      setPortalError(err instanceof Error ? err.message : "Unable to issue single-use custody pass.");
+      setSelectedBookingForPass(booking);
+    } finally {
+      setPassLoading(false);
+    }
+  };
+
+  const handleConfirmCancel = async (id: string) => {
+    setPortalError(null);
+    if (isUuidId(id)) {
+      try {
+        const updated = await marketplaceApi.cancelBooking(id, {
+          reason: "Traveller requested cancellation via Web Portal"
+        });
+        setLiveStatusById((prev) => ({ ...prev, [id]: updated.status }));
+        setBookings((prev) =>
+          prev.map((b) =>
+            b.id === id
+              ? mapBookingDetailToPortalRecord(updated, user?.email, user?.displayName)
+              : b
+          )
+        );
+      } catch (err: unknown) {
+        setPortalError(err instanceof Error ? err.message : "Cancellation failed.");
+      } finally {
+        setSelectedBookingForCancel(null);
+      }
+      return;
+    }
+
     setBookings((prev) =>
       prev.map((b) =>
         b.id === id
@@ -2037,6 +2682,11 @@ export function TravellerWebPortalPage() {
   return (
     <div className="space-y-8">
       {/* Header Banner */}
+      {portalError && (
+        <Alert variant="danger" title="Booking Portal Notice">
+          {portalError}
+        </Alert>
+      )}
       <div className="bg-white rounded-3xl border border-sand-200 p-6 sm:p-8 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-sand-600">
@@ -2168,16 +2818,26 @@ export function TravellerWebPortalPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setSelectedBookingForPass(b)}
-                  >
-                    <QrCode className="h-4 w-4 mr-2" />
-                    <span>View Digital Custody Pass</span>
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={passLoading}
+                      onClick={() => handleOpenPassModal(b)}
+                    >
+                      <QrCode className="h-4 w-4 mr-2" />
+                      <span>View Digital Custody Pass</span>
+                    </Button>
+                    {liveStatusById[b.id] === "PENDING_PAYMENT" && (
+                      <Link to={`/booking/confirm?bookingId=${b.id}`}>
+                        <Button variant="secondary" size="sm">
+                          Complete Payment
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
 
-                  {b.status === "CONFIRMED" && (
+                  {(b.status === "CONFIRMED" || b.status === "PENDING_HOST_APPROVAL") && (
                     <Button
                       variant="ghost"
                       size="sm"

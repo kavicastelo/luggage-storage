@@ -16,4 +16,8 @@ export * from "./capacity/index.js";
 export * from "./pricing/index.js";
 export * from "./uploads/index.js";
 export * from "./discovery/index.js";
+export * from "./bookings/index.js";
+export * from "./payments/index.js";
+export * from "./custody/index.js";
+export * from "./finance/index.js";
 

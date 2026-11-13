@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,19 +8,105 @@ import {
   StyleSheet
 } from "react-native";
 import { useRouter } from "expo-router";
+import { BookingDetail } from "@luggage-storage/contracts";
+import { useAuthStore } from "../../src/store/useAuthStore";
 import { useHostStore } from "../../src/store/useHostStore";
+import { marketplaceApi } from "../../src/services/marketplace-api";
 import { DemoHostBooking } from "../../src/data/mock-host-data";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
+
+const HOST_BOOKING_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function mapHostApiBooking(b: BookingDetail): DemoHostBooking {
+  const bags = { SMALL: 0, MEDIUM: 0, LARGE: 0, OVERSIZED: 0 };
+  for (const item of b.items) {
+    if (item.bagCategory === "BAG_SMALL") bags.SMALL += item.quantity;
+    if (item.bagCategory === "BAG_MEDIUM") bags.MEDIUM += item.quantity;
+    if (item.bagCategory === "BAG_LARGE") bags.LARGE += item.quantity;
+    if (item.bagCategory === "BAG_OVERSIZED") bags.OVERSIZED += item.quantity;
+  }
+  const status: DemoHostBooking["status"] =
+    b.status === "IN_STORAGE"
+      ? new Date(b.collectionAt).getTime() < Date.now()
+        ? "OVERDUE"
+        : "IN_STORAGE"
+      : b.status === "COMPLETED"
+        ? "COMPLETED"
+        : b.status.startsWith("CANCELLED") || b.status === "REJECTED" || b.status === "EXPIRED"
+          ? "CANCELLED"
+          : "CONFIRMED";
+  const commissionMinor =
+    b.pricingSnapshot?.platformCommissionMinor ?? Math.round(b.totalAmountMinor * 0.15);
+  const netMinor = b.pricingSnapshot?.hostPayableMinor ?? b.totalAmountMinor - commissionMinor;
+
+  return {
+    id: b.id,
+    reference: b.referenceCode,
+    travellerName: b.travellerDisplayName || `Guest (${b.travellerUserId.slice(0, 8)})`,
+    travellerCountry: "LK",
+    travellerPhone: "Protected Platform Contact",
+    status,
+    scheduledIntakeTime: new Date(b.dropOffAt).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit"
+    }),
+    scheduledPickupTime: new Date(b.collectionAt).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit"
+    }),
+    dropOffTimestamp: new Date(b.dropOffAt).getTime(),
+    pickUpTimestamp: new Date(b.collectionAt).getTime(),
+    bags,
+    totalBags: b.totalBags,
+    totalAmountLkr: Math.round(b.totalAmountMinor / 100),
+    hostNetPayoutLkr: Math.round(netMinor / 100),
+    platformFeeLkr: Math.round(commissionMinor / 100),
+    qrPayload: "SINGLE_USE_HASHED",
+    pinCode: "Counter PIN",
+    sealNumbers: [],
+    zoneCode: "COUNTER",
+    photoEvidenceCaptured: false,
+    notes: b.status === "PENDING_HOST_APPROVAL" ? "Awaiting Host Approval" : b.travellerNotes || undefined
+  };
+}
 
 type FilterTab = "ALL" | "CONFIRMED" | "IN_STORAGE" | "OVERDUE" | "COMPLETED";
 
 export default function HostRequestsScreen() {
   const router = useRouter();
-  const { bookings, startIntake, declineRequest } = useHostStore();
+  const { isAuthenticated } = useAuthStore();
+  const { bookings: storeBookings, startIntake, declineRequest } = useHostStore();
+  const [liveBookings, setLiveBookings] = useState<DemoHostBooking[] | null>(null);
+  const [pendingApprovalIds, setPendingApprovalIds] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterTab>("ALL");
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let active = true;
+    marketplaceApi
+      .getHostBookings()
+      .then((res) => {
+        if (active && res.bookings.length > 0) {
+          const approvalMap: Record<string, boolean> = {};
+          for (const item of res.bookings) {
+            if (item.status === "PENDING_HOST_APPROVAL") {
+              approvalMap[item.id] = true;
+            }
+          }
+          setPendingApprovalIds(approvalMap);
+          setLiveBookings(res.bookings.map(mapHostApiBooking));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated]);
+
+  const bookings = liveBookings ?? storeBookings;
 
   const filterCounts = useMemo(() => {
     return {
@@ -281,17 +367,62 @@ export default function HostRequestsScreen() {
                       <>
                         <TouchableOpacity
                           style={styles.declineBtn}
-                          onPress={() => declineRequest(booking.id)}
+                          onPress={async () => {
+                            if (HOST_BOOKING_UUID.test(booking.id)) {
+                              try {
+                                const updated = await marketplaceApi.rejectHostBooking(booking.id, {
+                                  reason: "Declined via Host Mobile Desk"
+                                });
+                                setPendingApprovalIds((p) => ({ ...p, [booking.id]: false }));
+                                setLiveBookings((prev) =>
+                                  prev
+                                    ? prev.map((b) =>
+                                        b.id === booking.id ? mapHostApiBooking(updated) : b
+                                      )
+                                    : prev
+                                );
+                                return;
+                              } catch {
+                                // Fallback to store action
+                              }
+                            }
+                            declineRequest(booking.id);
+                          }}
                         >
                           <Text style={styles.declineBtnText}>Decline</Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                          style={styles.intakeActionBtn}
-                          onPress={() => handleStartIntake(booking)}
-                        >
-                          <Text style={styles.intakeActionBtnText}>Start Intake</Text>
-                        </TouchableOpacity>
+                        {pendingApprovalIds[booking.id] ? (
+                          <TouchableOpacity
+                            style={styles.intakeActionBtn}
+                            onPress={async () => {
+                              try {
+                                const updated = await marketplaceApi.acceptHostBooking(booking.id, {
+                                  reason: "Accepted via Host Mobile Desk"
+                                });
+                                setPendingApprovalIds((p) => ({ ...p, [booking.id]: false }));
+                                setLiveBookings((prev) =>
+                                  prev
+                                    ? prev.map((b) =>
+                                        b.id === booking.id ? mapHostApiBooking(updated) : b
+                                      )
+                                    : prev
+                                );
+                              } catch {
+                                // Keep request visible on error
+                              }
+                            }}
+                          >
+                            <Text style={styles.intakeActionBtnText}>Accept</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.intakeActionBtn}
+                            onPress={() => handleStartIntake(booking)}
+                          >
+                            <Text style={styles.intakeActionBtnText}>Start Intake</Text>
+                          </TouchableOpacity>
+                        )}
                       </>
                     )}
 

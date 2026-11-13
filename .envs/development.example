@@ -28,11 +28,14 @@ CORS_ORIGIN=http://localhost:5173,http://localhost:8081
 APP_PUBLIC_URL=http://localhost:5173
 API_PREFIX=/api/v1
 
-# In-memory storage & console email for zero-friction local development
+# In-memory storage, console email & signed sandbox payment gateway for local development
 STORAGE_PROVIDER=memory
 EMAIL_PROVIDER=console
 EMAIL_FROM_ADDRESS=no-reply@luggagestorage.lk
 EMAIL_FROM_NAME=Luggage Storage Marketplace
+PAYMENT_PROVIDER=sandbox
+PAYMENT_WEBHOOK_SECRET=REPLACE_WITH_LOCAL_DEV_WEBHOOK_HMAC_SECRET_MINIMUM_32_CHARS
+PAYHERE_SANDBOX_MODE=true
 
 # Client endpoints
 VITE_API_URL=http://localhost:3000/api/v1

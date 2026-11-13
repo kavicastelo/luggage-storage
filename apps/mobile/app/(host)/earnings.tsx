@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,8 +7,10 @@ import {
   StyleSheet
 } from "react-native";
 import { useRouter } from "expo-router";
+import { HostFinanceSummaryResponse } from "@luggage-storage/contracts";
 import { useAuthStore } from "../../src/store/useAuthStore";
 import { useHostStore } from "../../src/store/useHostStore";
+import { marketplaceApi } from "../../src/services/marketplace-api";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
 
@@ -18,10 +20,27 @@ export default function HostEarningsScreen() {
   const { activeDemoRole, transactions } = useHostStore();
   const [filterBatch, setFilterBatch] = useState<"ALL" | "CLEARED" | "PENDING">("ALL");
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+  const [liveFinance, setLiveFinance] = useState<HostFinanceSummaryResponse | null>(null);
 
   const isOwner = isAuthenticated
     ? Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"))
     : activeDemoRole === "HOST_OWNER";
+
+  useEffect(() => {
+    if (!isAuthenticated || !isOwner) return;
+    let active = true;
+    marketplaceApi
+      .getHostFinanceSummary()
+      .then((res) => {
+        if (active && res.payables.length > 0) {
+          setLiveFinance(res);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated, isOwner]);
 
   // Role Guard for Host Staff
   if (!isOwner) {
@@ -47,6 +66,30 @@ export default function HostEarningsScreen() {
 
   // Financial aggregates
   const financialSummary = useMemo(() => {
+    if (liveFinance) {
+      const grossTotal = Math.round(
+        liveFinance.payables.reduce((sum, p) => sum + p.grossSubtotalMinor, 0) / 100
+      );
+      const platformFeeTotal = Math.round(
+        liveFinance.payables.reduce((sum, p) => sum + p.commissionMinor, 0) / 100
+      );
+      const netTotal = Math.round(
+        (liveFinance.totalAccruedMinor +
+          liveFinance.totalEligibleMinor +
+          liveFinance.totalPaidMinor) /
+          100
+      );
+      return {
+        grossTotal,
+        platformFeeTotal,
+        netTotal,
+        clearedTotal: Math.round(liveFinance.totalPaidMinor / 100),
+        pendingTotal: Math.round(
+          (liveFinance.totalAccruedMinor + liveFinance.totalEligibleMinor) / 100
+        )
+      };
+    }
+
     const grossTotal = transactions.reduce((sum, tx) => sum + tx.grossAmountLkr, 0);
     const platformFeeTotal = transactions.reduce((sum, tx) => sum + tx.platformFeeLkr, 0);
     const netTotal = transactions.reduce(
@@ -72,7 +115,7 @@ export default function HostEarningsScreen() {
       clearedTotal,
       pendingTotal
     };
-  }, [transactions]);
+  }, [transactions, liveFinance]);
 
   const filteredTransactions = useMemo(() => {
     if (filterBatch === "CLEARED") {

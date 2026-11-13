@@ -41,7 +41,22 @@ export const REQUIRED_PUBLIC_TABLES = [
   "pricing_tier_rates",
   "upload_intents",
   "trusted_auth_secrets",
-  "consumed_auth_assertions"
+  "consumed_auth_assertions",
+  "bookings",
+  "booking_items",
+  "booking_status_history",
+  "capacity_reservations",
+  "booking_pricing_snapshots",
+  "payment_intents",
+  "payment_transactions",
+  "payment_webhook_events",
+  "refund_records",
+  "financial_ledger_entries",
+  "host_payables",
+  "custody_records",
+  "custody_tokens",
+  "bag_custody_items",
+  "custody_events"
 ] as const;
 
 export const REVOKED_IDENTITY_SECRETS = new Set([

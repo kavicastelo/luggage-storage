@@ -81,7 +81,22 @@ const ALLOWED_METADATA_KEYS = new Set([
   "documentType",
   "decision",
   "rejectionReason",
-  "adminNotes"
+  "adminNotes",
+  "bookingId",
+  "referenceCode",
+  "paymentIntentId",
+  "providerOrderId",
+  "providerTransactionId",
+  "refundId",
+  "custodyRecordId",
+  "custodyTokenId",
+  "transactionGroupId",
+  "payableId",
+  "operation",
+  "amountMinor",
+  "currency",
+  "refundPercentage",
+  "handoverCondition"
 ]);
 
 const FORBIDDEN_KEY_PATTERN = /(?:password|passwd|pwd|hash|salt|secret|token|bearer|authorization|cookie|credential)/i;

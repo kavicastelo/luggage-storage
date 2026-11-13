@@ -85,6 +85,13 @@
       "when": 1794380000000,
       "tag": "0011_phase_a_final_security_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794390000000,
+      "tag": "0012_phase_b_booking_escrow_custody",
+      "breakpoints": true
     }
   ]
 }

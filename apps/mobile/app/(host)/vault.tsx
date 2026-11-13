@@ -7,14 +7,19 @@ import {
   Modal,
   StyleSheet
 } from "react-native";
+import { useAuthStore } from "../../src/store/useAuthStore";
 import { useHostStore } from "../../src/store/useHostStore";
+import { marketplaceApi } from "../../src/services/marketplace-api";
 import { DemoHostBooking } from "../../src/data/mock-host-data";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
 
+const VAULT_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 type VaultTab = "ACTIVE" | "OVERDUE" | "RELEASED";
 
 export default function HostVaultScreen() {
+  const { isAuthenticated } = useAuthStore();
   const { bookings, hub, releaseLuggage } = useHostStore();
   const [activeTab, setActiveTab] = useState<VaultTab>("ACTIVE");
   const [selectedBookingForRelease, setSelectedBookingForRelease] =
@@ -49,8 +54,35 @@ export default function HostVaultScreen() {
 
   const totalBagsInVault = activeVaultBookings.reduce((sum, b) => sum + b.totalBags, 0);
 
-  const handleConfirmRelease = () => {
+  const handleConfirmRelease = async () => {
     if (!selectedBookingForRelease) return;
+    if (
+      isAuthenticated &&
+      VAULT_UUID_REGEX.test(selectedBookingForRelease.id) &&
+      (/^\d{6}$/.test(selectedBookingForRelease.pinCode) ||
+        selectedBookingForRelease.qrPayload.length === 64)
+    ) {
+      try {
+        const released = await marketplaceApi.completeCollection(selectedBookingForRelease.id, {
+          verificationPin: /^\d{6}$/.test(selectedBookingForRelease.pinCode)
+            ? selectedBookingForRelease.pinCode
+            : undefined,
+          qrToken:
+            selectedBookingForRelease.qrPayload.length === 64
+              ? selectedBookingForRelease.qrPayload
+              : undefined,
+          releasedBagCount: selectedBookingForRelease.totalBags
+        });
+        setSelectedBookingForRelease(null);
+        setReleaseSuccessMsg(
+          `Released ${released.releasedBagCount ?? selectedBookingForRelease.totalBags} bags for ${selectedBookingForRelease.reference}.`
+        );
+        setTimeout(() => setReleaseSuccessMsg(null), 5000);
+        return;
+      } catch {
+        // Fallback to local session state
+      }
+    }
     const res = releaseLuggage(selectedBookingForRelease.id);
     setSelectedBookingForRelease(null);
     if (res.success) {

@@ -102,3 +102,13 @@ EMAIL_FROM_NAME=Luggage Storage Marketplace
 # Optional: required only when EMAIL_PROVIDER=resend in non-production environments
 RESEND_API_KEY=
 
+# -----------------------------------------------------------------------------
+# 7. Payment Collection & Signed Gateway Webhooks (Phase B)
+# -----------------------------------------------------------------------------
+# Options: 'sandbox' (local dev/test only), 'payhere' (production mandatory)
+PAYMENT_PROVIDER=sandbox
+PAYMENT_WEBHOOK_SECRET=REPLACE_WITH_UNIQUE_RANDOM_WEBHOOK_HMAC_SECRET_MINIMUM_32_CHARS
+PAYHERE_MERCHANT_ID=
+PAYHERE_MERCHANT_SECRET=
+PAYHERE_SANDBOX_MODE=true
+

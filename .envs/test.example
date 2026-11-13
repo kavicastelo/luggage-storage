@@ -28,6 +28,9 @@ STORAGE_PROVIDER=memory
 EMAIL_PROVIDER=test
 EMAIL_FROM_ADDRESS=test@luggagestorage.lk
 EMAIL_FROM_NAME=Test Runner
+PAYMENT_PROVIDER=sandbox
+PAYMENT_WEBHOOK_SECRET=test_payment_webhook_hmac_secret_minimum_32_characters_long!
+PAYHERE_SANDBOX_MODE=true
 
 # Fast test hashing parameters (Reduced CPU cost for fast test runs)
 ARGON2_MEMORY_COST=4096

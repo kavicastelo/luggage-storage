@@ -34,6 +34,7 @@ These variables must **never** be prefixed with `VITE_` or `EXPO_PUBLIC_`, and m
 - `RATE_LIMIT_HASH_SECRET`: HMAC secret for client identifier anonymization.
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`: Cloudflare R2 object storage access keys.
 - `ZOHO_SMTP_PASSWORD` / `RESEND_API_KEY`: Transactional email credentials.
+- `PAYMENT_WEBHOOK_SECRET` / `PAYHERE_MERCHANT_SECRET`: Payment webhook HMAC signing secret and PayHere merchant verification secret.
 
 ### Public Client Configuration (Safe for Bundling)
 Only variables explicitly designed for client bundle inclusion are permitted:

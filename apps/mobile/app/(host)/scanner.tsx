@@ -8,18 +8,24 @@ import {
   Platform,
   StyleSheet
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useAuthStore } from "../../src/store/useAuthStore";
 import { useHostStore } from "../../src/store/useHostStore";
+import { marketplaceApi } from "../../src/services/marketplace-api";
 import { DemoHostBooking, DEMO_SCANNER_FIXTURES } from "../../src/data/mock-host-data";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
+
+const SCAN_UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type ScannerMode = "CAMERA" | "PIN";
 
 export default function HostScannerScreen() {
   const router = useRouter();
-  const { lookupByPin, lookupByQr, startIntake } = useHostStore();
+  const params = useLocalSearchParams<{ bookingId?: string }>();
+  const { isAuthenticated } = useAuthStore();
+  const { bookings, lookupByPin, lookupByQr, startIntake } = useHostStore();
   const [permission, requestPermission] = useCameraPermissions();
 
   const [mode, setMode] = useState<ScannerMode>("CAMERA");
@@ -28,9 +34,31 @@ export default function HostScannerScreen() {
   const [scannedResult, setScannedResult] = useState<DemoHostBooking | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleBarcodeScanned = ({ data }: { data: string }) => {
+  const handleBarcodeScanned = async ({ data }: { data: string }) => {
     if (scannedResult) return; // avoid duplicate triggers
     setErrorMessage(null);
+    if (isAuthenticated && params.bookingId && SCAN_UUID_REGEX.test(params.bookingId) && data.trim().length === 64) {
+      try {
+        const verified = await marketplaceApi.verifyCustodyPass({
+          bookingId: params.bookingId,
+          operation: "CHECK_IN",
+          qrToken: data.trim()
+        });
+        if (verified.verified && bookings[0]) {
+          setScannedResult({
+            ...bookings[0],
+            id: verified.bookingId,
+            reference: verified.referenceCode,
+            totalBags: verified.expectedBagCount,
+            qrPayload: data.trim()
+          });
+          return;
+        }
+      } catch (err: unknown) {
+        setErrorMessage(err instanceof Error ? err.message : "QR token verification failed.");
+        return;
+      }
+    }
     const matched = lookupByQr(data);
     if (matched) {
       setScannedResult(matched);
@@ -39,12 +67,34 @@ export default function HostScannerScreen() {
     }
   };
 
-  const handleVerifyPin = (codeToVerify?: string) => {
+  const handleVerifyPin = async (codeToVerify?: string) => {
     const code = codeToVerify ?? pinDigits;
     setErrorMessage(null);
     if (code.length < 6) {
       setErrorMessage("Please enter all 6 digits of the guest's pickup pass PIN.");
       return;
+    }
+    if (isAuthenticated && params.bookingId && SCAN_UUID_REGEX.test(params.bookingId)) {
+      try {
+        const verified = await marketplaceApi.verifyCustodyPass({
+          bookingId: params.bookingId,
+          operation: "CHECK_IN",
+          verificationPin: code
+        });
+        if (verified.verified && bookings[0]) {
+          setScannedResult({
+            ...bookings[0],
+            id: verified.bookingId,
+            reference: verified.referenceCode,
+            totalBags: verified.expectedBagCount,
+            pinCode: code
+          });
+          return;
+        }
+      } catch (err: unknown) {
+        setErrorMessage(err instanceof Error ? err.message : "PIN verification failed.");
+        return;
+      }
     }
     const matched = lookupByPin(code);
     if (matched) {

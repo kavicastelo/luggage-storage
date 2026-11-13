@@ -24,7 +24,26 @@ import {
   InitiateUploadRequest,
   InitiateUploadResponse,
   ConfirmUploadRequest,
-  ConfirmUploadResponse
+  ConfirmUploadResponse,
+  BookingQuoteRequest,
+  BookingQuoteResponse,
+  CreateBookingRequest,
+  BookingDetail,
+  BookingListQuery,
+  CancelBookingRequest,
+  HostDecisionBookingRequest,
+  HostRejectBookingRequest,
+  IssueCustodyPassRequest,
+  CustodyPassResponse,
+  VerifyCustodyPassRequest,
+  CompleteCheckInRequest,
+  CompleteCollectionRequest,
+  CustodyRecordDetail,
+  CreatePaymentIntentRequest,
+  PaymentIntent,
+  SandboxSimulatePaymentRequest,
+  HostFinanceSummaryResponse,
+  PaginatedApiResponse
 } from "@luggage-storage/contracts";
 import { fetchApi } from "./api-client";
 
@@ -277,6 +296,207 @@ export const marketplaceApi = {
 
   async getPublicLocationDetails(locationId: string): Promise<PublicStorageLocation> {
     const res = await fetchApi<PublicStorageLocation>(`/discovery/locations/${locationId}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  // ==========================================================================
+  // 6. Phase B — Traveller Quotation, Booking, Payment & Custody Pass
+  // ==========================================================================
+
+  async quoteBooking(data: BookingQuoteRequest): Promise<BookingQuoteResponse> {
+    const res = await fetchApi<BookingQuoteResponse>("/bookings/quote", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async createBooking(data: CreateBookingRequest): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>("/bookings", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async getMyBookings(params: Partial<BookingListQuery> = {}): Promise<{
+    bookings: BookingDetail[];
+    total: number;
+  }> {
+    const query = new URLSearchParams();
+    if (params.status) query.set("status", params.status);
+    if (params.page !== undefined) query.set("page", String(params.page));
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    const qs = query.toString();
+    const res = (await fetchApi<BookingDetail[]>(`/bookings${qs ? `?${qs}` : ""}`, {
+      method: "GET"
+    })) as unknown as PaginatedApiResponse<BookingDetail>;
+    return {
+      bookings: res.data ?? [],
+      total: res.pagination?.total ?? (res.data?.length ?? 0)
+    };
+  },
+
+  async getBookingDetail(bookingId: string): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/bookings/${bookingId}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  async cancelBooking(bookingId: string, data: CancelBookingRequest): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/bookings/${bookingId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async issueCustodyPass(
+    bookingId: string,
+    data: IssueCustodyPassRequest
+  ): Promise<CustodyPassResponse> {
+    const res = await fetchApi<CustodyPassResponse>(`/bookings/${bookingId}/custody-pass`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async createPaymentIntent(data: CreatePaymentIntentRequest): Promise<PaymentIntent> {
+    const res = await fetchApi<PaymentIntent>("/payments/intents", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async simulateSandboxPayment(
+    intentId: string,
+    data: SandboxSimulatePaymentRequest = { outcome: "SUCCEEDED" }
+  ): Promise<{
+    duplicate: boolean;
+    outcome: string;
+    bookingId?: string;
+    bookingStatus?: string;
+  }> {
+    const res = await fetchApi<{
+      duplicate: boolean;
+      outcome: string;
+      bookingId?: string;
+      bookingStatus?: string;
+    }>(`/payments/intents/${intentId}/sandbox-simulate`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  // ==========================================================================
+  // 7. Phase B — Host Requests, Counter Custody & Owner Finance
+  // ==========================================================================
+
+  async getHostBookings(params: Partial<BookingListQuery> = {}): Promise<{
+    bookings: BookingDetail[];
+    total: number;
+  }> {
+    const query = new URLSearchParams();
+    if (params.status) query.set("status", params.status);
+    if (params.locationId) query.set("locationId", params.locationId);
+    if (params.businessId) query.set("businessId", params.businessId);
+    if (params.search) query.set("search", params.search);
+    if (params.page !== undefined) query.set("page", String(params.page));
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    const qs = query.toString();
+    const res = (await fetchApi<BookingDetail[]>(`/hosts/bookings${qs ? `?${qs}` : ""}`, {
+      method: "GET"
+    })) as unknown as PaginatedApiResponse<BookingDetail>;
+    return {
+      bookings: res.data ?? [],
+      total: res.pagination?.total ?? (res.data?.length ?? 0)
+    };
+  },
+
+  async acceptHostBooking(
+    bookingId: string,
+    data: HostDecisionBookingRequest = {}
+  ): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/hosts/bookings/${bookingId}/accept`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async rejectHostBooking(
+    bookingId: string,
+    data: HostRejectBookingRequest
+  ): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/hosts/bookings/${bookingId}/reject`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async verifyCustodyPass(data: VerifyCustodyPassRequest): Promise<{
+    verified: boolean;
+    bookingId: string;
+    referenceCode: string;
+    operation: "CHECK_IN" | "COLLECTION";
+    expectedBagCount: number;
+    checkedInBagCount: number | null;
+    custodyStatus: string;
+  }> {
+    const res = await fetchApi<{
+      verified: boolean;
+      bookingId: string;
+      referenceCode: string;
+      operation: "CHECK_IN" | "COLLECTION";
+      expectedBagCount: number;
+      checkedInBagCount: number | null;
+      custodyStatus: string;
+    }>("/hosts/custody/verify", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async getCustodyDetail(bookingId: string): Promise<CustodyRecordDetail> {
+    const res = await fetchApi<CustodyRecordDetail>(`/hosts/custody/${bookingId}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  async completeCheckIn(
+    bookingId: string,
+    data: CompleteCheckInRequest
+  ): Promise<CustodyRecordDetail> {
+    const res = await fetchApi<CustodyRecordDetail>(`/hosts/custody/${bookingId}/check-in`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async completeCollection(
+    bookingId: string,
+    data: CompleteCollectionRequest
+  ): Promise<CustodyRecordDetail> {
+    const res = await fetchApi<CustodyRecordDetail>(`/hosts/custody/${bookingId}/check-out`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async getHostFinanceSummary(businessId?: string): Promise<HostFinanceSummaryResponse> {
+    const qs = businessId ? `?businessId=${encodeURIComponent(businessId)}` : "";
+    const res = await fetchApi<HostFinanceSummaryResponse>(`/hosts/finance/summary${qs}`, {
       method: "GET"
     });
     return res.data;
