@@ -293,7 +293,7 @@ export function PublicLandingPage() {
               <div className="text-xs">
                 <p className="font-bold text-navy-900">Sip King Coconut, Don't Haul Straps</p>
                 <p className="text-sand-700 mt-0.5">
-                  100% full refund on cancellations made at least 24 hours prior to scheduled drop-off.
+                  100% full refund on cancellations made more than 2 hours prior to scheduled drop-off.
                 </p>
               </div>
             </div>
@@ -1058,7 +1058,7 @@ export function LocationProfileDetailPage() {
 
             <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-1 text-xs text-emerald-900">
               <span className="font-bold block">Free Cancellation Guarantee</span>
-              <p>Cancel up to 24 hours before your drop-off window for a 100% full refund.</p>
+              <p>Cancel more than 2 hours before your drop-off window for a 100% full refund.</p>
             </div>
 
             <Link to={`/checkout/${location.id}`} className="block">
@@ -2160,7 +2160,7 @@ export function HelpCentreFaqPage() {
     },
     {
       q: "What is the cancellation and refund policy?",
-      a: "Cancellations made more than 24 hours prior to scheduled drop-off receive a 100% full refund. Cancellations made within 24 hours receive a 50% refund. Every refund is processed transparently through a 7-stage settlement pipeline visible in your traveller portal."
+      a: "Cancellations made more than 2 hours prior to scheduled drop-off receive a 100% full refund. Cancellations made within 2 hours receive a 50% refund. Every refund is processed transparently through a 7-stage settlement pipeline visible in your traveller portal."
     },
     {
       q: "Can a partner refuse to return my bags if I am delayed?",
@@ -2172,7 +2172,7 @@ export function HelpCentreFaqPage() {
     },
     {
       q: "Can I pay in cash directly at the counter?",
-      a: "No. All bookings must be completed online through the platform. Online escrow payment is what authorizes insurance protection, serialized tamper-evident seal issuance, and guaranteed pricing."
+      a: "No. All bookings must be completed online through the platform. Online platform payment is what authorizes insurance protection, serialized tamper-evident seal issuance, and guaranteed pricing."
     },
     {
       q: "What items are prohibited from storage?",
@@ -3012,9 +3012,10 @@ export function TravellerWebPortalPage() {
 
             <div className="p-4 rounded-2xl bg-sand-50 border border-sand-200 text-xs text-sand-800 space-y-2">
               <p>
-                <strong>Refund Calculation:</strong> Because cancellation is made at least 24 hours
-                prior to scheduled drop-off, you are eligible for a <strong>100% full refund</strong>{" "}
-                of {formatLkr(selectedBookingForCancel.totalAmountLkr)}.
+                <strong>Refund Calculation:</strong> Cancellations made more than 2 hours prior to
+                scheduled drop-off are eligible for a <strong>100% full refund</strong>{" "}
+                of {formatLkr(selectedBookingForCancel.totalAmountLkr)} (within 2 hours: 50%
+                refund).
               </p>
               <p className="text-sand-600">
                 The refund will be credited back to your original payment method via our 7-stage

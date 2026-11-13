@@ -94,6 +94,7 @@ export const custodyTokens = pgTable(
       .notNull()
       .references(() => bookings.id, { onDelete: "restrict" }),
     operation: varchar("operation", { length: 32 }).notNull(),
+    hashVersion: varchar("hash_version", { length: 32 }).notNull().default("hmac-sha256-v2"),
     tokenHash: varchar("token_hash", { length: 64 }).notNull(),
     pinHash: varchar("pin_hash", { length: 64 }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -107,7 +108,11 @@ export const custodyTokens = pgTable(
   (table) => [
     uniqueIndex("custody_tokens_token_hash_unique").on(table.tokenHash),
     index("custody_tokens_booking_op_idx").on(table.bookingId, table.operation),
-    check("custody_tokens_operation_check", sql`${table.operation} IN ('CHECK_IN', 'COLLECTION')`)
+    check("custody_tokens_operation_check", sql`${table.operation} IN ('CHECK_IN', 'COLLECTION')`),
+    check(
+      "custody_tokens_hash_version_check",
+      sql`${table.hashVersion} IN ('sha256-legacy-v1', 'hmac-sha256-v2')`
+    )
   ]
 );
 

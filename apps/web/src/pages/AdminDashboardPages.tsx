@@ -244,7 +244,7 @@ export function AdminCommandDashboardPage() {
           <span className="text-[11px] text-slate-500">Queue in AD-002</span>
         </div>
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
-          <span className="text-xs text-slate-400 font-bold uppercase">Active Escrow Held</span>
+          <span className="text-xs text-slate-400 font-bold uppercase">Unearned Liability Held</span>
           <p className="text-2xl font-extrabold text-blue-600 mt-1">{formatLkr(912400)}</p>
           <span className="text-[11px] text-slate-500">Double-entry balanced (AD-010)</span>
         </div>
@@ -926,7 +926,7 @@ export function AdminRefundManagementQueuePage() {
       <ScreenHeaderBadge
         screenId="AD-007"
         title="Refund Management & 7-Stage Settlement Queue"
-        subtitle="Adjudicate cancellation policy windows (>=24h 100%, <24h 50%) and execute gateway reversals."
+        subtitle="Adjudicate cancellation policy windows (>2h 100%, <=2h 50%) and execute gateway reversals."
         workflows={["WF-030", "WF-031", "WF-032"]}
         roleScope="Superadmin / Support (Read-Only)"
         backendStatus="LIVE_PHASE_1B"

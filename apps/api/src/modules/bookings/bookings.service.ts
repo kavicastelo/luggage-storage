@@ -19,6 +19,7 @@ import {
   QuotedLineItem
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
+import { withSerializableOrDeadlockRetry } from "../../infrastructure/database/tx-retry.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { auditService, SecurityEventType, AuditClientInfo } from "../audit/audit.service.js";
 import { rateLimitService } from "../auth/rate-limit.service.js";
@@ -151,10 +152,12 @@ export class BookingsService {
       }
     }
 
-    const bookingId = await db.transaction(async (tx) => {
-      await quotationService.sweepExpiredHolds(tx);
+    // Sweep expired holds BEFORE acquiring Tier-1 storage_capacity_pools locks inside the tx
+    await quotationService.sweepExpiredHolds();
 
-      if (input.idempotencyKey) {
+    const bookingId = await withSerializableOrDeadlockRetry(() =>
+      db.transaction(async (tx) => {
+        if (input.idempotencyKey) {
         const [existingInTx] = await tx
           .select({ id: schema.bookings.id })
           .from(schema.bookings)
@@ -298,7 +301,8 @@ export class BookingsService {
       });
 
       return created.id;
-    });
+      })
+    );
 
     return this.getBookingDetail(bookingId, travellerUserId, ["TRAVELLER"]);
   }
@@ -686,101 +690,112 @@ export class BookingsService {
   ): Promise<BookingDetail> {
     await quotationService.sweepExpiredHolds();
 
-    await db.transaction(async (tx) => {
-      const lockedRes = await tx.execute(sql`
-        SELECT id, location_id, status, hold_expires_at, reference_code
+    const expiredHold = await withSerializableOrDeadlockRetry(() =>
+      db.transaction(async (tx) => {
+        const lockedRes = await tx.execute(sql`
+        SELECT id, location_id, status, hold_expires_at, reference_code, NOW() AS db_now
         FROM bookings
         WHERE id = ${bookingId}
         FOR UPDATE;
       `);
-      const bookingRow = lockedRes.rows[0] as
-        | {
-            id: string;
-            location_id: string;
-            status: BookingStatus;
-            hold_expires_at: Date | string | null;
-            reference_code: string;
-          }
-        | undefined;
+        const bookingRow = lockedRes.rows[0] as
+          | {
+              id: string;
+              location_id: string;
+              status: BookingStatus;
+              hold_expires_at: Date | string | null;
+              reference_code: string;
+              db_now: Date | string;
+            }
+          | undefined;
 
-      if (!bookingRow) {
-        throw AppError.notFound("Booking not found");
-      }
+        if (!bookingRow) {
+          throw AppError.notFound("Booking not found");
+        }
 
-      const access = await assertHostLocationAccess(
-        tx,
-        hostUserId,
-        hostRoles,
-        bookingRow.location_id
-      );
-
-      if (
-        bookingRow.hold_expires_at &&
-        new Date(bookingRow.hold_expires_at).getTime() <= Date.now()
-      ) {
-        await quotationService.sweepExpiredHolds(tx);
-        throw AppError.conflict("Booking request hold has already expired");
-      }
-
-      assertValidBookingTransition(bookingRow.status, "PENDING_PAYMENT");
-
-      const now = new Date();
-      const paymentHoldExpiresAt = new Date(
-        now.getTime() + DEFAULT_PAYMENT_HOLD_MINUTES * 60_000
-      );
-
-      await tx
-        .update(schema.bookings)
-        .set({
-          status: "PENDING_PAYMENT",
-          hostApprovedAt: now,
-          hostApprovedBy: hostUserId,
-          holdExpiresAt: paymentHoldExpiresAt,
-          updatedAt: now
-        })
-        .where(eq(schema.bookings.id, bookingId));
-
-      await tx
-        .update(schema.capacityReservations)
-        .set({
-          status: "HELD_FOR_PAYMENT",
-          expiresAt: paymentHoldExpiresAt,
-          updatedAt: now
-        })
-        .where(
-          and(
-            eq(schema.capacityReservations.bookingId, bookingId),
-            eq(schema.capacityReservations.status, "HELD_FOR_HOST_APPROVAL")
-          )
+        const access = await assertHostLocationAccess(
+          tx,
+          hostUserId,
+          hostRoles,
+          bookingRow.location_id
         );
 
-      await tx.insert(schema.bookingStatusHistory).values({
-        bookingId,
-        previousStatus: bookingRow.status,
-        newStatus: "PENDING_PAYMENT",
-        actorUserId: hostUserId,
-        actorRole: access.actorRole,
-        reason: input.reason ?? "Host approved booking request",
-        metadata: {
-          paymentHoldExpiresAt: paymentHoldExpiresAt.toISOString()
+        const dbNow = new Date(bookingRow.db_now);
+        if (
+          bookingRow.status === "PENDING_HOST_APPROVAL" &&
+          bookingRow.hold_expires_at &&
+          new Date(bookingRow.hold_expires_at).getTime() <= dbNow.getTime()
+        ) {
+          await quotationService.expireSingleBookingHoldInTx(tx, bookingId, bookingRow.status);
+          return true as const;
         }
-      });
 
-      await auditService.recordEvent({
-        eventType: SecurityEventType.BOOKING_HOST_APPROVED,
-        userId: hostUserId,
-        clientInfo,
-        metadata: {
+        assertValidBookingTransition(bookingRow.status, "PENDING_PAYMENT");
+
+        const now = dbNow;
+        const paymentHoldExpiresAt = new Date(
+          now.getTime() + DEFAULT_PAYMENT_HOLD_MINUTES * 60_000
+        );
+
+        await tx
+          .update(schema.bookings)
+          .set({
+            status: "PENDING_PAYMENT",
+            hostApprovedAt: now,
+            hostApprovedBy: hostUserId,
+            holdExpiresAt: paymentHoldExpiresAt,
+            updatedAt: now
+          })
+          .where(eq(schema.bookings.id, bookingId));
+
+        await tx
+          .update(schema.capacityReservations)
+          .set({
+            status: "HELD_FOR_PAYMENT",
+            expiresAt: paymentHoldExpiresAt,
+            updatedAt: now
+          })
+          .where(
+            and(
+              eq(schema.capacityReservations.bookingId, bookingId),
+              eq(schema.capacityReservations.status, "HELD_FOR_HOST_APPROVAL")
+            )
+          );
+
+        await tx.insert(schema.bookingStatusHistory).values({
           bookingId,
-          referenceCode: bookingRow.reference_code,
-          locationId: bookingRow.location_id,
-          businessId: access.businessId,
           previousStatus: bookingRow.status,
-          newStatus: "PENDING_PAYMENT"
-        },
-        tx
-      });
-    });
+          newStatus: "PENDING_PAYMENT",
+          actorUserId: hostUserId,
+          actorRole: access.actorRole,
+          reason: input.reason ?? "Host approved booking request",
+          metadata: {
+            paymentHoldExpiresAt: paymentHoldExpiresAt.toISOString()
+          }
+        });
+
+        await auditService.recordEvent({
+          eventType: SecurityEventType.BOOKING_HOST_APPROVED,
+          userId: hostUserId,
+          clientInfo,
+          metadata: {
+            bookingId,
+            referenceCode: bookingRow.reference_code,
+            locationId: bookingRow.location_id,
+            businessId: access.businessId,
+            previousStatus: bookingRow.status,
+            newStatus: "PENDING_PAYMENT"
+          },
+          tx
+        });
+
+        return false as const;
+      })
+    );
+
+    if (expiredHold) {
+      throw AppError.conflict("Booking request hold has already expired");
+    }
 
     return this.getBookingDetail(bookingId, hostUserId, hostRoles);
   }
@@ -797,81 +812,104 @@ export class BookingsService {
   ): Promise<BookingDetail> {
     const input = HostRejectBookingRequestSchema.parse(rawInput);
 
-    await db.transaction(async (tx) => {
-      const lockedRes = await tx.execute(sql`
+    await withSerializableOrDeadlockRetry(() =>
+      db.transaction(async (tx) => {
+        const lockedRes = await tx.execute(sql`
         SELECT id, location_id, status, reference_code
         FROM bookings
         WHERE id = ${bookingId}
         FOR UPDATE;
       `);
-      const bookingRow = lockedRes.rows[0] as
-        | {
-            id: string;
-            location_id: string;
-            status: BookingStatus;
-            reference_code: string;
-          }
-        | undefined;
+        const bookingRow = lockedRes.rows[0] as
+          | {
+              id: string;
+              location_id: string;
+              status: BookingStatus;
+              reference_code: string;
+            }
+          | undefined;
 
-      if (!bookingRow) {
-        throw AppError.notFound("Booking not found");
-      }
+        if (!bookingRow) {
+          throw AppError.notFound("Booking not found");
+        }
 
-      const access = await assertHostLocationAccess(
-        tx,
-        hostUserId,
-        hostRoles,
-        bookingRow.location_id
-      );
+        const access = await assertHostLocationAccess(
+          tx,
+          hostUserId,
+          hostRoles,
+          bookingRow.location_id
+        );
 
-      assertValidBookingTransition(bookingRow.status, "REJECTED");
+        assertValidBookingTransition(bookingRow.status, "REJECTED");
 
-      const now = new Date();
-      await tx
-        .update(schema.bookings)
-        .set({
-          status: "REJECTED",
-          hostRejectedAt: now,
-          hostRejectionReason: input.reason,
-          holdExpiresAt: null,
-          updatedAt: now
-        })
-        .where(eq(schema.bookings.id, bookingId));
+        const openIntentsRes = await tx.execute(sql`
+        SELECT id
+        FROM payment_intents
+        WHERE booking_id = ${bookingId}
+          AND status IN ('INITIATED', 'PENDING_GATEWAY')
+        ORDER BY id ASC
+        FOR UPDATE;
+      `);
+        const openIntentIds = (openIntentsRes.rows as Array<{ id: string }>).map((r) => r.id);
 
-      await tx
-        .update(schema.capacityReservations)
-        .set({
-          status: "RELEASED",
-          releasedAt: now,
-          releaseReason: "HOST_REJECTED",
-          updatedAt: now
-        })
-        .where(eq(schema.capacityReservations.bookingId, bookingId));
+        const now = new Date();
+        await tx
+          .update(schema.bookings)
+          .set({
+            status: "REJECTED",
+            hostRejectedAt: now,
+            hostRejectionReason: input.reason,
+            holdExpiresAt: null,
+            updatedAt: now
+          })
+          .where(eq(schema.bookings.id, bookingId));
 
-      await tx.insert(schema.bookingStatusHistory).values({
-        bookingId,
-        previousStatus: bookingRow.status,
-        newStatus: "REJECTED",
-        actorUserId: hostUserId,
-        actorRole: access.actorRole,
-        reason: input.reason,
-        metadata: {}
-      });
+        if (openIntentIds.length > 0) {
+          await tx
+            .update(schema.paymentIntents)
+            .set({
+              status: "EXPIRED",
+              failureReason: "Host rejected booking",
+              updatedAt: now
+            })
+            .where(inArray(schema.paymentIntents.id, openIntentIds));
+        }
 
-      await auditService.recordEvent({
-        eventType: SecurityEventType.BOOKING_HOST_REJECTED,
-        userId: hostUserId,
-        clientInfo,
-        metadata: {
+        await tx
+          .update(schema.capacityReservations)
+          .set({
+            status: "RELEASED",
+            releasedAt: now,
+            releaseReason: "HOST_REJECTED",
+            updatedAt: now
+          })
+          .where(eq(schema.capacityReservations.bookingId, bookingId));
+
+        await tx.insert(schema.bookingStatusHistory).values({
           bookingId,
-          referenceCode: bookingRow.reference_code,
-          locationId: bookingRow.location_id,
-          businessId: access.businessId,
-          reason: input.reason
-        },
-        tx
-      });
-    });
+          previousStatus: bookingRow.status,
+          newStatus: "REJECTED",
+          actorUserId: hostUserId,
+          actorRole: access.actorRole,
+          reason: input.reason,
+          metadata: {}
+        });
+
+        await auditService.recordEvent({
+          eventType: SecurityEventType.BOOKING_HOST_REJECTED,
+          userId: hostUserId,
+          clientInfo,
+          metadata: {
+            bookingId,
+            referenceCode: bookingRow.reference_code,
+            locationId: bookingRow.location_id,
+            businessId: access.businessId,
+            reason: input.reason
+          },
+          tx
+        });
+      })
+    );
 
     return this.getBookingDetail(bookingId, hostUserId, hostRoles);
   }
@@ -890,216 +928,255 @@ export class BookingsService {
   ): Promise<BookingDetail> {
     const input = CancelBookingRequestSchema.parse(rawInput);
 
-    await db.transaction(async (tx) => {
-      const lockedRes = await tx.execute(sql`
-        SELECT id, traveller_user_id, business_id, location_id, status, drop_off_at, currency, reference_code
+    await withSerializableOrDeadlockRetry(() =>
+      db.transaction(async (tx) => {
+        // Tier 2 Lock: bookings
+        const lockedRes = await tx.execute(sql`
+        SELECT id, traveller_user_id, business_id, location_id, status, drop_off_at, currency, reference_code, NOW() AS db_now
         FROM bookings
         WHERE id = ${bookingId}
         FOR UPDATE;
       `);
-      const bookingRow = lockedRes.rows[0] as
-        | {
-            id: string;
-            traveller_user_id: string;
-            business_id: string;
-            location_id: string;
-            status: BookingStatus;
-            drop_off_at: Date | string;
-            currency: string;
-            reference_code: string;
+        const bookingRow = lockedRes.rows[0] as
+          | {
+              id: string;
+              traveller_user_id: string;
+              business_id: string;
+              location_id: string;
+              status: BookingStatus;
+              drop_off_at: Date | string;
+              currency: string;
+              reference_code: string;
+              db_now: Date | string;
+            }
+          | undefined;
+
+        if (!bookingRow) {
+          throw AppError.notFound("Booking not found");
+        }
+
+        let resolvedActorRole = "TRAVELLER";
+        if (actorKind === "TRAVELLER") {
+          if (bookingRow.traveller_user_id !== actorUserId) {
+            throw AppError.forbidden("You can only cancel your own bookings");
           }
-        | undefined;
-
-      if (!bookingRow) {
-        throw AppError.notFound("Booking not found");
-      }
-
-      let resolvedActorRole = "TRAVELLER";
-      if (actorKind === "TRAVELLER") {
-        if (bookingRow.traveller_user_id !== actorUserId) {
-          throw AppError.forbidden("You can only cancel your own bookings");
+        } else if (actorKind === "HOST") {
+          const access = await assertHostLocationAccess(
+            tx,
+            actorUserId,
+            actorRoles,
+            bookingRow.location_id
+          );
+          resolvedActorRole = access.actorRole;
+        } else {
+          if (!actorRoles.includes("SUPERADMIN")) {
+            throw AppError.forbidden("Platform booking cancellation requires SUPERADMIN authority");
+          }
+          resolvedActorRole = "SUPERADMIN";
         }
-      } else if (actorKind === "HOST") {
-        const access = await assertHostLocationAccess(
-          tx,
-          actorUserId,
-          actorRoles,
-          bookingRow.location_id
-        );
-        resolvedActorRole = access.actorRole;
-      } else {
-        if (!actorRoles.includes("SUPERADMIN")) {
-          throw AppError.forbidden("Platform booking cancellation requires SUPERADMIN authority");
-        }
-        resolvedActorRole = "SUPERADMIN";
-      }
 
-      const targetStatus: BookingStatus =
-        actorKind === "TRAVELLER"
-          ? "CANCELLED_BY_TRAVELLER"
-          : actorKind === "HOST"
-          ? "CANCELLED_BY_HOST"
-          : "CANCELLED_BY_PLATFORM";
-
-      assertValidBookingTransition(bookingRow.status, targetStatus);
-
-      const now = new Date();
-      await tx
-        .update(schema.bookings)
-        .set({
-          status: targetStatus,
-          cancelledAt: now,
-          cancelledByUserId: actorUserId,
-          cancellationReason: input.reason,
-          holdExpiresAt: null,
-          updatedAt: now
-        })
-        .where(eq(schema.bookings.id, bookingId));
-
-      await tx
-        .update(schema.capacityReservations)
-        .set({
-          status: "RELEASED",
-          releasedAt: now,
-          releaseReason: targetStatus,
-          updatedAt: now
-        })
-        .where(
-          and(
-            eq(schema.capacityReservations.bookingId, bookingId),
-            inArray(schema.capacityReservations.status, [
-              "HELD_FOR_HOST_APPROVAL",
-              "HELD_FOR_PAYMENT",
-              "CONFIRMED"
-            ])
-          )
-        );
-
-      // Revoke any unconsumed custody tokens
-      await tx
-        .update(schema.custodyTokens)
-        .set({ revokedAt: now })
-        .where(
-          and(
-            eq(schema.custodyTokens.bookingId, bookingId),
-            sql`${schema.custodyTokens.consumedAt} IS NULL AND ${schema.custodyTokens.revokedAt} IS NULL`
-          )
-        );
-
-      // Expire any pending payment intents
-      await tx
-        .update(schema.paymentIntents)
-        .set({ status: "EXPIRED", updatedAt: now })
-        .where(
-          and(
-            eq(schema.paymentIntents.bookingId, bookingId),
-            inArray(schema.paymentIntents.status, ["INITIATED", "PENDING_GATEWAY"])
-          )
-        );
-
-      // Check if payment was captured -> evaluate OQ-009 refund tier & ledger reclassification
-      const [paidIntent] = await tx
-        .select()
-        .from(schema.paymentIntents)
-        .where(
-          and(
-            eq(schema.paymentIntents.bookingId, bookingId),
-            eq(schema.paymentIntents.status, "SUCCEEDED")
-          )
-        )
-        .limit(1);
-
-      let refundPercentage = 0;
-      let refundAmountMinor = 0;
-      let createdRefundId: string | null = null;
-
-      if (paidIntent) {
-        const [snap] = await tx
-          .select()
-          .from(schema.bookingPricingSnapshots)
-          .where(eq(schema.bookingPricingSnapshots.bookingId, bookingId))
-          .limit(1);
-
-        refundPercentage = evaluateCancellationRefundPercentage({
-          actorKind,
-          dropOffAt: new Date(bookingRow.drop_off_at),
-          now
-        });
-
-        refundAmountMinor = Math.floor((paidIntent.amountMinor * refundPercentage) / 100);
-        const reasonCategory =
+        const targetStatus: BookingStatus =
           actorKind === "TRAVELLER"
-            ? "TRAVELLER_CANCELLATION"
+            ? "CANCELLED_BY_TRAVELLER"
             : actorKind === "HOST"
-            ? "HOST_CANCELLATION"
-            : "PLATFORM_CANCELLATION";
+            ? "CANCELLED_BY_HOST"
+            : "CANCELLED_BY_PLATFORM";
 
-        const [refundRow] = await tx
-          .insert(schema.refundRecords)
-          .values({
-            bookingId,
-            paymentIntentId: paidIntent.id,
-            amountMinor: refundAmountMinor,
-            currency: paidIntent.currency,
-            refundPercentage,
-            reasonCategory,
-            status: refundAmountMinor > 0 ? "AUTHORIZED" : "SUCCEEDED",
-            requestedByUserId: actorUserId,
-            authorizedByUserId: actorKind === "PLATFORM" ? actorUserId : null,
-            notes: input.reason,
-            completedAt: refundAmountMinor === 0 ? now : null,
-            createdAt: now,
+        assertValidBookingTransition(bookingRow.status, targetStatus);
+
+        // Tier 3 Lock: payment_intents ORDER BY id ASC
+        const lockedIntentsRes = await tx.execute(sql`
+        SELECT id, status, amount_minor, currency
+        FROM payment_intents
+        WHERE booking_id = ${bookingId}
+        ORDER BY id ASC
+        FOR UPDATE;
+      `);
+        const lockedIntents = lockedIntentsRes.rows as Array<{
+          id: string;
+          status: string;
+          amount_minor: number;
+          currency: string;
+        }>;
+
+        // Tier 4 Lock: refund_records & open custody_tokens ORDER BY id ASC
+        const lockedRefundsRes = await tx.execute(sql`
+        SELECT id, payment_intent_id
+        FROM refund_records
+        WHERE booking_id = ${bookingId}
+        ORDER BY id ASC
+        FOR UPDATE;
+      `);
+        const existingRefunds = lockedRefundsRes.rows as Array<{
+          id: string;
+          payment_intent_id: string | null;
+        }>;
+
+        const lockedTokensRes = await tx.execute(sql`
+        SELECT id
+        FROM custody_tokens
+        WHERE booking_id = ${bookingId}
+          AND consumed_at IS NULL
+          AND revoked_at IS NULL
+        ORDER BY id ASC
+        FOR UPDATE;
+      `);
+        const openTokenIds = (lockedTokensRes.rows as Array<{ id: string }>).map((r) => r.id);
+
+        const now = new Date(bookingRow.db_now);
+        await tx
+          .update(schema.bookings)
+          .set({
+            status: targetStatus,
+            cancelledAt: now,
+            cancelledByUserId: actorUserId,
+            cancellationReason: input.reason,
+            holdExpiresAt: null,
             updatedAt: now
           })
-          .returning({ id: schema.refundRecords.id });
+          .where(eq(schema.bookings.id, bookingId));
 
-        createdRefundId = refundRow.id;
+        await tx
+          .update(schema.capacityReservations)
+          .set({
+            status: "RELEASED",
+            releasedAt: now,
+            releaseReason: targetStatus,
+            updatedAt: now
+          })
+          .where(
+            and(
+              eq(schema.capacityReservations.bookingId, bookingId),
+              inArray(schema.capacityReservations.status, [
+                "HELD_FOR_HOST_APPROVAL",
+                "HELD_FOR_PAYMENT",
+                "CONFIRMED"
+              ])
+            )
+          );
 
-        await ledgerService.recordCancellationSettlement(tx, {
-          bookingId,
-          businessId: bookingRow.business_id,
-          refundId: refundAmountMinor > 0 ? refundRow.id : null,
-          paidAmountMinor: paidIntent.amountMinor,
-          refundAmountMinor,
-          commissionRateBps: snap?.commissionRateBps ?? 1500,
-          currency: paidIntent.currency,
-          referenceCode: bookingRow.reference_code
-        });
-      }
-
-      await tx.insert(schema.bookingStatusHistory).values({
-        bookingId,
-        previousStatus: bookingRow.status,
-        newStatus: targetStatus,
-        actorUserId,
-        actorRole: resolvedActorRole,
-        reason: input.reason,
-        metadata: {
-          refundPercentage,
-          refundAmountMinor,
-          refundId: createdRefundId
+        if (openTokenIds.length > 0) {
+          await tx
+            .update(schema.custodyTokens)
+            .set({ revokedAt: now })
+            .where(inArray(schema.custodyTokens.id, openTokenIds));
         }
-      });
 
-      await auditService.recordEvent({
-        eventType: SecurityEventType.BOOKING_CANCELLED,
-        userId: actorUserId,
-        clientInfo,
-        metadata: {
+        const openIntentIds = lockedIntents
+          .filter((i) => i.status === "INITIATED" || i.status === "PENDING_GATEWAY")
+          .map((i) => i.id);
+        if (openIntentIds.length > 0) {
+          await tx
+            .update(schema.paymentIntents)
+            .set({
+              status: "EXPIRED",
+              failureReason: `Superseded by booking cancellation (${targetStatus})`,
+              updatedAt: now
+            })
+            .where(inArray(schema.paymentIntents.id, openIntentIds));
+        }
+
+        const paidIntent = lockedIntents.find((i) => i.status === "SUCCEEDED");
+        let refundPercentage = 0;
+        let refundAmountMinor = 0;
+        let createdRefundId: string | null = null;
+
+        if (paidIntent) {
+          const alreadyRefundedForIntent = existingRefunds.find(
+            (r) => r.payment_intent_id === paidIntent.id
+          );
+          if (!alreadyRefundedForIntent) {
+            const [snap] = await tx
+              .select()
+              .from(schema.bookingPricingSnapshots)
+              .where(eq(schema.bookingPricingSnapshots.bookingId, bookingId))
+              .limit(1);
+
+            refundPercentage = evaluateCancellationRefundPercentage({
+              actorKind,
+              dropOffAt: new Date(bookingRow.drop_off_at),
+              now
+            });
+
+            const paidAmountMinor = Number(paidIntent.amount_minor);
+            refundAmountMinor = Math.floor((paidAmountMinor * refundPercentage) / 100);
+            const reasonCategory =
+              actorKind === "TRAVELLER"
+                ? "TRAVELLER_CANCELLATION"
+                : actorKind === "HOST"
+                ? "HOST_CANCELLATION"
+                : "PLATFORM_CANCELLATION";
+
+            const [refundRow] = await tx
+              .insert(schema.refundRecords)
+              .values({
+                bookingId,
+                paymentIntentId: paidIntent.id,
+                amountMinor: refundAmountMinor,
+                currency: paidIntent.currency,
+                refundPercentage,
+                reasonCategory,
+                status: refundAmountMinor > 0 ? "AUTHORIZED" : "SUCCEEDED",
+                requestedByUserId: actorUserId,
+                authorizedByUserId: actorKind === "PLATFORM" ? actorUserId : null,
+                notes: input.reason,
+                completedAt: refundAmountMinor === 0 ? now : null,
+                createdAt: now,
+                updatedAt: now
+              })
+              .returning({ id: schema.refundRecords.id });
+
+            createdRefundId = refundRow.id;
+
+            await ledgerService.recordCancellationSettlement(tx, {
+              bookingId,
+              businessId: bookingRow.business_id,
+              refundId: refundAmountMinor > 0 ? refundRow.id : null,
+              paidAmountMinor,
+              refundAmountMinor,
+              commissionRateBps: snap?.commissionRateBps ?? 1500,
+              currency: paidIntent.currency,
+              referenceCode: bookingRow.reference_code
+            });
+          } else {
+            createdRefundId = alreadyRefundedForIntent.id;
+          }
+        }
+
+        await tx.insert(schema.bookingStatusHistory).values({
           bookingId,
-          referenceCode: bookingRow.reference_code,
-          locationId: bookingRow.location_id,
-          businessId: bookingRow.business_id,
           previousStatus: bookingRow.status,
           newStatus: targetStatus,
-          refundId: createdRefundId,
-          refundPercentage,
-          amountMinor: refundAmountMinor,
-          currency: bookingRow.currency
-        },
-        tx
-      });
-    });
+          actorUserId,
+          actorRole: resolvedActorRole,
+          reason: input.reason,
+          metadata: {
+            refundPercentage,
+            refundAmountMinor,
+            refundId: createdRefundId
+          }
+        });
+
+        await auditService.recordEvent({
+          eventType: SecurityEventType.BOOKING_CANCELLED,
+          userId: actorUserId,
+          clientInfo,
+          metadata: {
+            bookingId,
+            referenceCode: bookingRow.reference_code,
+            locationId: bookingRow.location_id,
+            businessId: bookingRow.business_id,
+            previousStatus: bookingRow.status,
+            newStatus: targetStatus,
+            refundId: createdRefundId,
+            refundPercentage,
+            amountMinor: refundAmountMinor,
+            currency: bookingRow.currency
+          },
+          tx
+        });
+      })
+    );
 
     return this.getBookingDetail(bookingId, actorUserId, actorRoles);
   }

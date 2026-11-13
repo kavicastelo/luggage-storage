@@ -151,10 +151,27 @@ export const EnvSchema = z
       (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
       z.string().min(16, "PAYHERE_MERCHANT_SECRET must be at least 16 characters").optional()
     ),
-    PAYHERE_SANDBOX_MODE: booleanFlagSchema(true)
+    PAYHERE_SANDBOX_MODE: booleanFlagSchema(true),
+    CUSTODY_TOKEN_HMAC_SECRET: z.preprocess(
+      (val) => (typeof val === "string" ? val.trim() : val),
+      z.string().min(32, "CUSTODY_TOKEN_HMAC_SECRET must be at least 32 characters")
+    )
   })
   .superRefine((data, ctx) => {
     // Universal security checks (all environments)
+    if (
+      data.CUSTODY_TOKEN_HMAC_SECRET === data.DB_IDENTITY_SECRET ||
+      data.CUSTODY_TOKEN_HMAC_SECRET === data.DB_IDENTITY_RETIRING_SECRET ||
+      data.CUSTODY_TOKEN_HMAC_SECRET === data.PAYMENT_WEBHOOK_SECRET ||
+      data.CUSTODY_TOKEN_HMAC_SECRET === data.RATE_LIMIT_HASH_SECRET
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "CUSTODY_TOKEN_HMAC_SECRET must be cryptographically distinct from DB_IDENTITY_SECRET, PAYMENT_WEBHOOK_SECRET, and RATE_LIMIT_HASH_SECRET",
+        path: ["CUSTODY_TOKEN_HMAC_SECRET"]
+      });
+    }
     if (data.DB_IDENTITY_SECRET === "dev_db_identity_secret_key_minimum_32_characters_12345") {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -274,6 +291,21 @@ export const EnvSchema = z
           code: z.ZodIssueCode.custom,
           message: "PAYMENT_WEBHOOK_SECRET cannot use default dev secret in production",
           path: ["PAYMENT_WEBHOOK_SECRET"]
+        });
+      }
+      if (
+        /^(dev_|test_|ci_test_|example|placeholder|replace_|changeme)/i.test(
+          data.CUSTODY_TOKEN_HMAC_SECRET
+        ) ||
+        /(placeholder|replace_with|changeme|example_secret|minimum_32_characters)/i.test(
+          data.CUSTODY_TOKEN_HMAC_SECRET
+        )
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "CUSTODY_TOKEN_HMAC_SECRET cannot use a development, test, example, or placeholder value in production",
+          path: ["CUSTODY_TOKEN_HMAC_SECRET"]
         });
       }
       if (!data.DATABASE_SSL) {

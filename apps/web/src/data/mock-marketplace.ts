@@ -872,9 +872,9 @@ export const DEMO_BOOKINGS: DemoBookingRecord[] = [
 
 export const REFUND_SEVEN_STAGES = [
   { stage: 1, code: "REQUESTED", label: "Cancellation & Refund Requested", timestamp: "2026-11-07 14:10 IST", completed: true },
-  { stage: 2, code: "POLICY_EVALUATED", label: "Policy Window Evaluated (>24h Before Drop-Off = 100%)", timestamp: "2026-11-07 14:10 IST", completed: true },
+  { stage: 2, code: "POLICY_EVALUATED", label: "Policy Window Evaluated (>2h Before Drop-Off = 100%)", timestamp: "2026-11-07 14:10 IST", completed: true },
   { stage: 3, code: "CAPACITY_RELEASED", label: "Capacity Pool Slots Released Atomically", timestamp: "2026-11-07 14:11 IST", completed: true },
-  { stage: 4, code: "LEDGER_REVERSED", label: "Double-Entry Escrow Liability Reversed", timestamp: "2026-11-07 14:12 IST", completed: true },
+  { stage: 4, code: "LEDGER_REVERSED", label: "Double-Entry Settlement Liability Reversed", timestamp: "2026-11-07 14:12 IST", completed: true },
   { stage: 5, code: "GATEWAY_SUBMITTED", label: "PayHere Refund API Dispatched", timestamp: "2026-11-07 14:15 IST", completed: true },
   { stage: 6, code: "BANK_PROCESSING", label: "Acquiring Bank Settlement in Progress", timestamp: "2026-11-08 09:00 IST", completed: true },
   { stage: 7, code: "SETTLED_TO_CARD", label: "Refund Credited to Traveller Card", timestamp: "Est. 2026-11-10", completed: false }

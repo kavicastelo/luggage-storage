@@ -74,7 +74,7 @@ export async function paymentRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // 3. Encapsulated webhook endpoint preserving exact raw JSON string for HMAC-SHA256 verification
+  // 3. Encapsulated webhook endpoints preserving exact raw body strings for signature verification
   app.register(async (webhookScope) => {
     webhookScope.addContentTypeParser(
       "application/json",
@@ -84,9 +84,18 @@ export async function paymentRoutes(app: FastifyInstance): Promise<void> {
       }
     );
 
+    webhookScope.addContentTypeParser(
+      "application/x-www-form-urlencoded",
+      { parseAs: "string" },
+      (_req, body, done) => {
+        done(null, typeof body === "string" ? body : String(body ?? ""));
+      }
+    );
+
     webhookScope.post(
       "/webhooks/sandbox",
       {
+        bodyLimit: 65_536,
         schema: {
           tags: ["Payments"],
           summary: "Receive and verify HMAC-SHA256 signed sandbox payment gateway webhook"
@@ -98,6 +107,27 @@ export async function paymentRoutes(app: FastifyInstance): Promise<void> {
         const result = await paymentsService.processSandboxWebhook(
           rawBody,
           signatureHeader,
+          getClientInfo(request)
+        );
+        return reply.status(200).send(createSuccessResponse(result, request.id));
+      }
+    );
+
+    webhookScope.post(
+      "/webhooks/payhere",
+      {
+        bodyLimit: 65_536,
+        schema: {
+          tags: ["Payments"],
+          summary: "Receive and verify PayHere notify_url webhook via isolated md5sig verification"
+        }
+      },
+      async (request, reply) => {
+        const rawBody = typeof request.body === "string" ? request.body : "";
+        const result = await paymentsService.processPayHereWebhook(
+          rawBody,
+          request.headers,
+          request.headers["content-type"],
           getClientInfo(request)
         );
         return reply.status(200).send(createSuccessResponse(result, request.id));

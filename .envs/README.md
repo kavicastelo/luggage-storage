@@ -35,6 +35,7 @@ These variables must **never** be prefixed with `VITE_` or `EXPO_PUBLIC_`, and m
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`: Cloudflare R2 object storage access keys.
 - `ZOHO_SMTP_PASSWORD` / `RESEND_API_KEY`: Transactional email credentials.
 - `PAYMENT_WEBHOOK_SECRET` / `PAYHERE_MERCHANT_SECRET`: Payment webhook HMAC signing secret and PayHere merchant verification secret.
+- `CUSTODY_TOKEN_HMAC_SECRET`: Dedicated keyed HMAC-SHA256 secret ($\ge 32$ characters, never stored in PostgreSQL or client bundles) used exclusively for single-use custody QR tokens and 6-digit PIN verification (`hmac-sha256-v2`).
 
 ### Public Client Configuration (Safe for Bundling)
 Only variables explicitly designed for client bundle inclusion are permitted:
@@ -65,7 +66,7 @@ openssl rand -hex 32
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Each security domain (`DB_IDENTITY_SECRET`, `PAYOUT_ENCRYPTION_KEY`, `JWT_SECRET`, `COOKIE_SECRET`, `RATE_LIMIT_HASH_SECRET`) **must have its own distinct, randomly generated key**. Reusing a secret across domains is prohibited.
+Each security domain (`DB_IDENTITY_SECRET`, `PAYOUT_ENCRYPTION_KEY`, `JWT_SECRET`, `COOKIE_SECRET`, `RATE_LIMIT_HASH_SECRET`, `PAYMENT_WEBHOOK_SECRET`, `CUSTODY_TOKEN_HMAC_SECRET`) **must have its own distinct, randomly generated key**. Reusing a secret across domains is prohibited (`EnvSchema` rejects reuse of `CUSTODY_TOKEN_HMAC_SECRET` across identity, rate-limit, and payment webhook secrets).
 
 ---
 
@@ -110,6 +111,11 @@ The `DB_IDENTITY_SECRET` authorizes privileged role assignment and revocation op
 ### 6.3 Rotating Session Signing Secrets (`JWT_SECRET` & `COOKIE_SECRET`)
 1. Generate new 64-character random hex secrets for `JWT_SECRET` and/or `COOKIE_SECRET`.
 2. Update the secret manager and deploy. Short-lived access JWTs (`15m`) signed with the old `JWT_SECRET` expire or trigger opaque refresh-token rotation; rotating `COOKIE_SECRET` invalidates existing signed web cookies and requires web re-authentication.
+
+### 6.4 Rotating `CUSTODY_TOKEN_HMAC_SECRET` & Legacy Token Invalidation
+1. Custody passes (`qrToken` and 6-digit `verificationPin`) are short-lived (15-minute TTL) single-use credentials stored only as domain-separated `hmac-sha256-v2` digests in `public.custody_tokens`. `CUSTODY_TOKEN_HMAC_SECRET` is never stored in PostgreSQL or logged.
+2. During scheduled rotation (or emergency compromise response), generate a new 64-character hex `CUSTODY_TOKEN_HMAC_SECRET`, deploy updated API instances during a maintenance cutover, and revoke unconsumed passes (`UPDATE public.custody_tokens SET revoked_at = NOW() WHERE consumed_at IS NULL AND revoked_at IS NULL; UPDATE public.custody_records SET checkin_pin_hash = NULL, collection_pin_hash = NULL WHERE status IN ('EXPECTED', 'CHECKED_IN', 'IN_STORAGE', 'OVERDUE');`).
+3. Completed custody history (`custody_records`, `bag_custody_items`, `custody_events`, consumed `custody_tokens`) remains completely intact; travellers with upcoming bookings simply issue a fresh pass via `POST /api/v1/bookings/:bookingId/custody-pass`. Migration `0013` automatically applied this invalidation to pre-HMAC legacy SHA-256 passes.
 
 ---
 

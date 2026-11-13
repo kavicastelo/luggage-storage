@@ -350,7 +350,7 @@ export const TRAVELLER_MOBILE_SCREENS: MobileScreenSpec[] = [
     workflows: ["WF-028"],
     mascot: "shrug",
     backendDependency: "UI_SIMULATION",
-    summary: "Policy-transparent cancellation screen showing 100% (>24h) or 50% (<24h) refund calculation."
+    summary: "Policy-transparent cancellation screen showing 100% (>2h) or 50% (<=2h) refund calculation."
   },
   {
     id: "TM-032",
@@ -785,7 +785,7 @@ export const HOST_MOBILE_SCREENS: MobileScreenSpec[] = [
     workflows: ["WF-033"],
     mascot: "king-coconut",
     backendDependency: "UI_SIMULATION",
-    summary: "Host Owner financial ledger displaying 85% net revenue and pending escrow."
+    summary: "Host Owner non-escrow financial ledger displaying 85% net revenue and accrued payables."
   },
   {
     id: "HM-030",

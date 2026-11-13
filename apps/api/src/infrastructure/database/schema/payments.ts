@@ -49,6 +49,9 @@ export const paymentIntents = pgTable(
     uniqueIndex("payment_intents_booking_idempotency_unique")
       .on(table.bookingId, table.idempotencyKey)
       .where(sql`${table.idempotencyKey} IS NOT NULL`),
+    uniqueIndex("payment_intents_single_active_per_booking_idx")
+      .on(table.bookingId)
+      .where(sql`${table.status} IN ('INITIATED', 'PENDING_GATEWAY')`),
     index("payment_intents_booking_id_idx").on(table.bookingId),
     index("payment_intents_traveller_id_idx").on(table.travellerUserId),
     check(

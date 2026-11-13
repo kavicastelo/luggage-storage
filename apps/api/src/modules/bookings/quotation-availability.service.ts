@@ -91,33 +91,59 @@ export interface PoolAllocationPlan {
 }
 
 export class QuotationAndAvailabilityService {
-  /**
-   * Sweeps expired booking holds atomically so capacity returns immediately to active pools.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async sweepExpiredHolds(txOrDb: any = db): Promise<number> {
-    const expiredBookingsRes = await txOrDb.execute(sql`
-      UPDATE bookings
-      SET status = 'EXPIRED',
-          updated_at = NOW()
-      WHERE status IN ('PENDING_HOST_APPROVAL', 'PENDING_PAYMENT')
-        AND hold_expires_at IS NOT NULL
-        AND hold_expires_at <= NOW()
-      RETURNING id, status;
-    `);
-
-    const expiredIds = (expiredBookingsRes.rows as Array<{ id: string }>).map((r) => r.id);
-    if (expiredIds.length === 0) {
+  private async expireLockedBookingsInTx(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
+    expiredRows: Array<{ id: string; status: string }>
+  ): Promise<number> {
+    if (expiredRows.length === 0) {
       return 0;
     }
 
-    await txOrDb
+    const expiredIds = expiredRows.map((r) => r.id);
+    const idSqlList = sql.join(
+      expiredIds.map((id) => sql`${id}::uuid`),
+      sql`, `
+    );
+    const now = new Date();
+
+    // Tier 3 lock after Tier 2 bookings lock: lock open payment intents in deterministic id order
+    const openIntentsRes = await tx.execute(sql`
+      SELECT id
+      FROM payment_intents
+      WHERE booking_id IN (${idSqlList})
+        AND status IN ('INITIATED', 'PENDING_GATEWAY')
+      ORDER BY id ASC
+      FOR UPDATE;
+    `);
+    const openIntentIds = (openIntentsRes.rows as Array<{ id: string }>).map((r) => r.id);
+    if (openIntentIds.length > 0) {
+      await tx
+        .update(schema.paymentIntents)
+        .set({
+          status: "EXPIRED",
+          failureReason: sql`COALESCE(failure_reason, 'Booking payment hold expired')`,
+          updatedAt: now
+        })
+        .where(inArray(schema.paymentIntents.id, openIntentIds));
+    }
+
+    await tx
+      .update(schema.bookings)
+      .set({
+        status: "EXPIRED",
+        holdExpiresAt: null,
+        updatedAt: now
+      })
+      .where(inArray(schema.bookings.id, expiredIds));
+
+    await tx
       .update(schema.capacityReservations)
       .set({
         status: "RELEASED",
-        releasedAt: new Date(),
+        releasedAt: now,
         releaseReason: "HOLD_EXPIRED",
-        updatedAt: new Date()
+        updatedAt: now
       })
       .where(
         and(
@@ -129,10 +155,10 @@ export class QuotationAndAvailabilityService {
         )
       );
 
-    await txOrDb.insert(schema.bookingStatusHistory).values(
-      expiredIds.map((bookingId) => ({
-        bookingId,
-        previousStatus: "PENDING_HOLD",
+    await tx.insert(schema.bookingStatusHistory).values(
+      expiredRows.map((row) => ({
+        bookingId: row.id,
+        previousStatus: row.status,
         newStatus: "EXPIRED",
         actorUserId: null,
         actorRole: "SYSTEM",
@@ -142,6 +168,45 @@ export class QuotationAndAvailabilityService {
     );
 
     return expiredIds.length;
+  }
+
+  /**
+   * Expires a single booking whose bookings row is ALREADY locked FOR UPDATE in the current transaction.
+   * Respects canonical Tier 2 (bookings) -> Tier 3 (payment_intents ORDER BY id ASC) lock hierarchy.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async expireSingleBookingHoldInTx(tx: any, bookingId: string, previousStatus: string): Promise<void> {
+    await this.expireLockedBookingsInTx(tx, [{ id: bookingId, status: previousStatus }]);
+  }
+
+  /**
+   * Sweeps expired booking holds atomically using ORDER BY id ASC FOR UPDATE SKIP LOCKED
+   * so concurrent workers/checkouts never deadlock and capacity + open intents expire together.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async sweepExpiredHolds(txOrDb: any = db): Promise<number> {
+    const runSweep = async (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tx: any
+    ): Promise<number> => {
+      const expiredBookingsRes = await tx.execute(sql`
+        SELECT id, status
+        FROM bookings
+        WHERE status IN ('PENDING_HOST_APPROVAL', 'PENDING_PAYMENT')
+          AND hold_expires_at IS NOT NULL
+          AND hold_expires_at <= NOW()
+        ORDER BY id ASC
+        FOR UPDATE SKIP LOCKED;
+      `);
+
+      const expiredRows = expiredBookingsRes.rows as Array<{ id: string; status: string }>;
+      return this.expireLockedBookingsInTx(tx, expiredRows);
+    };
+
+    if (txOrDb === db) {
+      return db.transaction(runSweep);
+    }
+    return runSweep(txOrDb);
   }
 
   /**
