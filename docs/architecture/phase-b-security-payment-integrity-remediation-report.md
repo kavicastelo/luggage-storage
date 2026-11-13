@@ -12,8 +12,8 @@
 
 - **Baseline Merge Commit (Starting Point):** `a9a6dafca9a894115c540dbdad7bced4e5f72173`
 - **Phase A Security Closure Commit (Preserved in Ancestry):** `015b9d18a5cae68611aefb9134ad5a8e6b05d735` (`git merge-base --is-ancestor` verified exit code `0`)
-- **Remediation Implementation Commit SHA:** *Pending commit & push on `dev` — to be recorded with matching CI run ID upon live GitHub Actions completion.*
-- **Final Report Update Commit SHA (`HEAD`):** *Pending CI completion.*
+- **Remediation Implementation Commit SHA (`dev`):** `b92afb9315e14e13704328651a4ecb00758229d2` *(contains all code, migration `0013`, test, environment, CI config, and documentation updates; verified green by GitHub Actions `CI Pipeline` run `43511968537`)*
+- **Final Report Update:** Single-file documentation commit on `dev` appending verified GitHub Actions run `43511968537` (`conclusion: success`) from commit `b92afb9315e14e13704328651a4ecb00758229d2`.
 
 ---
 
@@ -26,7 +26,7 @@
 | **B3** | High | Webhook path locked `payment_intents` before `bookings` while cancellation locked `bookings` first, creating PostgreSQL deadlock exposure. | Standardized one global 5-tier lock order (`storage_capacity_pools` -> `bookings` -> `payment_intents` -> `refund_records`/`custody_records`/`custody_tokens` -> `host_payables`/append-only inserts) across all Phase B mutations; added bounded `withSerializableOrDeadlockRetry` (`40P01`/`40001`, up to 2 retries / 3 total attempts) strictly around pure DB transactions; verified with real PostgreSQL concurrency races in 3 consecutive runs. | `PASS` |
 | **B4** | High | `createPaymentIntent()` read `bookings` without `FOR UPDATE`, allowing a concurrent cancellation to commit while a new pending payment intent still committed. | `createPaymentIntent()` now locks `bookings FOR UPDATE` first, evaluates hold expiry against PostgreSQL `NOW()` (committing `EXPIRED_HOLD` before throwing `409`), validates ownership, status, and `booking_pricing_snapshots`, locks `payment_intents ORDER BY id ASC FOR UPDATE`, enforces the full idempotency matrix, and backs uniqueness in PostgreSQL via partial unique index `payment_intents_single_active_per_booking_idx`. | `PASS` |
 | **B5** | High | Refund `payment_transactions` hardcoded provider attribution, refund state transitions needed idempotency hardening, and cancellation settlements hardcoded commission bps. | `adminTransitionRefund` now resolves the booking payment intent's actual `provider` (`SANDBOX_GATEWAY` or `PAYHERE`), supports idempotent retries on matching target state, uses snapshotted `commissionRateBps` (`booking_pricing_snapshots.commission_rate_bps`) during cancellation settlements, enforces `PG_INT_MAX` (`2_147_483_647`) and `0 <= refundAmountMinor <= paidAmountMinor` guards, and maintains global `SUM(DEBIT) === SUM(CREDIT)` without escrow claims. | `PASS` |
-| **B6** | Medium | Documentation contained stale schema/policy descriptions (`db_identity_secrets`, `is_active`/`activated_at`/`retired_at`, `refund_events`, 24h cancellation window, SHA-256 custody claim, table-count confusion, CI claims). | Reconciled `docs/architecture/backend-domain-overview.md`, `docs/product/assumptions-and-open-questions.md`, UI/mock copy, `.env*.example` & `.envs/*.example` templates, and `turbo.json` (`globalPassThroughEnv`); authored this 15-section evidence report distinguishing local runs, PostgreSQL integration tests, GitHub Actions CI, and owner launch gates. | `PASS` *(Pending post-push live GitHub Actions workflow completion update in Section 12)* |
+| **B6** | Medium | Documentation contained stale schema/policy descriptions (`db_identity_secrets`, `is_active`/`activated_at`/`retired_at`, `refund_events`, 24h cancellation window, SHA-256 custody claim, table-count confusion, CI claims). | Reconciled `docs/architecture/backend-domain-overview.md`, `docs/product/assumptions-and-open-questions.md`, UI/mock copy, `.env*.example` & `.envs/*.example` templates, and `turbo.json` (`globalPassThroughEnv`); authored this 15-section evidence report distinguishing local runs, PostgreSQL integration tests, GitHub Actions CI (`run 43511968537` `success`), and owner launch gates. | `PASS` |
 
 ---
 
@@ -244,7 +244,13 @@ From the latest uncached `pnpm turbo run lint typecheck test build --force` exec
 
 - **Baseline Root-Cause Investigation:** Inspected baseline `CI Pipeline` run `43493038029` (on `main` commit `a9a6dafca9a894115c540dbdad7bced4e5f72173`): Steps `1`–`8` (`Install pnpm`, `Setup Node.js 26`, `pnpm install --frozen-lockfile`, `Build shared contracts`, `pnpm db:migrate`) succeeded, while Step `9` (`Execute Full Quality Gate (pnpm verify)`) failed because Turborepo `2.11.10` strict env filtering stripped workflow `DB_IDENTITY_SECRET`, `PAYOUT_ENCRYPTION_KEY`, etc. (`turbo.json` lacked `globalPassThroughEnv`).
 - **CI Fixes Applied:** Added `CUSTODY_TOKEN_HMAC_SECRET` to `.github/workflows/ci.yml` and configured explicit `globalPassThroughEnv` in `turbo.json` so `pnpm verify` forwards test/migration environment variables cleanly inside GitHub Actions runners.
-- **Remediation Push CI Run Status:** *Pending git commit & push to `origin/dev` — workflow run ID, URL, and `conclusion` will be appended immediately after live CI completion.*
+- **Remediation Push CI Run Status (`b92afb9315e14e13704328651a4ecb00758229d2`):**
+  - **Workflow / Job:** `CI Pipeline` (`.github/workflows/ci.yml`) — `Lint, Typecheck, Test & Build (Full Quality Gate)`
+  - **Run ID:** `43511968537`
+  - **Run URL:** https://github.com/kavicastelo/luggage-storage/actions/runs/43511968537
+  - **Branch / Commit SHA:** `dev` / `b92afb9315e14e13704328651a4ecb00758229d2`
+  - **Status / Conclusion:** `completed` / `success`
+  - **Observed Job Steps (`1`–`21`):** `Start PostgreSQL/PostGIS database` (`success`), `Install pnpm` (`success`), `Setup Node.js` (`success`), `Install dependencies (frozen lockfile)` (`success`), `Build shared contracts` (`success`), `Apply PostgreSQL database migrations and verify schema` (`success`), `Execute Full Quality Gate (pnpm verify)` (`success`), `Stop PostgreSQL/PostGIS database` (`success`), and `Complete job` (`success`).
 
 ---
 
@@ -278,5 +284,6 @@ The following operational, legal, and commercial steps are explicitly owned outs
 | **B2: `PaymentGatewayPort` & PayHere Adapter** | **`PARTIAL`** | Code, isolated MD5 `hash`/`md5sig`, `/webhooks/payhere`, shared pipeline, Sandbox isolation, and 16+ protocol/attack scenarios `PASS`; live PayHere credentials, approval (`OQ-003`), and live certification remain owner-managed external dependencies. |
 | **B3/B4: Global Lock Order & PG Concurrency** | **`PASS`** | Canonical 5-tier lock hierarchy, bounded `40P01`/`40001` retry, `createPaymentIntent` `FOR UPDATE` + DB `NOW()` hold expiry + `payment_intents_single_active_per_booking_idx` verified in 3/3 consecutive real PostgreSQL runs (`17/17` each). |
 | **B5: Payment / Refund / Ledger Integrity** | **`PASS`** | Actual `SANDBOX_GATEWAY`/`PAYHERE` refund attribution, idempotent transitions, snapshotted `commissionRateBps`, `PG_INT_MAX` & `retainedMinor >= 0` guards, global `SUM(DEBIT) === SUM(CREDIT)`, non-escrow accounting verified. |
-| **B6: Documentation & Verification Evidence** | **`PASS`** *(CI pending push)* | Schema (`43` `REQUIRED_PUBLIC_TABLES` / `44` `public` tables, `public.trusted_auth_secrets`), `OQ-009` 2h policy, honest PayHere/CI distinctions reconciled. Monorepo `--force` gate passed `16/16` tasks, `46` test files, `621` tests (`0` failed). |
+| **B6: Documentation & Verification Evidence** | **`PASS`** | Schema (`43` `REQUIRED_PUBLIC_TABLES` / `44` `public` tables, `public.trusted_auth_secrets`), `OQ-009` 2h policy, honest PayHere/CI distinctions reconciled. Monorepo `--force` gate passed `16/16` tasks, `46` test files, `621` tests (`0` failed), and GitHub Actions `CI Pipeline` run `43511968537` (`b92afb9315e14e13704328651a4ecb00758229d2`) completed with `conclusion: success`. |
 | **Commercial Production Launch Readiness** | **`PARTIAL`** | Repository software passes technical Phase B acceptance; live launch remains gated on external PayHere approval/credentials (`OQ-003`), owner secret provisioning, and tax sign-off (`OQ-010`). |
+
