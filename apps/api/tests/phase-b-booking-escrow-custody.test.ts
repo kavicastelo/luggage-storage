@@ -298,6 +298,7 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
         RATE_LIMIT_HASH_SECRET: "prod_rate_limit_secret_minimum_32_chars_long_03!",
         PAYOUT_ENCRYPTION_KEY: "prod_payout_encryption_key_32_chars_long_0004!",
         DB_IDENTITY_SECRET: "prod_db_identity_secret_key_32_chars_long_0005!",
+        CUSTODY_TOKEN_HMAC_SECRET: "prod_custody_hmac_secret_key_32_chars_long_0007!",
         PAYMENT_WEBHOOK_SECRET: "prod_payment_webhook_secret_32_chars_long_0006!",
         EMAIL_PROVIDER: "zoho",
         ZOHO_SMTP_HOST: "smtp.zoho.eu",
@@ -324,7 +325,7 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
       ).toThrow(/PAYHERE_SANDBOX_MODE must be false in production/i);
     });
 
-    it("executes clean install (0000->0012) and upgrade (0011->0012) migrations on ephemeral PostgreSQL databases", async () => {
+    it("executes clean install (0000->latest) and upgrade (0011->latest) migrations on ephemeral PostgreSQL databases", async () => {
       const parsed = new URL(env.MIGRATION_DATABASE_URL!);
       const superUrl = new URL(env.MIGRATION_DATABASE_URL!);
       superUrl.username = "postgres";
@@ -379,9 +380,9 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
         const cleanMigUrl = new URL(parsed.toString());
         cleanMigUrl.pathname = `/${cleanDb}`;
         const appliedClean = await runMigrations(cleanMigUrl.toString());
-        expect(appliedClean).toBeGreaterThanOrEqual(13);
+        expect(appliedClean).toBeGreaterThanOrEqual(14);
 
-        // Prepare upgrade DB through 0011 (first 12 migrations: 0000..0011), then upgrade -> 0012
+        // Prepare upgrade DB through 0011 (first 12 migrations: 0000..0011), then upgrade -> 0012..0013
         const upgMigUrl = new URL(parsed.toString());
         upgMigUrl.pathname = `/${upgradeDb}`;
         const upgPool = new Pool({ connectionString: upgMigUrl.toString(), max: 1 });
@@ -418,7 +419,7 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
         }
 
         const upgradedCount = await runMigrations(upgMigUrl.toString());
-        expect(upgradedCount).toBe(1);
+        expect(upgradedCount).toBe(2);
       } finally {
         await adminPool.query(`DROP DATABASE IF EXISTS ${cleanDb} WITH (FORCE);`).catch(() => {});
         await adminPool.query(`DROP DATABASE IF EXISTS ${upgradeDb} WITH (FORCE);`).catch(() => {});

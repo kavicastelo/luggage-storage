@@ -2031,7 +2031,8 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
           ZOHO_SMTP_USER: "admin@luggage.lk",
           ZOHO_SMTP_PASSWORD: "RealPassword123!",
           PAYOUT_ENCRYPTION_KEY: "prod_payout_encryption_key_32_chars_minimum!",
-          DB_IDENTITY_SECRET: "prod_db_identity_secret_key_32_chars_minimum!"
+          DB_IDENTITY_SECRET: "prod_db_identity_secret_key_32_chars_minimum!",
+          CUSTODY_TOKEN_HMAC_SECRET: "a_very_long_production_custody_hmac_secret_32!"
         });
       }).toThrow(/STORAGE_PROVIDER must be 'r2' in production/i);
     });
@@ -2328,7 +2329,8 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       expect(() => {
         loadConfig({
           DB_IDENTITY_SECRET: "dev_db_identity_secret_key_minimum_32_characters_12345",
-          PAYOUT_ENCRYPTION_KEY: "valid_payout_key_minimum_32_characters_12345"
+          PAYOUT_ENCRYPTION_KEY: "valid_payout_key_minimum_32_characters_12345",
+          CUSTODY_TOKEN_HMAC_SECRET: "valid_custody_hmac_key_minimum_32_characters_12345"
         });
       }).toThrow(/compromised secret/i);
     });

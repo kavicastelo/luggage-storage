@@ -79,13 +79,14 @@ EMAIL_FROM_ADDRESS=no-reply@luggagestorage.lk
 EMAIL_FROM_NAME=Luggage Storage Marketplace
 
 # -----------------------------------------------------------------------------
-# 6. Production Payment Gateway (PayHere Live Merchant Mandatory)
+# 6. Production Payment Gateway & Custody Security
 # -----------------------------------------------------------------------------
 PAYMENT_PROVIDER=payhere
 PAYMENT_WEBHOOK_SECRET=REPLACE_WITH_PRODUCTION_WEBHOOK_HMAC_SECRET_MINIMUM_32_CHARS
 PAYHERE_MERCHANT_ID=REPLACE_WITH_LIVE_PAYHERE_MERCHANT_ID
 PAYHERE_MERCHANT_SECRET=REPLACE_WITH_LIVE_PAYHERE_MERCHANT_SECRET
 PAYHERE_SANDBOX_MODE=false
+CUSTODY_TOKEN_HMAC_SECRET=REPLACE_WITH_64_CHAR_HEX_CUSTODY_HMAC_SECRET_FROM_SECRET_MANAGER
 
 # -----------------------------------------------------------------------------
 # 7. Production Frontend Client Configuration

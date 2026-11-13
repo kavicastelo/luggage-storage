@@ -59,7 +59,7 @@ describe("Phase B — Web Booking, Non-Escrow Settlement Ledger & Custody Integr
             available: true,
             unavailabilityReason: null,
             itemsBreakdown: [],
-            cancellationPolicySummary: ">=24h 100% refund; <24h 50% refund"
+            cancellationPolicySummary: ">2h 100% refund; <=2h 50% refund"
           }
         })
       });

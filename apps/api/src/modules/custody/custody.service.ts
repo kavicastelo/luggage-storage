@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, sql, inArray } from "drizzle-orm";
 import {
   CustodyOperation,
   CustodyPassResponse,
@@ -14,7 +14,16 @@ import {
   CompleteCollectionRequestSchema
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
+import {
+  isRetryablePgError,
+  withSerializableOrDeadlockRetry
+} from "../../infrastructure/database/tx-retry.js";
 import { AppError } from "../../common/errors/app-error.js";
+import {
+  CUSTODY_HASH_VERSION,
+  computeCustodyCredentialHmac,
+  verifyCustodyCredentialHmac
+} from "../../common/crypto/custody-hmac.js";
 import { auditService, SecurityEventType, AuditClientInfo } from "../audit/audit.service.js";
 import { rateLimitService } from "../auth/rate-limit.service.js";
 import { assertHostLocationAccess } from "../bookings/host-access.helper.js";
@@ -23,30 +32,11 @@ import { ledgerService } from "../finance/ledger.service.js";
 const CUSTODY_PASS_TTL_MINUTES = 15;
 const OVERDUE_GRACE_MINUTES = 30;
 
-function hashCustodySecret(
-  bookingId: string,
-  operation: CustodyOperation,
-  secretValue: string
-): string {
-  return crypto
-    .createHash("sha256")
-    .update(`v1:${bookingId}:${operation}:${secretValue}`, "utf8")
-    .digest("hex");
-}
-
-function constantLengthHexMatch(computedHex: string, storedHex: string): boolean {
-  if (!/^[0-9a-f]{64}$/i.test(computedHex) || !/^[0-9a-f]{64}$/i.test(storedHex)) {
-    return false;
-  }
-  const bufA = Buffer.from(computedHex.toLowerCase(), "hex");
-  const bufB = Buffer.from(storedHex.toLowerCase(), "hex");
-  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
-}
-
 export class CustodyService {
   /**
    * Issues a short-lived CSPRNG QR token and 6-digit numeric fallback PIN bound to
-   * (bookingId, operation). Stores ONLY SHA-256 hashes; revokes unconsumed prior tokens.
+   * (bookingId, operation). Stores ONLY keyed domain-separated HMAC-SHA256 digests (`hmac-sha256-v2`);
+   * revokes unconsumed prior tokens inside the booking -> custody lock order.
    */
   async issueCustodyPass(
     bookingId: string,
@@ -56,124 +46,155 @@ export class CustodyService {
   ): Promise<CustodyPassResponse> {
     const input = IssueCustodyPassRequestSchema.parse(rawInput);
 
-    return db.transaction(async (tx) => {
-      const [bookingRow] = await tx
-        .select()
-        .from(schema.bookings)
-        .where(eq(schema.bookings.id, bookingId))
-        .limit(1);
+    return withSerializableOrDeadlockRetry(() =>
+      db.transaction(async (tx) => {
+        // Global Lock Order: 2. bookings -> 4. custody_records -> custody_tokens
+        const bookingLockedRes = await tx.execute(sql`
+          SELECT id, reference_code, traveller_user_id, status
+          FROM bookings
+          WHERE id = ${bookingId}
+          FOR UPDATE;
+        `);
+        const bookingRow = bookingLockedRes.rows[0] as
+          | {
+              id: string;
+              reference_code: string;
+              traveller_user_id: string;
+              status: string;
+            }
+          | undefined;
 
-      if (!bookingRow) {
-        throw AppError.notFound("Booking not found");
-      }
+        if (!bookingRow) {
+          throw AppError.notFound("Booking not found");
+        }
 
-      if (bookingRow.travellerUserId !== callerUserId) {
-        throw AppError.forbidden("Only the booking traveller can request a custody handover pass");
-      }
+        if (bookingRow.traveller_user_id !== callerUserId) {
+          throw AppError.forbidden("Only the booking traveller can request a custody handover pass");
+        }
 
-      const [custody] = await tx
-        .select()
-        .from(schema.custodyRecords)
-        .where(eq(schema.custodyRecords.bookingId, bookingId))
-        .limit(1);
+        const custodyLockedRes = await tx.execute(sql`
+          SELECT id, status
+          FROM custody_records
+          WHERE booking_id = ${bookingId}
+          FOR UPDATE;
+        `);
+        const custody = custodyLockedRes.rows[0] as
+          | {
+              id: string;
+              status: string;
+            }
+          | undefined;
 
-      if (!custody) {
-        throw AppError.conflict(
-          "Custody pass is unavailable until booking payment is confirmed"
-        );
-      }
-
-      if (input.operation === "CHECK_IN") {
-        if (bookingRow.status !== "CONFIRMED" || custody.status !== "EXPECTED") {
+        if (!custody) {
           throw AppError.conflict(
-            `Check-in pass can only be issued for a CONFIRMED booking awaiting drop-off (current status: ${bookingRow.status})`
+            "Custody pass is unavailable until booking payment is confirmed"
           );
         }
-      } else {
-        const eligibleBooking =
-          bookingRow.status === "IN_STORAGE" || bookingRow.status === "DISPUTED";
-        const eligibleCustody =
-          custody.status === "CHECKED_IN" ||
-          custody.status === "IN_STORAGE" ||
-          custody.status === "OVERDUE";
 
-        if (!eligibleBooking || !eligibleCustody) {
-          throw AppError.conflict(
-            `Collection pass can only be issued while luggage is actively in storage (current custody status: ${custody.status})`
-          );
+        if (input.operation === "CHECK_IN") {
+          if (bookingRow.status !== "CONFIRMED" || custody.status !== "EXPECTED") {
+            throw AppError.conflict(
+              `Check-in pass can only be issued for a CONFIRMED booking awaiting drop-off (current status: ${bookingRow.status})`
+            );
+          }
+        } else {
+          const eligibleBooking =
+            bookingRow.status === "IN_STORAGE" || bookingRow.status === "DISPUTED";
+          const eligibleCustody =
+            custody.status === "CHECKED_IN" ||
+            custody.status === "IN_STORAGE" ||
+            custody.status === "OVERDUE";
+
+          if (!eligibleBooking || !eligibleCustody) {
+            throw AppError.conflict(
+              `Collection pass can only be issued while luggage is actively in storage (current custody status: ${custody.status})`
+            );
+          }
         }
-      }
 
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + CUSTODY_PASS_TTL_MINUTES * 60_000);
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + CUSTODY_PASS_TTL_MINUTES * 60_000);
 
-      // Revoke any previous unconsumed passes for this (bookingId, operation)
-      await tx
-        .update(schema.custodyTokens)
-        .set({ revokedAt: now })
-        .where(
-          and(
-            eq(schema.custodyTokens.bookingId, bookingId),
-            eq(schema.custodyTokens.operation, input.operation),
-            sql`${schema.custodyTokens.consumedAt} IS NULL AND ${schema.custodyTokens.revokedAt} IS NULL`
-          )
-        );
+        // Revoke any previous unconsumed passes for this (bookingId, operation)
+        await tx
+          .update(schema.custodyTokens)
+          .set({ revokedAt: now })
+          .where(
+            and(
+              eq(schema.custodyTokens.bookingId, bookingId),
+              eq(schema.custodyTokens.operation, input.operation),
+              sql`${schema.custodyTokens.consumedAt} IS NULL AND ${schema.custodyTokens.revokedAt} IS NULL`
+            )
+          );
 
-      const qrToken = crypto.randomBytes(32).toString("hex");
-      const verificationPin = String(crypto.randomInt(100000, 1000000));
-      const tokenHash = hashCustodySecret(bookingId, input.operation, qrToken);
-      const pinHash = hashCustodySecret(bookingId, input.operation, verificationPin);
-
-      const [insertedToken] = await tx
-        .insert(schema.custodyTokens)
-        .values({
-          custodyRecordId: custody.id,
+        const qrToken = crypto.randomBytes(32).toString("hex");
+        const verificationPin = crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+        const tokenHash = computeCustodyCredentialHmac({
+          purpose: "CUSTODY_QR",
           bookingId,
           operation: input.operation,
-          tokenHash,
-          pinHash,
-          expiresAt
-        })
-        .returning({ id: schema.custodyTokens.id });
-
-      await tx
-        .update(schema.custodyRecords)
-        .set({
-          ...(input.operation === "CHECK_IN"
-            ? { checkinPinHash: pinHash }
-            : { collectionPinHash: pinHash }),
-          updatedAt: now
-        })
-        .where(eq(schema.custodyRecords.id, custody.id));
-
-      await auditService.recordEvent({
-        eventType: SecurityEventType.CUSTODY_PASS_ISSUED,
-        userId: callerUserId,
-        clientInfo,
-        metadata: {
+          credential: qrToken
+        });
+        const pinHash = computeCustodyCredentialHmac({
+          purpose: "CUSTODY_PIN",
           bookingId,
-          referenceCode: bookingRow.referenceCode,
-          custodyRecordId: custody.id,
-          custodyTokenId: insertedToken.id,
           operation: input.operation,
+          credential: verificationPin
+        });
+
+        const [insertedToken] = await tx
+          .insert(schema.custodyTokens)
+          .values({
+            custodyRecordId: custody.id,
+            bookingId,
+            operation: input.operation,
+            hashVersion: CUSTODY_HASH_VERSION,
+            tokenHash,
+            pinHash,
+            expiresAt
+          })
+          .returning({ id: schema.custodyTokens.id });
+
+        await tx
+          .update(schema.custodyRecords)
+          .set({
+            ...(input.operation === "CHECK_IN"
+              ? { checkinPinHash: pinHash }
+              : { collectionPinHash: pinHash }),
+            updatedAt: now
+          })
+          .where(eq(schema.custodyRecords.id, custody.id));
+
+        await auditService.recordEvent({
+          eventType: SecurityEventType.CUSTODY_PASS_ISSUED,
+          userId: callerUserId,
+          clientInfo,
+          metadata: {
+            bookingId,
+            referenceCode: bookingRow.reference_code,
+            custodyRecordId: custody.id,
+            custodyTokenId: insertedToken.id,
+            operation: input.operation,
+            expiresAt: expiresAt.toISOString()
+          },
+          tx
+        });
+
+        return {
+          bookingId,
+          referenceCode: bookingRow.reference_code,
+          operation: input.operation,
+          qrToken,
+          verificationPin,
           expiresAt: expiresAt.toISOString()
-        },
-        tx
-      });
-
-      return {
-        bookingId,
-        referenceCode: bookingRow.referenceCode,
-        operation: input.operation,
-        qrToken,
-        verificationPin,
-        expiresAt: expiresAt.toISOString()
-      };
-    });
+        };
+      })
+    );
   }
 
   /**
-   * Internal constant-length verifier for QR token or 6-digit PIN bound to (bookingId, operation).
+   * Constant-time keyed HMAC-SHA256 verifier for QR token or 6-digit PIN
+   * strictly bound to (purpose, bookingId, operation) and hash_version = 'hmac-sha256-v2'.
    */
   private async verifyCredentialInternal(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -194,11 +215,13 @@ export class CustodyService {
         and(
           eq(schema.custodyTokens.bookingId, params.bookingId),
           eq(schema.custodyTokens.operation, params.operation),
+          eq(schema.custodyTokens.hashVersion, CUSTODY_HASH_VERSION),
           sql`${schema.custodyTokens.consumedAt} IS NULL`,
           sql`${schema.custodyTokens.revokedAt} IS NULL`,
           sql`${schema.custodyTokens.expiresAt} > NOW()`
         )
-      );
+      )
+      .orderBy(desc(schema.custodyTokens.createdAt), asc(schema.custodyTokens.id));
 
     if (activeTokens.length === 0) {
       throw AppError.unauthorized(
@@ -208,23 +231,29 @@ export class CustodyService {
 
     let matchedTokenId: string | null = null;
     for (const candidate of activeTokens) {
-      if (params.qrToken) {
-        const computedTokenHash = hashCustodySecret(
-          params.bookingId,
-          params.operation,
-          params.qrToken
-        );
-        if (constantLengthHexMatch(computedTokenHash, candidate.tokenHash)) {
+      if (params.qrToken !== undefined) {
+        if (
+          verifyCustodyCredentialHmac({
+            purpose: "CUSTODY_QR",
+            bookingId: params.bookingId,
+            operation: params.operation,
+            candidateCredential: params.qrToken,
+            storedDigestHex: candidate.tokenHash
+          })
+        ) {
           matchedTokenId = candidate.id;
           break;
         }
-      } else if (params.verificationPin) {
-        const computedPinHash = hashCustodySecret(
-          params.bookingId,
-          params.operation,
-          params.verificationPin
-        );
-        if (constantLengthHexMatch(computedPinHash, candidate.pinHash)) {
+      } else if (params.verificationPin !== undefined) {
+        if (
+          verifyCustodyCredentialHmac({
+            purpose: "CUSTODY_PIN",
+            bookingId: params.bookingId,
+            operation: params.operation,
+            candidateCredential: params.verificationPin,
+            storedDigestHex: candidate.pinHash
+          })
+        ) {
           matchedTokenId = candidate.id;
           break;
         }
@@ -241,6 +270,7 @@ export class CustodyService {
         SET consumed_at = NOW(),
             consumed_by_user_id = ${params.actorUserId}
         WHERE id = ${matchedTokenId}
+          AND hash_version = ${CUSTODY_HASH_VERSION}
           AND consumed_at IS NULL
           AND revoked_at IS NULL
           AND expires_at > NOW()
@@ -371,8 +401,9 @@ export class CustodyService {
     const input = CompleteCheckInRequestSchema.parse(rawInput);
     await this.enforceVerificationRateLimits(actorUserId, bookingId, clientInfo);
 
-    await db.transaction(async (tx) => {
-      const bookingRes = await tx.execute(sql`
+    await withSerializableOrDeadlockRetry(() =>
+      db.transaction(async (tx) => {
+        const bookingRes = await tx.execute(sql`
         SELECT id, location_id, business_id, status, total_bags, reference_code
         FROM bookings
         WHERE id = ${bookingId}
@@ -467,6 +498,9 @@ export class CustodyService {
           consume: true
         });
       } catch (err) {
+        if (isRetryablePgError(err)) {
+          throw err;
+        }
         await auditService.recordEvent({
           eventType: SecurityEventType.CUSTODY_VERIFICATION_FAILED,
           userId: actorUserId,
@@ -561,7 +595,8 @@ export class CustodyService {
         },
         tx
       });
-    });
+      })
+    );
 
     return this.getCustodyDetail(bookingId, actorUserId, actorRoles);
   }
@@ -581,8 +616,9 @@ export class CustodyService {
     const input = CompleteCollectionRequestSchema.parse(rawInput);
     await this.enforceVerificationRateLimits(actorUserId, bookingId, clientInfo);
 
-    await db.transaction(async (tx) => {
-      const bookingRes = await tx.execute(sql`
+    await withSerializableOrDeadlockRetry(() =>
+      db.transaction(async (tx) => {
+        const bookingRes = await tx.execute(sql`
         SELECT id, location_id, business_id, status, collection_at, currency, reference_code
         FROM bookings
         WHERE id = ${bookingId}
@@ -667,6 +703,9 @@ export class CustodyService {
           consume: true
         });
       } catch (err) {
+        if (isRetryablePgError(err)) {
+          throw err;
+        }
         await auditService.recordEvent({
           eventType: SecurityEventType.CUSTODY_VERIFICATION_FAILED,
           userId: actorUserId,
@@ -848,7 +887,8 @@ export class CustodyService {
           tx
         });
       }
-    });
+      })
+    );
 
     return this.getCustodyDetail(bookingId, actorUserId, actorRoles);
   }

@@ -11,6 +11,8 @@ import {
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 
+const PG_INT_MAX = 2_147_483_647;
+
 export interface JournalPostingLine {
   entryType: "DEBIT" | "CREDIT";
   accountCode: string;
@@ -41,9 +43,13 @@ export class LedgerService {
     const currency = lines[0].currency;
 
     for (const line of lines) {
-      if (!Number.isInteger(line.amountMinor) || line.amountMinor <= 0) {
+      if (
+        !Number.isSafeInteger(line.amountMinor) ||
+        line.amountMinor <= 0 ||
+        line.amountMinor > PG_INT_MAX
+      ) {
         throw AppError.internal(
-          `Invalid ledger posting amount (${line.amountMinor}): must be a positive integer in minor units`
+          `Invalid ledger posting amount (${line.amountMinor}): must be a positive 32-bit integer in minor units`
         );
       }
       if (line.currency !== currency) {
@@ -56,7 +62,12 @@ export class LedgerService {
       }
     }
 
-    if (totalDebits !== totalCredits || totalDebits <= 0) {
+    if (
+      !Number.isSafeInteger(totalDebits) ||
+      !Number.isSafeInteger(totalCredits) ||
+      totalDebits !== totalCredits ||
+      totalDebits <= 0
+    ) {
       throw AppError.internal(
         `Unbalanced double-entry journal group rejected: debits=${totalDebits}, credits=${totalCredits}`
       );
@@ -239,7 +250,19 @@ export class LedgerService {
       referenceCode: string;
     }
   ): Promise<void> {
-    if (params.paidAmountMinor <= 0) {
+    if (
+      !Number.isSafeInteger(params.paidAmountMinor) ||
+      !Number.isSafeInteger(params.refundAmountMinor) ||
+      params.paidAmountMinor < 0 ||
+      params.paidAmountMinor > PG_INT_MAX ||
+      params.refundAmountMinor < 0 ||
+      params.refundAmountMinor > params.paidAmountMinor
+    ) {
+      throw AppError.internal(
+        `Invalid cancellation settlement amounts: paid=${params.paidAmountMinor}, refund=${params.refundAmountMinor}`
+      );
+    }
+    if (params.paidAmountMinor === 0) {
       return;
     }
 

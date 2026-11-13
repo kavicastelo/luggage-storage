@@ -45,6 +45,29 @@ export function errorHandler(error: FastifyError | AppError | Error, request: Fa
     );
   }
 
+  // Preserve native Fastify 4xx protocol errors (e.g. 413 Payload Too Large, 415 Unsupported Media Type)
+  if (
+    "statusCode" in error &&
+    typeof error.statusCode === "number" &&
+    error.statusCode >= 400 &&
+    error.statusCode < 500
+  ) {
+    request.log.warn(
+      { err: error, correlationId },
+      `Client request error [${error.statusCode}]: ${error.message}`
+    );
+    return reply
+      .status(error.statusCode)
+      .send(
+        createErrorResponse(
+          "BAD_REQUEST",
+          error.message || "Invalid request payload",
+          undefined,
+          correlationId
+        )
+      );
+  }
+
   // Generic 500
   request.log.error({ err: error, correlationId }, "Unhandled internal server error");
   return reply.status(500).send(

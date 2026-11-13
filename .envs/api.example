@@ -103,7 +103,7 @@ EMAIL_FROM_NAME=Luggage Storage Marketplace
 RESEND_API_KEY=
 
 # -----------------------------------------------------------------------------
-# 7. Payment Collection & Signed Gateway Webhooks (Phase B)
+# 7. Payment Collection, Signed Webhooks & Custody HMAC Security (Phase B)
 # -----------------------------------------------------------------------------
 # Options: 'sandbox' (local dev/test only), 'payhere' (production mandatory)
 PAYMENT_PROVIDER=sandbox
@@ -111,4 +111,6 @@ PAYMENT_WEBHOOK_SECRET=REPLACE_WITH_UNIQUE_RANDOM_WEBHOOK_HMAC_SECRET_MINIMUM_32
 PAYHERE_MERCHANT_ID=
 PAYHERE_MERCHANT_SECRET=
 PAYHERE_SANDBOX_MODE=true
+# Keyed HMAC-SHA256 secret for single-use custody QR tokens and 6-digit PINs (never stored in DB)
+CUSTODY_TOKEN_HMAC_SECRET=REPLACE_WITH_UNIQUE_RANDOM_CUSTODY_HMAC_SECRET_MINIMUM_32_CHARS
 

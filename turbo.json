@@ -1,5 +1,23 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "MIGRATION_DATABASE_URL",
+    "NODE_ENV",
+    "DB_IDENTITY_KEY_ID",
+    "DB_IDENTITY_SECRET",
+    "DB_IDENTITY_RETIRING_KEY_ID",
+    "DB_IDENTITY_RETIRING_SECRET",
+    "PAYOUT_ENCRYPTION_KEY",
+    "PAYOUT_ENCRYPTION_KEY_PREVIOUS",
+    "CUSTODY_TOKEN_HMAC_SECRET",
+    "PAYMENT_WEBHOOK_SECRET",
+    "RATE_LIMIT_HASH_SECRET",
+    "PAYHERE_MERCHANT_ID",
+    "PAYHERE_MERCHANT_SECRET",
+    "PAYHERE_SANDBOX_MODE",
+    "PAYMENT_PROVIDER"
+  ],
   "tasks": {
     "build": {
       "dependsOn": [
