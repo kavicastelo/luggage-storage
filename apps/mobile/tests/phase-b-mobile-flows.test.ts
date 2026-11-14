@@ -270,7 +270,7 @@ describe("Phase B — Mobile Traveller & Host Booking, Payment & Custody Flows",
       "utf-8"
     );
     const bookingsSrc = fs.readFileSync(
-      path.resolve(__dirname, "../app/(traveller)/bookings.tsx"),
+      path.resolve(__dirname, "../app/(traveller)/(tabs)/bookings.tsx"),
       "utf-8"
     );
     expect(bookingsSrc).toContain("useMyBookingsQuery(");

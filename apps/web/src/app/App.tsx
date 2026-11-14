@@ -96,6 +96,8 @@ function AppRoutes() {
         <Route index element={<PublicLandingPage />} />
         <Route path="search" element={<WebSearchDiscoveryPage />} />
         <Route path="locations/:slug" element={<LocationProfileDetailPage />} />
+        <Route path="location/:slug" element={<LocationProfileDetailPage />} />
+        <Route path="location" element={<LocationProfileDetailPage />} />
         <Route path="checkout/:locId" element={<WebCheckoutSchedulePage />} />
         <Route path="booking/confirm" element={<WebPaymentConfirmationPage />} />
         <Route path="become-a-host" element={<BecomeAHostLandingPage />} />

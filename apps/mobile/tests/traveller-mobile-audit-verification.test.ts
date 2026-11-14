@@ -83,7 +83,7 @@ describe("Phase 2C.3.1: Independent Traveller Mobile Verification Audit", () => 
     });
 
     it("confirms support centre neutralizes uncontracted claims and wires live exception reporting", () => {
-      const supportPath = path.resolve(__dirname, "../app/(traveller)/support.tsx");
+      const supportPath = path.resolve(__dirname, "../app/(traveller)/(tabs)/support.tsx");
       const content = fs.readFileSync(supportPath, "utf-8");
 
       expect(content).not.toContain("24/7 Dedicated Custody Hotline");

@@ -11,33 +11,38 @@ import { mobileColors } from "../src/lib/theme";
 describe("Phase 2C.3 — Traveller Mobile Journeys & Discovery Tests", () => {
   describe("Task TSK-2C-011: 5-Tab Mobile Application Shell & Routing", () => {
     it("defines all 5 bottom tabs and detail stack routes in _layout.tsx", () => {
-      const layoutPath = path.resolve(__dirname, "../app/(traveller)/_layout.tsx");
-      expect(fs.existsSync(layoutPath)).toBe(true);
-      const content = fs.readFileSync(layoutPath, "utf-8");
+      const stackLayoutPath = path.resolve(__dirname, "../app/(traveller)/_layout.tsx");
+      const tabsLayoutPath = path.resolve(__dirname, "../app/(traveller)/(tabs)/_layout.tsx");
+      expect(fs.existsSync(stackLayoutPath)).toBe(true);
+      expect(fs.existsSync(tabsLayoutPath)).toBe(true);
+      const stackContent = fs.readFileSync(stackLayoutPath, "utf-8");
+      const tabsContent = fs.readFileSync(tabsLayoutPath, "utf-8");
 
       // Verify the 5 primary tabs
-      expect(content).toContain('name="index"');
-      expect(content).toContain('title: "Explore"');
-      expect(content).toContain('name="bookings"');
-      expect(content).toContain('title: "My Storage"');
-      expect(content).toContain('name="saved"');
-      expect(content).toContain('title: "Saved"');
-      expect(content).toContain('name="support"');
-      expect(content).toContain('title: "Support"');
-      expect(content).toContain('name="profile"');
-      expect(content).toContain('title: "Account"');
+      expect(tabsContent).toContain('name="index"');
+      expect(tabsContent).toContain('title: "Explore"');
+      expect(tabsContent).toContain('name="bookings"');
+      expect(tabsContent).toContain('title: "My Storage"');
+      expect(tabsContent).toContain('name="saved"');
+      expect(tabsContent).toContain('title: "Saved"');
+      expect(tabsContent).toContain('name="support"');
+      expect(tabsContent).toContain('title: "Support"');
+      expect(tabsContent).toContain('name="profile"');
+      expect(tabsContent).toContain('title: "Account"');
 
-      // Verify stack & detail routes hidden from tab bar
-      expect(content).toContain('name="explore"');
-      expect(content).toContain('name="location"');
-      expect(content).toContain('name="checkout"');
-      expect(content).toContain('name="pass"');
-      expect(content).toContain('name="onboarding"');
-      expect(content).toContain("href: null");
+      // Verify stack & detail routes live in the parent Stack (not hidden inside Tabs)
+      expect(stackContent).toContain('name="(tabs)"');
+      expect(stackContent).toContain('name="explore"');
+      expect(stackContent).toContain('name="location"');
+      expect(stackContent).toContain('name="locations/[id]"');
+      expect(stackContent).toContain('name="checkout"');
+      expect(stackContent).toContain('name="pass"');
+      expect(stackContent).toContain('name="onboarding"');
+      expect(tabsContent).not.toContain("href: null");
     });
 
     it("uses CWCP terracotta active tint and coastal navy tab bar background", () => {
-      const layoutPath = path.resolve(__dirname, "../app/(traveller)/_layout.tsx");
+      const layoutPath = path.resolve(__dirname, "../app/(traveller)/(tabs)/_layout.tsx");
       const content = fs.readFileSync(layoutPath, "utf-8");
       expect(content).toContain("tabBarActiveTintColor: mobileColors.terracotta[500]");
       expect(content).toContain("backgroundColor: mobileColors.navy[900]");
@@ -203,7 +208,7 @@ describe("Phase 2C.3 — Traveller Mobile Journeys & Discovery Tests", () => {
     });
 
     it("surfaces live server refund summary and cancellation/exception mutations in bookings", () => {
-      const bookingsPath = path.resolve(__dirname, "../app/(traveller)/bookings.tsx");
+      const bookingsPath = path.resolve(__dirname, "../app/(traveller)/(tabs)/bookings.tsx");
       const content = fs.readFileSync(bookingsPath, "utf-8");
 
       expect(content).toContain("booking.refundSummary");
