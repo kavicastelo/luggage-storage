@@ -10,10 +10,10 @@ import {
   LocationCard,
   SafeHeader,
   ScreenContainer
-} from "../../src/components";
-import { useSavedLocationsDetailsQuery } from "../../src/hooks";
-import { useSavedLocationsStore } from "../../src/store/useSavedLocationsStore";
-import { mobileSpacing, mobileTextColors, mobileTypography } from "../../src/lib/theme";
+} from "../../../src/components";
+import { useSavedLocationsDetailsQuery } from "../../../src/hooks";
+import { useSavedLocationsStore } from "../../../src/store/useSavedLocationsStore";
+import { mobileSpacing, mobileTextColors, mobileTypography } from "../../../src/lib/theme";
 
 export default function TravellerSavedLocationsScreen() {
   const router = useRouter();

@@ -11,16 +11,16 @@ import {
   SafeHeader,
   ScreenContainer,
   type MobileIconName
-} from "../../src/components";
-import { useAuthStore } from "../../src/store/useAuthStore";
-import { useMobileStore } from "../../src/store/useMobileStore";
+} from "../../../src/components";
+import { useAuthStore } from "../../../src/store/useAuthStore";
+import { useMobileStore } from "../../../src/store/useMobileStore";
 import {
   mobileColors,
   mobileRadius,
   mobileSpacing,
   mobileTextColors,
   mobileTypography
-} from "../../src/lib/theme";
+} from "../../../src/lib/theme";
 
 interface MenuRowProps {
   icon: MobileIconName;

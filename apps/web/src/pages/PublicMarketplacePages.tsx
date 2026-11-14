@@ -858,26 +858,36 @@ export function WebSearchDiscoveryPage() {
 }
 
 // ============================================================================
-// PW-003: Location Profile Detail (/locations/:slug)
+// PW-003: Location Profile Detail (/locations/:slug, /location/:slug, /location?id=...)
 // ============================================================================
+const LOCATION_UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function LocationProfileDetailPage() {
   const { slug } = useParams<{ slug: string }>();
+  const [searchParams] = useSearchParams();
+  const locationIdentifier =
+    slug || searchParams.get("id") || searchParams.get("slug") || undefined;
   const [liveLocation, setLiveLocation] = useState<PublicStorageLocation | null>(null);
 
   useEffect(() => {
-    if (slug) {
-      marketplaceApi.getPublicLocationDetails(slug)
+    if (locationIdentifier && LOCATION_UUID_REGEX.test(locationIdentifier)) {
+      marketplaceApi.getPublicLocationDetails(locationIdentifier)
         .then((loc) => setLiveLocation(loc))
         .catch(() => {});
     }
-  }, [slug]);
+  }, [locationIdentifier]);
 
   const location = useMemo(() => {
     if (liveLocation) {
       return mapPublicLocationToItem(liveLocation);
     }
-    return DEMO_LOCATIONS.find((l) => l.slug === slug || l.id === slug) || DEMO_LOCATIONS[0];
-  }, [liveLocation, slug]);
+    return (
+      DEMO_LOCATIONS.find(
+        (l) => l.slug === locationIdentifier || l.id === locationIdentifier
+      ) || DEMO_LOCATIONS[0]
+    );
+  }, [liveLocation, locationIdentifier]);
 
   const [hoursEstimate, setHoursEstimate] = useState(6);
 

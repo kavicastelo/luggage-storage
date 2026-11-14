@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, Image, StyleSheet } from "react-native";
+import { View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
 import {
   formatCurrencyMinorUnits,
   type CurrencyCode,
@@ -56,46 +56,49 @@ export function LocationCard({
       : "No verified reviews yet";
 
   return (
-    <Card
-      variant="elevated"
-      onPress={onPress}
-      accessibilityLabel={`${location.name}, ${location.approximateArea}, ${location.city}, ${rateText}`}
-      style={styles.card}
-      testID={testID ?? `location-card-${location.id}`}
-    >
+    <Card variant="elevated" style={styles.card}>
       <View style={styles.headerRow}>
-        {location.primaryImageUrl ? (
-          <Image
-            source={{ uri: location.primaryImageUrl }}
-            style={styles.thumb}
-            accessibilityLabel={`${location.name} photo`}
-          />
-        ) : (
-          <View style={styles.thumbPlaceholder}>
-            <MobileIcon name="luggage" size="lg" color={mobileColors.navy[700]} />
-          </View>
-        )}
-
-        <View style={styles.headerText}>
-          <View style={styles.badgeLine}>
-            <Badge
-              label={location.bookingMode === "INSTANT" ? "Instant Book" : "Host Approval"}
-              variant={location.bookingMode === "INSTANT" ? "success" : "info"}
-              size="sm"
+        <TouchableOpacity
+          testID={testID ?? `location-card-${location.id}`}
+          activeOpacity={0.85}
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={`${location.name}, ${location.approximateArea}, ${location.city}, ${rateText}`}
+          style={styles.headerMainTouchable}
+        >
+          {location.primaryImageUrl ? (
+            <Image
+              source={{ uri: location.primaryImageUrl }}
+              style={styles.thumb}
+              accessibilityLabel={`${location.name} photo`}
             />
-            {location.is24Hours ? <Badge label="24h Access" variant="navy" size="sm" /> : null}
-          </View>
-          <Text style={styles.name} numberOfLines={2}>
-            {location.name}
-          </Text>
-          <View style={styles.metaLine}>
-            <MobileIcon name="map-pin" size="xs" color={mobileTextColors.muted} />
-            <Text style={styles.areaText} numberOfLines={1}>
-              {location.approximateArea} · {location.city}
-              {distanceLabel ? ` · ${distanceLabel}` : ""}
+          ) : (
+            <View style={styles.thumbPlaceholder}>
+              <MobileIcon name="luggage" size="lg" color={mobileColors.navy[700]} />
+            </View>
+          )}
+
+          <View style={styles.headerText}>
+            <View style={styles.badgeLine}>
+              <Badge
+                label={location.bookingMode === "INSTANT" ? "Instant Book" : "Host Approval"}
+                variant={location.bookingMode === "INSTANT" ? "success" : "info"}
+                size="sm"
+              />
+              {location.is24Hours ? <Badge label="24h Access" variant="navy" size="sm" /> : null}
+            </View>
+            <Text style={styles.name} numberOfLines={2}>
+              {location.name}
             </Text>
+            <View style={styles.metaLine}>
+              <MobileIcon name="map-pin" size="xs" color={mobileTextColors.muted} />
+              <Text style={styles.areaText} numberOfLines={1}>
+                {location.approximateArea} · {location.city}
+                {distanceLabel ? ` · ${distanceLabel}` : ""}
+              </Text>
+            </View>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {onToggleSaved ? (
           <IconButton
@@ -109,7 +112,13 @@ export function LocationCard({
         ) : null}
       </View>
 
-      <View style={styles.footerRow}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${location.name}`}
+        style={styles.footerRow}
+      >
         <View style={styles.leftFooter}>
           <View style={styles.hoursRow}>
             <MobileIcon name="clock" size="xs" color={mobileTextColors.muted} />
@@ -131,7 +140,7 @@ export function LocationCard({
           <Text style={styles.priceLabel}>From</Text>
           <Text style={styles.priceValue}>{rateText}</Text>
         </View>
-      </View>
+      </TouchableOpacity>
     </Card>
   );
 }
@@ -142,6 +151,12 @@ const styles = StyleSheet.create({
     gap: mobileSpacing[3]
   },
   headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[3]
+  },
+  headerMainTouchable: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: mobileSpacing[3]

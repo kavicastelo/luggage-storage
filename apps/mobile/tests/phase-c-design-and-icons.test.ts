@@ -30,6 +30,7 @@ vi.mock("lucide-react-native", async () => {
 
 import {
   ALL_MOBILE_ICON_NAMES,
+  MobileIcon,
   getIconComponent,
   resolveIconSize
 } from "../src/components/MobileIcon";
@@ -140,5 +141,22 @@ describe("Phase C — Design System, Vector Icons & QR Matrix Integrity", () => 
       }
     }
     expect(offending).toEqual([]);
+  });
+
+  it("avoids React Native Web DOM warnings (accessible={false} on SVG icons and nested <button> in LocationCard)", () => {
+    const decorativeIcon = MobileIcon({ name: "map-pin" });
+    expect(decorativeIcon?.props.accessible).toBeUndefined();
+
+    const labeledIcon = MobileIcon({ name: "map-pin", accessibilityLabel: "Location pin" });
+    expect(labeledIcon?.props.accessible).toBe(true);
+    expect(labeledIcon?.props.accessibilityRole).toBe("image");
+
+    const locationCardSource = fs.readFileSync(
+      path.join(mobileRoot, "src/components/ui/LocationCard.tsx"),
+      "utf8"
+    );
+    expect(locationCardSource).not.toMatch(/<Card[^>]*onPress=/s);
+    expect(locationCardSource).toContain("<IconButton");
+    expect(locationCardSource).toContain("<TouchableOpacity");
   });
 });

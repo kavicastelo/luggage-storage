@@ -235,7 +235,7 @@ export function MobileIcon({
       color={resolvedColor}
       strokeWidth={strokeWidth}
       testID={testID ?? `mobile-icon-${name}`}
-      accessible={isAccessible}
+      accessible={isAccessible ? true : undefined}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole={isAccessible ? "image" : undefined}
     />
