@@ -202,18 +202,14 @@ describe("Phase 2C.3 — Traveller Mobile Journeys & Discovery Tests", () => {
       expect(4 * ratePerHour * numBags).toBe(2000); // 4 hour extension
     });
 
-    it("implements 7-stage cancellation refund progress stepper", () => {
+    it("surfaces live server refund summary and cancellation/exception mutations in bookings", () => {
       const bookingsPath = path.resolve(__dirname, "../app/(traveller)/bookings.tsx");
       const content = fs.readFileSync(bookingsPath, "utf-8");
 
-      expect(content).toContain("7-Stage Settlement Tracker");
-      expect(content).toContain("1. Requested");
-      expect(content).toContain("2. Policy Window Checked");
-      expect(content).toContain("3. Capacity Released");
-      expect(content).toContain("4. Ledger Reversed");
-      expect(content).toContain("5. PayHere Dispatched");
-      expect(content).toContain("6. Bank Processing (CEFT)");
-      expect(content).toContain("7. Card Credited");
+      expect(content).toContain("booking.refundSummary");
+      expect(content).toContain("refundPercentage");
+      expect(content).toContain("useCancelBookingMutation");
+      expect(content).toContain("useReportBookingExceptionMutation");
     });
   });
 

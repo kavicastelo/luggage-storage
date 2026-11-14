@@ -1,9 +1,12 @@
 import React from "react";
 import { Tabs } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MobileIcon } from "../../src/components/MobileIcon";
 import { mobileColors } from "../../src/lib/theme";
 
 export default function TravellerLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
@@ -13,8 +16,8 @@ export default function TravellerLayout() {
         tabBarStyle: {
           backgroundColor: mobileColors.navy[900],
           borderTopColor: mobileColors.navy[800],
-          height: 62,
-          paddingBottom: 8,
+          height: 60 + Math.max(insets.bottom, 8),
+          paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 6
         },
         tabBarLabelStyle: {
@@ -29,7 +32,11 @@ export default function TravellerLayout() {
           title: "Explore",
           tabBarLabel: "Explore",
           tabBarIcon: ({ color }) => (
-            <MobileIcon name="search" size={20} color={color ? String(color) : mobileColors.sand[600]} />
+            <MobileIcon
+              name="search"
+              size={20}
+              color={color ? String(color) : mobileColors.sand[600]}
+            />
           )
         }}
       />
@@ -39,7 +46,11 @@ export default function TravellerLayout() {
           title: "My Storage",
           tabBarLabel: "My Storage",
           tabBarIcon: ({ color }) => (
-            <MobileIcon name="briefcase" size={20} color={color ? String(color) : mobileColors.sand[600]} />
+            <MobileIcon
+              name="briefcase"
+              size={20}
+              color={color ? String(color) : mobileColors.sand[600]}
+            />
           )
         }}
       />
@@ -49,7 +60,11 @@ export default function TravellerLayout() {
           title: "Saved",
           tabBarLabel: "Saved",
           tabBarIcon: ({ color }) => (
-            <MobileIcon name="bookmark" size={20} color={color ? String(color) : mobileColors.sand[600]} />
+            <MobileIcon
+              name="bookmark"
+              size={20}
+              color={color ? String(color) : mobileColors.sand[600]}
+            />
           )
         }}
       />
@@ -59,7 +74,11 @@ export default function TravellerLayout() {
           title: "Support",
           tabBarLabel: "Support",
           tabBarIcon: ({ color }) => (
-            <MobileIcon name="help-circle" size={20} color={color ? String(color) : mobileColors.sand[600]} />
+            <MobileIcon
+              name="help-circle"
+              size={20}
+              color={color ? String(color) : mobileColors.sand[600]}
+            />
           )
         }}
       />
@@ -69,17 +88,20 @@ export default function TravellerLayout() {
           title: "Account",
           tabBarLabel: "Account",
           tabBarIcon: ({ color }) => (
-            <MobileIcon name="user" size={20} color={color ? String(color) : mobileColors.sand[600]} />
+            <MobileIcon
+              name="user"
+              size={20}
+              color={color ? String(color) : mobileColors.sand[600]}
+            />
           )
         }}
       />
 
-      {/* Stack & Detail routes hidden from bottom tab bar */}
       <Tabs.Screen
         name="explore"
         options={{
           href: null,
-          title: "Map Discovery"
+          title: "Explore Hubs"
         }}
       />
       <Tabs.Screen

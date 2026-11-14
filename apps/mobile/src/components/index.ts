@@ -26,3 +26,4 @@ export * from "./ui/ImageGallery";
 export * from "./ui/BookingSummary";
 export * from "./ui/PaymentStatusPanel";
 export * from "./ui/QrCodeMatrix";
+export type { MascotKey } from "../lib/mascots";
