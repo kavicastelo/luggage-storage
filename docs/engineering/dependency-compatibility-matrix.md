@@ -31,9 +31,10 @@ This matrix records the exact, verified dependency baseline across the Global Lu
 | **React (Web)** | `18.3.1` | **`^18.3.1`** (`react-dom: ^18.3.1`) | `apps/web` | Web UI runtime paired with `react-router-dom@^6.23.0`. |
 | **Vite** | `^5.2.10` | **`^6.2.0`** (`@vitejs/plugin-react: ^4.3.4`) | `apps/web` | Web bundler and dev server. |
 | **Tailwind CSS** | `^3.4.3` | **`^3.4.3`** (`postcss: ^8.5.3`, `autoprefixer: ^10.4.19`) | `apps/web` | Utility-first styling with shadcn/ui component conventions. |
-| **Expo SDK** | `~51.0.0` | **`~58.0.23`** (`expo-router: ~58.0.30`, `expo-secure-store: ^58.0.2`) | `apps/mobile` | Shared Traveller & Host mobile runtime and encrypted token storage. |
-| **React Native** | `0.74.1` | **`0.88.1`** (`react: 19.3.0`, `react-native-web: ~0.21.4`) | `apps/mobile` | Native iOS/Android & web export runtime for Expo SDK 58. |
-| **State & Query** | `^4.5.2` / `^5.32.0` | **`zustand: ^4.5.2`**, **`@tanstack/react-query: ^5.32.0`** | `apps/web` & `apps/mobile` | Client state management and server-state caching. |
+| **Expo SDK** | `~51.0.0` | **`~58.0.23`** (`expo-router: ~58.0.30`, `expo-secure-store: ^58.0.2`, `expo-document-picker: ~58.0.5`) | `apps/mobile` | Shared Traveller & Host mobile runtime and encrypted token storage / document picking. |
+| **React Native** | `0.74.1` | **`0.88.1`** (`react: 19.3.0`, `react-native-web: ~0.21.4`) | `apps/mobile` | Native iOS/Android & web export runtime for Expo SDK 58 (`@types/react: ~18.3.12` intentionally excluded from `expo install` upgrades). |
+| **Native UI & Vectors** | N/A | **`lucide-react-native: 1.73.0`**, **`react-native-svg: 15.16.0`**, **`react-native-safe-area-context: ~5.11.1`**, **`@react-native-community/datetimepicker: 9.2.1`**, **`qrcode: 1.5.4`** | `apps/mobile` | Vector icon family, safe-area insets, native date/time controls, and real scannable SVG QR custody pass matrix. |
+| **State, Storage & Query** | `^4.5.2` / `^5.32.0` | **`zustand: ^4.5.2`**, **`@tanstack/react-query: ^5.32.0`**, **`@react-native-async-storage/async-storage: 2.2.0`** | `apps/mobile` & `apps/web` | Client state management, local device preferences/bookmarks persistence, and server-state caching. |
 
 ---
 

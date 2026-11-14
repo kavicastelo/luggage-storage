@@ -265,36 +265,63 @@ describe("Phase B — Mobile Traveller & Host Booking, Payment & Custody Flows",
     );
     expect(passSrc).toContain(".issueCustodyPass(");
 
+    const bookingHooksSrc = fs.readFileSync(
+      path.resolve(__dirname, "../src/hooks/useBookingQueries.ts"),
+      "utf-8"
+    );
     const bookingsSrc = fs.readFileSync(
       path.resolve(__dirname, "../app/(traveller)/bookings.tsx"),
       "utf-8"
     );
-    expect(bookingsSrc).toContain(".getMyBookings(");
-    expect(bookingsSrc).toContain(".cancelBooking(");
+    expect(bookingsSrc).toContain("useMyBookingsQuery(");
+    expect(bookingsSrc).toContain("useCancelBookingMutation(");
+    expect(bookingHooksSrc).toContain(".getMyBookings(");
+    expect(bookingHooksSrc).toContain(".cancelBooking(");
+
+    const hostHooksSrc = fs.readFileSync(
+      path.resolve(__dirname, "../src/hooks/useHostQueries.ts"),
+      "utf-8"
+    );
+    expect(hostHooksSrc).toContain(".getHostBookings(");
+    expect(hostHooksSrc).toContain(".acceptHostBooking(");
+    expect(hostHooksSrc).toContain(".completeCheckIn(");
+    expect(hostHooksSrc).toContain(".completeCollection(");
+    expect(hostHooksSrc).toContain(".getHostFinanceSummary(");
 
     const requestsSrc = fs.readFileSync(
       path.resolve(__dirname, "../app/(host)/requests.tsx"),
       "utf-8"
     );
-    expect(requestsSrc).toContain(".getHostBookings(");
-    expect(requestsSrc).toContain(".acceptHostBooking(");
+    expect(
+      requestsSrc.includes(".getHostBookings(") || requestsSrc.includes("useHostBookingsQuery(")
+    ).toBe(true);
+    expect(
+      requestsSrc.includes(".acceptHostBooking(") || requestsSrc.includes("useAcceptHostBookingMutation(")
+    ).toBe(true);
 
     const intakeSrc = fs.readFileSync(
       path.resolve(__dirname, "../app/(host)/intake.tsx"),
       "utf-8"
     );
-    expect(intakeSrc).toContain(".completeCheckIn(");
+    expect(
+      intakeSrc.includes(".completeCheckIn(") || intakeSrc.includes("useCompleteCheckInMutation(")
+    ).toBe(true);
 
     const vaultSrc = fs.readFileSync(
       path.resolve(__dirname, "../app/(host)/vault.tsx"),
       "utf-8"
     );
-    expect(vaultSrc).toContain(".completeCollection(");
+    expect(
+      vaultSrc.includes(".completeCollection(") || vaultSrc.includes("useCompleteCollectionMutation(")
+    ).toBe(true);
 
     const earningsSrc = fs.readFileSync(
       path.resolve(__dirname, "../app/(host)/earnings.tsx"),
       "utf-8"
     );
-    expect(earningsSrc).toContain(".getHostFinanceSummary(");
+    expect(
+      earningsSrc.includes(".getHostFinanceSummary(") ||
+        earningsSrc.includes("useHostFinanceSummaryQuery(")
+    ).toBe(true);
   });
 });

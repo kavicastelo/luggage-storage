@@ -27,10 +27,12 @@ import {
   ConfirmUploadResponse,
   BookingQuoteRequest,
   BookingQuoteResponse,
+  AvailabilitySearchQuery,
   CreateBookingRequest,
   BookingDetail,
   BookingListQuery,
   CancelBookingRequest,
+  RecordBookingExceptionRequest,
   HostDecisionBookingRequest,
   HostRejectBookingRequest,
   IssueCustodyPassRequest,
@@ -47,7 +49,15 @@ import {
   HostFinanceSummaryResponse,
   PaginatedApiResponse
 } from "@luggage-storage/contracts";
-import { fetchApi } from "./api-client";
+import { ApiClientError, fetchApi } from "./api-client";
+
+export interface HostPayoutDetailsResponse {
+  payoutBankName: string | null;
+  payoutAccountNumber: string | null;
+  payoutAccountNumberMasked: string | null;
+  payoutAccountName: string | null;
+  payoutBranchCode: string | null;
+}
 
 export const marketplaceApi = {
   // ==========================================================================
@@ -99,6 +109,14 @@ export const marketplaceApi = {
     const res = await fetchApi<HostVerification | null>(`/hosts/businesses/${businessId}/verification`, {
       method: "GET"
     });
+    return res.data;
+  },
+
+  async getBusinessPayoutDetails(businessId: string): Promise<HostPayoutDetailsResponse> {
+    const res = await fetchApi<HostPayoutDetailsResponse>(
+      `/hosts/businesses/${businessId}/payout-details`,
+      { method: "GET" }
+    );
     return res.data;
   },
 
@@ -269,6 +287,35 @@ export const marketplaceApi = {
     return res.data;
   },
 
+  async getVerificationDocumentDownloadUrl(
+    documentId: string
+  ): Promise<{ downloadUrl: string; fileName: string; mimeType: string }> {
+    const res = await fetchApi<{ downloadUrl: string; fileName: string; mimeType: string }>(
+      `/uploads/documents/${documentId}/download`,
+      { method: "GET" }
+    );
+    return res.data;
+  },
+
+  async uploadFileToPresignedUrl(params: {
+    uploadUrl: string;
+    fileUri: string;
+    mimeType: string;
+  }): Promise<void> {
+    const localRes = await fetch(params.fileUri);
+    const blob = await localRes.blob();
+    const putRes = await fetch(params.uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": params.mimeType
+      },
+      body: blob
+    });
+    if (!putRes.ok) {
+      throw new ApiClientError("Failed to upload file to storage", putRes.status, "UPLOAD_PUT_FAILED");
+    }
+  },
+
   // ==========================================================================
   // 5. Public Discovery
   // ==========================================================================
@@ -300,6 +347,26 @@ export const marketplaceApi = {
     const res = await fetchApi<PublicStorageLocation>(`/discovery/locations/${locationId}`, {
       method: "GET"
     });
+    return res.data;
+  },
+
+  async searchAvailability(
+    query: AvailabilitySearchQuery
+  ): Promise<{ quotes: BookingQuoteResponse[] }> {
+    const params = new URLSearchParams();
+    if (query.locationId) params.set("locationId", query.locationId);
+    if (query.city) params.set("city", query.city);
+    params.set("dropOffAt", query.dropOffAt);
+    params.set("collectionAt", query.collectionAt);
+    params.set("smallBags", String(query.smallBags ?? 0));
+    params.set("mediumBags", String(query.mediumBags ?? 0));
+    params.set("largeBags", String(query.largeBags ?? 0));
+    params.set("oversizedBags", String(query.oversizedBags ?? 0));
+
+    const res = await fetchApi<{ quotes: BookingQuoteResponse[] }>(
+      `/availability/search?${params.toString()}`,
+      { method: "GET" }
+    );
     return res.data;
   },
 
@@ -350,6 +417,17 @@ export const marketplaceApi = {
 
   async cancelBooking(bookingId: string, data: CancelBookingRequest): Promise<BookingDetail> {
     const res = await fetchApi<BookingDetail>(`/bookings/${bookingId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async reportBookingException(
+    bookingId: string,
+    data: RecordBookingExceptionRequest
+  ): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/bookings/${bookingId}/exceptions`, {
       method: "POST",
       body: JSON.stringify(data)
     });
@@ -429,6 +507,21 @@ export const marketplaceApi = {
       bookings: res.data ?? [],
       total: res.pagination?.total ?? (res.data?.length ?? 0)
     };
+  },
+
+  async getHostBookingDetail(bookingId: string): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/hosts/bookings/${bookingId}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  async hostCancelBooking(bookingId: string, data: CancelBookingRequest): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/hosts/bookings/${bookingId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
   },
 
   async acceptHostBooking(

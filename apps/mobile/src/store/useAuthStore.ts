@@ -8,10 +8,14 @@ import {
 import { authApi } from "../services/auth-api";
 import { secureStorage } from "../services/secure-storage.service";
 import {
+  ApiClientError,
   setAccessToken,
   clearAccessToken,
+  refreshAccessToken,
   setAuthFailureHandler
 } from "../services/api-client";
+import { mobileQueryClient } from "../lib/query-client";
+import { useMobileStore } from "./useMobileStore";
 
 export interface MobileAuthState {
   user: AuthenticatedUser | null;
@@ -29,6 +33,7 @@ export interface MobileAuthState {
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  refreshSessionAndUser: () => Promise<void>;
   clearAuth: () => Promise<void>;
   setError: (error: string | null) => void;
 
@@ -39,8 +44,10 @@ export interface MobileAuthState {
 }
 
 export const useAuthStore = create<MobileAuthState>((set, get) => {
-  // Wire auth failure callback to reset local credentials
+  // Wire auth failure callback to reset local credentials and caches
   setAuthFailureHandler(() => {
+    mobileQueryClient.clear();
+    useMobileStore.getState().resetTransientState();
     set({
       user: null,
       sessionId: null,
@@ -63,6 +70,8 @@ export const useAuthStore = create<MobileAuthState>((set, get) => {
     setError: (error: string | null) => set({ error }),
 
     clearAuth: async () => {
+      mobileQueryClient.clear();
+      useMobileStore.getState().resetTransientState();
       await secureStorage.deleteRefreshToken();
       clearAccessToken();
       set({
@@ -108,7 +117,23 @@ export const useAuthStore = create<MobileAuthState>((set, get) => {
           });
           return;
         }
-      } catch {
+      } catch (err) {
+        const isTransientNetworkError =
+          (err instanceof ApiClientError && err.statusCode === 0) ||
+          err instanceof TypeError ||
+          (err instanceof Error && err.name === "AbortError");
+        if (isTransientNetworkError) {
+          // Preserve SecureStore refresh token when offline or server unreachable
+          clearAccessToken();
+          set({
+            user: null,
+            sessionId: null,
+            permissions: [],
+            isAuthenticated: false,
+            isInitializing: false
+          });
+          return;
+        }
         // Stale, revoked, reused, or expired token
       }
 
@@ -128,6 +153,7 @@ export const useAuthStore = create<MobileAuthState>((set, get) => {
      * Requires SecureStore persistence before establishing authenticated state.
      */
     login: async (credentials: LoginRequest) => {
+      const previousUserId = get().user?.id;
       set({ isLoading: true, error: null });
       try {
         const loginData = await authApi.login(credentials);
@@ -142,6 +168,10 @@ export const useAuthStore = create<MobileAuthState>((set, get) => {
 
         // Fetch complete profile with effective permissions
         const meData = await authApi.getMe();
+        if (previousUserId && previousUserId !== meData.user.id) {
+          mobileQueryClient.clear();
+          useMobileStore.getState().resetTransientState();
+        }
         set({
           user: meData.user,
           sessionId: meData.sessionId,
@@ -226,9 +256,21 @@ export const useAuthStore = create<MobileAuthState>((set, get) => {
           permissions: meData.permissions || meData.user.permissions || [],
           isAuthenticated: true
         });
-      } catch {
-        await get().clearAuth();
+      } catch (err) {
+        if (err instanceof ApiClientError && (err.statusCode === 401 || err.statusCode === 403)) {
+          await get().clearAuth();
+        } else if (!(err instanceof ApiClientError && err.statusCode === 0) && !(err instanceof TypeError)) {
+          await get().clearAuth();
+        }
       }
+    },
+
+    /**
+     * Refresh JWT access token + user claims/permissions (used after host onboarding grant).
+     */
+    refreshSessionAndUser: async () => {
+      await refreshAccessToken();
+      await get().refreshUser();
     },
 
     /**

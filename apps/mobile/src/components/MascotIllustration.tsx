@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Image, Text, StyleSheet } from "react-native";
 import { getMobileMascotMeta, MascotKey } from "../lib/mascots";
+import { mobileColors, mobileRadius, mobileSpacing, mobileTextColors } from "../lib/theme";
 
 export interface MobileMascotIllustrationProps {
   mascot: MascotKey;
@@ -45,32 +46,31 @@ export function MascotIllustration({
 const styles = StyleSheet.create({
   container: {
     alignItems: "center",
-    backgroundColor: "#FFFBF5",
+    backgroundColor: mobileColors.canvas,
     borderWidth: 1,
-    borderColor: "#FDE68A",
-    borderRadius: 16,
-    padding: 14,
-    marginVertical: 8
+    borderColor: mobileColors.amber[100],
+    borderRadius: mobileRadius.xl,
+    padding: mobileSpacing[3],
+    marginVertical: mobileSpacing[2]
   },
   badge: {
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 10,
+    backgroundColor: mobileColors.amber[100],
+    paddingHorizontal: mobileSpacing[3],
     paddingVertical: 3,
-    borderRadius: 999,
-    marginBottom: 6
+    borderRadius: mobileRadius.full,
+    marginBottom: mobileSpacing[2]
   },
   badgeText: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#92400E",
+    color: mobileColors.amber[700],
     textTransform: "uppercase"
   },
   caption: {
-    marginTop: 6,
+    marginTop: mobileSpacing[2],
     fontSize: 12,
-    color: "#475569",
+    color: mobileTextColors.secondary,
     textAlign: "center",
     lineHeight: 17
   }
 });
-

@@ -39,18 +39,19 @@ describe("Phase 2C.3.1: Independent Traveller Mobile Verification Audit", () => 
     });
   });
 
-  describe("2. Security Audit: Offline Custody Credentials & Honest Prototype Presentation", () => {
-    it("confirms digital pass does NOT claim server-verified HMAC cryptography", () => {
+  describe("2. Security Audit: Offline Custody Credentials & Live Unlocking", () => {
+    it("confirms digital pass does NOT claim server-verified HMAC cryptography and stays locked until CONFIRMED", () => {
       const passPath = path.resolve(__dirname, "../app/(traveller)/pass.tsx");
       const content = fs.readFileSync(passPath, "utf-8");
 
-      // Must not make unsubstantiated cryptographic claims
+      // Must not make unsubstantiated cryptographic claims or fake SecureStore pass caching
       expect(content).not.toContain("Server-Verified HMAC Token");
       expect(content).not.toContain("Save Pass Offline (SecureStore)");
 
-      // Must honestly identify as prototype display
-      expect(content).toContain("Digital Custody QR Pass • Prototype Display");
-      expect(content).toContain("Cache Pass Offline (Prototype)");
+      // Must wire live single-use pass issuance, strict unlock status, and honest offline caching
+      expect(content).toContain("issueCustodyPass");
+      expect(content).toContain("isCustodyUnlocked");
+      expect(content).toContain("Offline Storage Protection");
     });
 
     it("confirms digital pass displays monospace human fallback PIN without claiming dynamic rotation", () => {
@@ -62,13 +63,15 @@ describe("Phase 2C.3.1: Independent Traveller Mobile Verification Audit", () => 
   });
 
   describe("3. Operational Claims & Uncontracted Marketing Neutralization", () => {
-    it("confirms location dossier neutralizes uncontracted insurance guarantee claims", () => {
+    it("confirms location dossier neutralizes uncontracted insurance guarantee claims and protects approximate privacy", () => {
       const locPath = path.resolve(__dirname, "../app/(traveller)/location.tsx");
       const content = fs.readFileSync(locPath, "utf-8");
 
       // Must not present uncontracted guarantee as definitive platform promise
       expect(content).not.toContain("LKR 250,000 Platform Guarantee");
-      expect(content).toContain("Illustrative Custody Guarantee (Demo)");
+      expect(content).toContain("usePublicLocationDetailQuery");
+      expect(content).toContain("Approximate coordinates");
+      expect(content).toContain("unlock after payment confirmation.");
     });
 
     it("confirms onboarding slides neutralize uncontracted guarantee claims", () => {
@@ -79,13 +82,14 @@ describe("Phase 2C.3.1: Independent Traveller Mobile Verification Audit", () => 
       expect(content).not.toContain("Safe custody guaranteed so you can immerse in island wonders.");
     });
 
-    it("confirms support centre neutralizes 24/7 uncontracted claims and labels demo helpline", () => {
+    it("confirms support centre neutralizes uncontracted claims and wires live exception reporting", () => {
       const supportPath = path.resolve(__dirname, "../app/(traveller)/support.tsx");
       const content = fs.readFileSync(supportPath, "utf-8");
 
       expect(content).not.toContain("24/7 Dedicated Custody Hotline");
-      expect(content).toContain("Custody Support Helpline");
-      expect(content).toContain("Demo Hotline");
+      expect(content).not.toContain("Demo Hotline");
+      expect(content).toContain("Report a Booking Exception");
+      expect(content).toContain("useReportBookingExceptionMutation");
     });
   });
 

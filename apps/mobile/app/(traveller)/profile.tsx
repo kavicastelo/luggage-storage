@@ -1,454 +1,320 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  Switch,
-  StyleSheet
-} from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  MascotIllustration,
+  MobileIcon,
+  SafeHeader,
+  ScreenContainer,
+  type MobileIconName
+} from "../../src/components";
 import { useAuthStore } from "../../src/store/useAuthStore";
 import { useMobileStore } from "../../src/store/useMobileStore";
-import { Card, Button, Badge, MobileIcon, MascotIllustration } from "../../src/components";
-import { mobileColors, mobileRadius, mobileTypography } from "../../src/lib/theme";
+import {
+  mobileColors,
+  mobileRadius,
+  mobileSpacing,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
+
+interface MenuRowProps {
+  icon: MobileIconName;
+  title: string;
+  subtitle?: string;
+  onPress: () => void;
+}
+
+function MenuRow({ icon, title, subtitle, onPress }: MenuRowProps) {
+  return (
+    <TouchableOpacity
+      style={styles.menuRow}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+    >
+      <View style={styles.menuIconWrap}>
+        <MobileIcon name={icon} size={18} color={mobileColors.navy[900]} />
+      </View>
+      <View style={styles.menuTextCol}>
+        <Text style={styles.menuTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.menuSubtitle}>{subtitle}</Text> : null}
+      </View>
+      <MobileIcon name="chevron-right" size={18} color={mobileTextColors.muted} />
+    </TouchableOpacity>
+  );
+}
 
 export default function TravellerProfileScreen() {
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuthStore();
   const { setRole } = useMobileStore();
+  const [confirmLogoutVisible, setConfirmLogoutVisible] = useState(false);
 
-  // Settings State (TM-004 / TM-044)
-  const [selectedLang, setSelectedLang] = useState<"EN" | "SI" | "TA">("EN");
-  const [selectedCurrency, setSelectedCurrency] = useState<"LKR" | "USD" | "EUR">("LKR");
-  const [biometricsEnabled, setBiometricsEnabled] = useState(true);
-  const [offlinePassEnabled, setOfflinePassEnabled] = useState(true);
-  const [pushAlertsEnabled, setPushAlertsEnabled] = useState(true);
+  const isHostCapable = Boolean(
+    user?.roles?.some((r) => ["HOST_OWNER", "HOST_STAFF", "SUPERADMIN"].includes(r))
+  );
 
-  // Switch role handler
-  const handleSwitchToHost = () => {
+  const handleOpenHost = () => {
     setRole("host");
-    router.replace("/(host)");
+    if (isHostCapable) {
+      router.push("/(host)");
+    } else {
+      router.push("/(host)/onboarding");
+    }
   };
 
   return (
-    <View style={styles.screenWrapper}>
-      <ScrollView contentContainerStyle={styles.container}>
-        {/* Coastal Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Account & Settings</Text>
-          <Text style={styles.headerSubtitle}>
-            Identity, Preferences, Notifications & Offline Security
+    <ScreenContainer
+      header={<SafeHeader title="Account & Settings" subtitle="Traveller Profile & Host Access" />}
+      testID="traveller-profile-screen"
+    >
+      {!isAuthenticated || !user ? (
+        <Card variant="elevated" style={styles.guestCard}>
+          <MascotIllustration mascot="wave" size="sm" />
+          <Text style={styles.guestTitle}>Sign in to BagBox Sri Lanka</Text>
+          <Text style={styles.guestBody}>
+            Manage your luggage reservations, digital custody passes, saved hubs, and partner host
+            workspace across devices.
           </Text>
-        </View>
-
-        {/* User Identity Card (TM-042) */}
-        <Card style={styles.identityCard} variant="elevated">
-          {isAuthenticated && user ? (
-            <View>
-              <View style={styles.identityHeader}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {user.displayName.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.displayName}>{user.displayName}</Text>
-                  <Text style={styles.emailText}>{user.email}</Text>
-                  <View style={styles.roleBadgesRow}>
-                    <Badge label="TRAVELLER" variant="navy" size="sm" />
-                    <Badge label="VERIFIED" variant="success" size="sm" />
-                  </View>
-                </View>
+          <Button
+            title="Sign In"
+            leftIcon={<MobileIcon name="user" size={16} color={mobileColors.white} />}
+            onPress={() => router.push("/(auth)/login")}
+          />
+          <Button
+            title="Create Account"
+            variant="outline"
+            onPress={() => router.push("/(auth)/register")}
+          />
+        </Card>
+      ) : (
+        <View style={styles.stack}>
+          <Card variant="elevated" style={styles.identityCard}>
+            <View style={styles.identityTop}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {(user.displayName || user.email || "B").slice(0, 1).toUpperCase()}
+                </Text>
               </View>
-
-              <View style={styles.accountActionRow}>
-                <Button
-                  title="Security & Password"
-                  variant="outline"
-                  size="sm"
-                  leftIcon={<MobileIcon name="lock" size={14} color={mobileColors.navy[900]} />}
-                  onPress={() => router.push("/(account)/security")}
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  title="Sign Out"
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => logout()}
-                />
+              <View style={styles.identityTextCol}>
+                <Text style={styles.displayName}>{user.displayName || "BagBox Member"}</Text>
+                <Text style={styles.emailText}>{user.email}</Text>
               </View>
             </View>
-          ) : (
-            <View style={{ alignItems: "center", paddingVertical: 8 }}>
-              <MascotIllustration
-                mascot="wave"
+
+            <View style={styles.badgesWrap}>
+              <Badge
+                label={user.isEmailVerified ? "Email Verified" : "Verification Pending"}
+                variant={user.isEmailVerified ? "success" : "warning"}
+                icon={user.isEmailVerified ? "check-circle" : "alert-circle"}
                 size="sm"
-                caption="Sign in to save your custody passes, manage active bookings, and review partner vaults."
               />
-              <View style={styles.authButtonsRow}>
-                <Button
-                  title="Sign In"
-                  variant="primary"
-                  onPress={() => router.push("/(auth)/login")}
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  title="Register"
-                  variant="outline"
-                  onPress={() => router.push("/(auth)/register")}
-                  style={{ flex: 1 }}
-                />
-              </View>
+              {(user.roles ?? []).map((r) => (
+                <Badge key={r} label={r} variant="navy" size="sm" />
+              ))}
             </View>
-          )}
-        </Card>
 
-        {/* Language & Currency Selector (TM-004) */}
-        <Card style={styles.cardSection}>
-          <Text style={styles.sectionTitle}>Language & Display Currency</Text>
-          <Text style={styles.sectionSubtitle}>
-            Local language support and transparent Sri Lankan Rupee pricing
-          </Text>
+            {!user.isEmailVerified ? (
+              <Button
+                title="Verify Email Address"
+                variant="secondary"
+                size="sm"
+                onPress={() => router.push("/(auth)/verify-email")}
+              />
+            ) : null}
+          </Card>
 
-          <Text style={styles.inputLabel}>Language</Text>
-          <View style={styles.pillRow}>
-            {(
-              [
-                { id: "EN", label: "English" },
-                { id: "SI", label: "සිංහල (Sinhala)" },
-                { id: "TA", label: "தமிழ் (Tamil)" }
-              ] as const
-            ).map((lang) => (
-              <TouchableOpacity
-                key={lang.id}
-                style={[
-                  styles.optionPill,
-                  selectedLang === lang.id && styles.optionPillActive
-                ]}
-                onPress={() => setSelectedLang(lang.id)}
-              >
-                <Text
-                  style={[
-                    styles.optionPillText,
-                    selectedLang === lang.id && styles.optionPillTextActive
-                  ]}
-                >
-                  {lang.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={[styles.inputLabel, { marginTop: 14 }]}>Display Currency</Text>
-          <View style={styles.pillRow}>
-            {(["LKR", "USD", "EUR"] as const).map((curr) => (
-              <TouchableOpacity
-                key={curr}
-                style={[
-                  styles.optionPill,
-                  selectedCurrency === curr && styles.optionPillActive
-                ]}
-                onPress={() => setSelectedCurrency(curr)}
-              >
-                <Text
-                  style={[
-                    styles.optionPillText,
-                    selectedCurrency === curr && styles.optionPillTextActive
-                  ]}
-                >
-                  {curr === "LKR" ? "LKR (Default)" : curr}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </Card>
-
-        {/* Notification Centre (TM-037) */}
-        <Card style={styles.cardSection}>
-          <Text style={styles.sectionTitle}>Recent Notifications</Text>
-          <Text style={styles.sectionSubtitle}>In-app custody updates and reminders</Text>
-
-          <View style={styles.notifItem}>
-            <View style={styles.notifIconCircle}>
-              <MobileIcon name="clock" size={14} color={mobileColors.emerald[700]} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.notifTitle}>Storage in Progress: Colombo Fort</Text>
-              <Text style={styles.notifBody}>
-                Your 2 bags are safely stored in Zone RACK-A. Scheduled pickup by 18:30.
-              </Text>
-              <Text style={styles.notifTime}>Today • 09:30 AM</Text>
-            </View>
-          </View>
-
-          <View style={styles.notifItem}>
-            <View style={styles.notifIconCircle}>
-              <MobileIcon name="check" size={14} color={mobileColors.sky[700]} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.notifTitle}>Booking Confirmed: Ella Hub</Text>
-              <Text style={styles.notifBody}>
-                Partner approved reservation #LS-2026-7712 for tomorrow morning.
-              </Text>
-              <Text style={styles.notifTime}>Yesterday • 16:45 PM</Text>
-            </View>
-          </View>
-        </Card>
-
-        {/* App Settings & Hardware Controls (TM-044) */}
-        <Card style={styles.cardSection}>
-          <Text style={styles.sectionTitle}>App & Security Preferences</Text>
-
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleTitle}>Biometric FaceID / Fingerprint</Text>
-              <Text style={styles.toggleSubtitle}>Require biometric unlock to view pass PIN</Text>
-            </View>
-            <Switch
-              value={biometricsEnabled}
-              onValueChange={setBiometricsEnabled}
-              trackColor={{ false: mobileColors.sand[300], true: mobileColors.terracotta[500] }}
+          <Card variant="default" style={styles.menuCard}>
+            <MenuRow
+              icon="user"
+              title="Identity Profile"
+              subtitle="Account email, roles, and permissions"
+              onPress={() => router.push("/(account)/profile")}
             />
-          </View>
-
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleTitle}>Offline Pass Caching</Text>
-              <Text style={styles.toggleSubtitle}>Store QR passes locally in SecureStore</Text>
-            </View>
-            <Switch
-              value={offlinePassEnabled}
-              onValueChange={setOfflinePassEnabled}
-              trackColor={{ false: mobileColors.sand[300], true: mobileColors.terracotta[500] }}
+            <MenuRow
+              icon="lock"
+              title="Security & Password"
+              subtitle="Update password & revoke external sessions"
+              onPress={() => router.push("/(account)/security")}
             />
-          </View>
-
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleTitle}>SLA Push Alerts</Text>
-              <Text style={styles.toggleSubtitle}>Receive 30-minute late collection warnings</Text>
-            </View>
-            <Switch
-              value={pushAlertsEnabled}
-              onValueChange={setPushAlertsEnabled}
-              trackColor={{ false: mobileColors.sand[300], true: mobileColors.terracotta[500] }}
+            <MenuRow
+              icon="smartphone"
+              title="Active Sessions"
+              subtitle="Inspect and revoke signed-in devices"
+              onPress={() => router.push("/(account)/sessions")}
             />
-          </View>
-        </Card>
+          </Card>
 
-        {/* Role Switching & Legal */}
-        <Card style={styles.cardSection}>
-          <Text style={styles.sectionTitle}>Partner Mode & Version</Text>
-          <Text style={styles.sectionSubtitle}>
-            Operate a storage location or switch operational profile
-          </Text>
+          <Card variant="default" style={styles.hostCard}>
+            <Text style={styles.hostHeading}>
+              {isHostCapable ? "Partner Host Workspace" : "Become a Storage Partner"}
+            </Text>
+            <Text style={styles.hostBody}>
+              {isHostCapable
+                ? "Switch to Host Workspace to approve requests, scan custody QR passes, and manage your Sri Lanka hubs."
+                : "Register your hotel, café, or shop in Sri Lanka as a verified BagBox custody partner."}
+            </Text>
+            <Button
+              title={isHostCapable ? "Open Host Workspace" : "Start Host Onboarding"}
+              variant="secondary"
+              leftIcon={<MobileIcon name="building" size={16} color={mobileColors.white} />}
+              onPress={handleOpenHost}
+            />
+          </Card>
+
+          <Card variant="default" style={styles.menuCard}>
+            <MenuRow
+              icon="compass"
+              title="Platform Tour"
+              subtitle="Revisit quick guide on how BagBox works"
+              onPress={() => router.push("/(traveller)/onboarding")}
+            />
+            {__DEV__ ? (
+              <MenuRow
+                icon="layers"
+                title="Developer Icon Catalogue"
+                subtitle="Inspect all lucide-react-native UI icons"
+                onPress={() => router.push("/(dev)/icons")}
+              />
+            ) : null}
+          </Card>
 
           <Button
-            title="Switch to Host Partner Portal"
-            variant="secondary"
-            onPress={handleSwitchToHost}
-            style={{ marginTop: 10 }}
+            title="Sign Out"
+            variant="danger"
+            leftIcon={<MobileIcon name="log-out" size={16} color={mobileColors.white} />}
+            onPress={() => setConfirmLogoutVisible(true)}
           />
+        </View>
+      )}
 
-          <View style={styles.legalLinksRow}>
-            <TouchableOpacity onPress={() => alert("Terms of Service: Sri Lanka Luggage Marketplace")}>
-              <Text style={styles.legalLink}>Terms of Service</Text>
-            </TouchableOpacity>
-            <Text style={{ color: mobileColors.sand[400] }}>•</Text>
-            <TouchableOpacity onPress={() => alert("Privacy Policy: Decoupled Custody Guarantee")}>
-              <Text style={styles.legalLink}>Privacy Policy</Text>
-            </TouchableOpacity>
-            <Text style={{ color: mobileColors.sand[400] }}>•</Text>
-            <Text style={styles.legalLink}>v0.1.0-cwcp</Text>
-          </View>
-        </Card>
-      </ScrollView>
-    </View>
+      <ConfirmDialog
+        visible={confirmLogoutVisible}
+        title="Sign Out?"
+        description="Your local refresh credential and cached queries on this device will be cleared."
+        confirmLabel="Sign Out"
+        destructive
+        onCancel={() => setConfirmLogoutVisible(false)}
+        onConfirm={() => {
+          setConfirmLogoutVisible(false);
+          void logout().then(() => {
+            router.replace("/(traveller)");
+          });
+        }}
+      />
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  screenWrapper: {
-    flex: 1,
-    backgroundColor: mobileColors.canvas
+  stack: {
+    gap: mobileSpacing[4]
   },
-  container: {
-    paddingBottom: 40
+  guestCard: {
+    gap: mobileSpacing[3],
+    alignItems: "stretch"
   },
-  header: {
-    backgroundColor: mobileColors.navy[900],
-    paddingTop: 48,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    marginBottom: 16
+  guestTitle: {
+    ...mobileTypography.headingMd,
+    color: mobileTextColors.primary,
+    textAlign: "center"
   },
-  headerTitle: {
-    ...mobileTypography.headingLg,
-    color: mobileColors.white
-  },
-  headerSubtitle: {
+  guestBody: {
     ...mobileTypography.bodySm,
-    color: mobileColors.sand[400],
-    marginTop: 2
+    color: mobileTextColors.secondary,
+    textAlign: "center"
   },
   identityCard: {
-    marginHorizontal: 16,
-    marginBottom: 14,
-    padding: 16
+    gap: mobileSpacing[3]
   },
-  identityHeader: {
+  identityTop: {
     flexDirection: "row",
-    gap: 12,
     alignItems: "center",
-    marginBottom: 14
+    gap: mobileSpacing[3]
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: mobileColors.terracotta[500],
-    justifyContent: "center",
-    alignItems: "center"
+    width: 52,
+    height: 52,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.navy[900],
+    alignItems: "center",
+    justifyContent: "center"
   },
   avatarText: {
-    fontSize: 20,
-    fontWeight: "800",
+    fontSize: 22,
+    fontWeight: "700",
     color: mobileColors.white
   },
+  identityTextCol: {
+    flex: 1,
+    gap: 2
+  },
   displayName: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
+    ...mobileTypography.headingMd,
+    color: mobileTextColors.primary
   },
   emailText: {
     fontSize: 12,
-    color: mobileColors.sand[600],
-    marginBottom: 6
+    lineHeight: 16,
+    fontWeight: "400",
+    color: mobileTextColors.secondary
   },
-  roleBadgesRow: {
-    flexDirection: "row",
-    gap: 6
-  },
-  accountActionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: mobileColors.sand[100],
-    paddingTop: 12
-  },
-  authButtonsRow: {
-    flexDirection: "row",
-    gap: 12,
-    width: "100%",
-    marginTop: 12
-  },
-  cardSection: {
-    marginHorizontal: 16,
-    marginBottom: 14,
-    padding: 16
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
-  },
-  sectionSubtitle: {
-    fontSize: 11,
-    color: mobileColors.sand[600],
-    marginTop: 2,
-    marginBottom: 12
-  },
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: mobileColors.navy[900],
-    marginBottom: 6
-  },
-  pillRow: {
+  badgesWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 6
   },
-  optionPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+  menuCard: {
+    padding: 0,
+    overflow: "hidden"
+  },
+  menuRow: {
+    minHeight: 56,
+    paddingHorizontal: mobileSpacing[4],
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: mobileColors.sand[200]
+  },
+  menuIconWrap: {
+    width: 36,
+    height: 36,
     borderRadius: mobileRadius.md,
     backgroundColor: mobileColors.sand[100],
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200]
-  },
-  optionPillActive: {
-    backgroundColor: mobileColors.navy[900],
-    borderColor: mobileColors.navy[900]
-  },
-  optionPillText: {
-    fontSize: 12,
-    color: mobileColors.sand[800],
-    fontWeight: "600"
-  },
-  optionPillTextActive: {
-    color: mobileColors.white
-  },
-  notifItem: {
-    flexDirection: "row",
-    gap: 10,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: mobileColors.sand[100]
-  },
-  notifIconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: mobileColors.sand[100],
-    justifyContent: "center",
-    alignItems: "center"
-  },
-  notifTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
-  },
-  notifBody: {
-    fontSize: 11,
-    color: mobileColors.sand[700],
-    marginTop: 2
-  },
-  notifTime: {
-    fontSize: 10,
-    color: mobileColors.sand[500],
-    marginTop: 4
-  },
-  toggleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: mobileColors.sand[100]
+    justifyContent: "center"
   },
-  toggleTitle: {
-    fontSize: 13,
-    fontWeight: "600",
+  menuTextCol: {
+    flex: 1
+  },
+  menuTitle: {
+    ...mobileTypography.label,
+    color: mobileTextColors.primary
+  },
+  menuSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    color: mobileTextColors.muted
+  },
+  hostCard: {
+    gap: mobileSpacing[3],
+    backgroundColor: mobileColors.navy[50],
+    borderColor: mobileColors.navy[100]
+  },
+  hostHeading: {
+    ...mobileTypography.headingSm,
     color: mobileColors.navy[900]
   },
-  toggleSubtitle: {
-    fontSize: 11,
-    color: mobileColors.sand[600],
-    marginTop: 2
-  },
-  legalLinksRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 8,
-    marginTop: 14
-  },
-  legalLink: {
-    fontSize: 11,
-    color: mobileColors.sand[600]
+  hostBody: {
+    ...mobileTypography.bodySm,
+    color: mobileColors.navy[700]
   }
 });

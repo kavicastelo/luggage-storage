@@ -1,70 +1,85 @@
 import React from "react";
-import { View, StyleSheet, ViewStyle, StyleProp, TouchableOpacity } from "react-native";
-import { mobileColors, mobileRadius, mobileShadows } from "../lib/theme";
+import { View, TouchableOpacity, StyleSheet, type ViewStyle } from "react-native";
+import { mobileColors, mobileRadius, mobileSpacing, mobileShadows } from "../lib/theme";
 
-interface CardProps {
+export type CardVariant = "default" | "elevated" | "outlined" | "accent" | "navy";
+
+export interface CardProps {
   children: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
-  variant?: "default" | "elevated" | "outlined" | "accent";
+  variant?: CardVariant;
+  style?: ViewStyle;
   onPress?: () => void;
   accessibilityLabel?: string;
+  testID?: string;
 }
 
 export function Card({
   children,
-  style,
   variant = "default",
+  style,
   onPress,
-  accessibilityLabel
+  accessibilityLabel,
+  testID
 }: CardProps) {
-  const variantStyles = {
+  const variantStyles: ViewStyle = {
     default: styles.variantDefault,
     elevated: styles.variantElevated,
     outlined: styles.variantOutlined,
-    accent: styles.variantAccent
+    accent: styles.variantAccent,
+    navy: styles.variantNavy
   }[variant];
 
   if (onPress) {
     return (
       <TouchableOpacity
-        style={[styles.base, variantStyles, style]}
+        testID={testID}
+        activeOpacity={0.85}
         onPress={onPress}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
-        activeOpacity={0.7}
+        style={[styles.base, variantStyles, style]}
       >
         {children}
       </TouchableOpacity>
     );
   }
 
-  return <View style={[styles.base, variantStyles, style]}>{children}</View>;
+  return (
+    <View testID={testID} style={[styles.base, variantStyles, style]}>
+      {children}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   base: {
-    backgroundColor: mobileColors.white,
     borderRadius: mobileRadius.xl,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200]
+    padding: mobileSpacing[4]
   },
   variantDefault: {
-    backgroundColor: mobileColors.white,
-    borderColor: mobileColors.sand[200],
-    ...mobileShadows.sm
+    backgroundColor: mobileColors.card,
+    borderWidth: 1,
+    borderColor: mobileColors.border
   },
   variantElevated: {
-    backgroundColor: mobileColors.white,
-    borderColor: mobileColors.sand[200],
-    ...mobileShadows.md
+    backgroundColor: mobileColors.card,
+    borderWidth: 1,
+    borderColor: mobileColors.border,
+    ...mobileShadows.sm
   },
   variantOutlined: {
-    backgroundColor: mobileColors.sand[50],
-    borderColor: mobileColors.sand[300]
+    backgroundColor: mobileColors.canvas,
+    borderWidth: 1.5,
+    borderColor: mobileColors.border
   },
   variantAccent: {
     backgroundColor: mobileColors.terracotta[50],
+    borderWidth: 1,
     borderColor: mobileColors.terracotta[200]
+  },
+  variantNavy: {
+    backgroundColor: mobileColors.navy[900],
+    borderWidth: 1,
+    borderColor: mobileColors.navy[800]
   }
 });

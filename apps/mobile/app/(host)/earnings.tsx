@@ -1,827 +1,292 @@
-import React, { useState, useMemo, useEffect } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet
-} from "react-native";
+import React from "react";
+import { View, Text, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
-import { HostFinanceSummaryResponse } from "@luggage-storage/contracts";
+import { formatCurrencyMinorUnits, type CurrencyCode } from "@luggage-storage/contracts";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  LoadingSkeleton,
+  SafeHeader,
+  ScreenContainer,
+  StatusBadge,
+  formatColomboDateTime
+} from "../../src/components";
+import {
+  useBusinessPayoutDetailsQuery,
+  useHostFinanceSummaryQuery,
+  useOwnedBusinessesQuery
+} from "../../src/hooks";
+import { normalizeApiError } from "../../src/services/api-client";
 import { useAuthStore } from "../../src/store/useAuthStore";
-import { useHostStore } from "../../src/store/useHostStore";
-import { marketplaceApi } from "../../src/services/marketplace-api";
-import { MobileIcon } from "../../src/components/MobileIcon";
-import { mobileColors } from "../../src/lib/theme";
+import {
+  mobileColors,
+  mobileSpacing,
+  mobileStatusTokens,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
 
 export default function HostEarningsScreen() {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
-  const { activeDemoRole, transactions } = useHostStore();
-  const [filterBatch, setFilterBatch] = useState<"ALL" | "CLEARED" | "PENDING">("ALL");
-  const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
-  const [liveFinance, setLiveFinance] = useState<HostFinanceSummaryResponse | null>(null);
+  const { user } = useAuthStore();
 
-  const isOwner = isAuthenticated
-    ? Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"))
-    : activeDemoRole === "HOST_OWNER";
+  const isOwner = Boolean(
+    user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN")
+  );
 
-  useEffect(() => {
-    if (!isAuthenticated || !isOwner) return;
-    let active = true;
-    marketplaceApi
-      .getHostFinanceSummary()
-      .then((res) => {
-        if (active && res.payables.length > 0) {
-          setLiveFinance(res);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [isAuthenticated, isOwner]);
+  const businessesQuery = useOwnedBusinessesQuery(isOwner);
+  const business = businessesQuery.data?.[0] ?? null;
 
-  // Role Guard for Host Staff
+  const financeQuery = useHostFinanceSummaryQuery(business?.id, isOwner);
+  const payoutQuery = useBusinessPayoutDetailsQuery(business?.id, isOwner && Boolean(business?.id));
+
   if (!isOwner) {
     return (
-      <View style={styles.deniedContainer}>
-        <View style={styles.deniedCard}>
+      <ScreenContainer
+        header={<SafeHeader title="Host Earnings & Settlements" />}
+        testID="host-earnings-forbidden"
+      >
+        <Card variant="outlined" style={styles.deniedCard}>
           <Text style={styles.deniedBadge}>RBAC Guard • 403 Forbidden</Text>
           <Text style={styles.deniedTitle}>Host Owner Access Required</Text>
           <Text style={styles.deniedBody}>
-            Earnings, payout ledgers, and bank settlement details are restricted to Host Owner
-            accounts. Staff members have operational access only (Live Desk, Requests, Scanner, Intake, and Vault).
+            Financial settlement balances and bank payout details are restricted to HOST_OWNER and
+            SUPERADMIN accounts.
           </Text>
-          <TouchableOpacity
-            style={styles.returnDeskBtn}
+          <Button
+            title="Return to Live Desk"
             onPress={() => router.replace("/(host)")}
-          >
-            <Text style={styles.returnDeskBtnText}>Return to Live Desk</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+          />
+        </Card>
+      </ScreenContainer>
     );
   }
 
-  // Financial aggregates
-  const financialSummary = useMemo(() => {
-    if (liveFinance) {
-      const grossTotal = Math.round(
-        liveFinance.payables.reduce((sum, p) => sum + p.grossSubtotalMinor, 0) / 100
-      );
-      const platformFeeTotal = Math.round(
-        liveFinance.payables.reduce((sum, p) => sum + p.commissionMinor, 0) / 100
-      );
-      const netTotal = Math.round(
-        (liveFinance.totalAccruedMinor +
-          liveFinance.totalEligibleMinor +
-          liveFinance.totalPaidMinor) /
-          100
-      );
-      return {
-        grossTotal,
-        platformFeeTotal,
-        netTotal,
-        clearedTotal: Math.round(liveFinance.totalPaidMinor / 100),
-        pendingTotal: Math.round(
-          (liveFinance.totalAccruedMinor + liveFinance.totalEligibleMinor) / 100
-        )
-      };
-    }
-
-    const grossTotal = transactions.reduce((sum, tx) => sum + tx.grossAmountLkr, 0);
-    const platformFeeTotal = transactions.reduce((sum, tx) => sum + tx.platformFeeLkr, 0);
-    const netTotal = transactions.reduce(
-      (sum, tx) => sum + (tx.netHostLkr ?? tx.netPayoutLkr),
-      0
-    );
-
-    const clearedTotal = transactions
-      .filter((tx) => tx.payoutStatus === "CLEARED_BATCH" || tx.status === "CLEARED")
-      .reduce((sum, tx) => sum + (tx.netHostLkr ?? tx.netPayoutLkr), 0);
-
-    const pendingTotal = transactions
-      .filter(
-        (tx) =>
-          tx.payoutStatus === "PENDING_SETTLEMENT" || tx.status === "PENDING_BATCH"
-      )
-      .reduce((sum, tx) => sum + (tx.netHostLkr ?? tx.netPayoutLkr), 0);
-
-    return {
-      grossTotal,
-      platformFeeTotal,
-      netTotal,
-      clearedTotal,
-      pendingTotal
-    };
-  }, [transactions, liveFinance]);
-
-  const filteredTransactions = useMemo(() => {
-    if (filterBatch === "CLEARED") {
-      return transactions.filter(
-        (tx) => tx.payoutStatus === "CLEARED_BATCH" || tx.status === "CLEARED"
-      );
-    }
-    if (filterBatch === "PENDING") {
-      return transactions.filter(
-        (tx) =>
-          tx.payoutStatus === "PENDING_SETTLEMENT" || tx.status === "PENDING_BATCH"
-      );
-    }
-    return transactions;
-  }, [transactions, filterBatch]);
+  const summary = financeQuery.data;
+  const currency = (summary?.currency || "LKR") as CurrencyCode;
+  const payout = payoutQuery.data;
 
   return (
-    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Screen-Level Demonstration Disclaimer */}
-      <View style={styles.demoFinancialNotice}>
-        <MobileIcon name="alert-circle" size={16} color="#92400E" />
-        <Text style={styles.demoFinancialNoticeText}>
-          <Text style={styles.boldText}>Demonstration Financial Surface:</Text> All revenue figures,
-          splits, and payout schedules are simulated demonstration fixtures. No live banking rails or
-          automated disbursements are active.
-        </Text>
-      </View>
-
-      {/* Header */}
-      <View style={styles.headerCard}>
-        <Text style={styles.pageTitle}>Host Earnings & Settlements</Text>
-        <Text style={styles.pageSubtitle}>
-          Itemized ledger, 85% net host revenue breakdown, and weekly payout schedules.
-        </Text>
-
-        {/* Payout Schedule Callout */}
-        <View style={styles.scheduleCallout}>
-          <MobileIcon name="clock" size={16} color={mobileColors.navy[700]} />
-          <View style={styles.scheduleTextCol}>
-            <Text style={styles.scheduleTitle}>Illustrative Payout Schedule — Not Connected</Text>
-            <Text style={styles.scheduleSubtitle}>
-              Commercial Bank of Ceylon • Simulated settlement schedule (DEC-006 Pending Sign-Off)
+    <ScreenContainer
+      header={
+        <SafeHeader
+          title="Host Earnings & Settlements"
+          subtitle={business ? business.tradeName : "LKR Double-Entry Ledger"}
+        />
+      }
+      refreshing={financeQuery.isRefetching}
+      onRefresh={() => {
+        void Promise.all([financeQuery.refetch(), payoutQuery.refetch()]);
+      }}
+      testID="host-earnings-screen"
+    >
+      {financeQuery.isLoading || businessesQuery.isLoading ? (
+        <LoadingSkeleton count={4} />
+      ) : financeQuery.isError ? (
+        <ErrorState
+          title="Unable to Load Financial Ledger"
+          message={normalizeApiError(financeQuery.error).message}
+          onRetry={() => {
+            void financeQuery.refetch();
+          }}
+        />
+      ) : !summary ? (
+        <EmptyState
+          mascot="thinking"
+          title="No Settlement Data Yet"
+          description="Confirmed and released luggage bookings accrue host payables automatically."
+        />
+      ) : (
+        <View style={styles.stack}>
+          <Card variant="navy" style={styles.heroCard}>
+            <Text style={styles.heroEyebrow}>ELIGIBLE HOST PAYABLES ({currency})</Text>
+            <Text style={styles.heroAmount}>
+              {formatCurrencyMinorUnits(summary.totalEligibleMinor, currency)}
             </Text>
+            <Text style={styles.heroSub}>
+              Accrued ledger entries move to Eligible after verified collection release and hold
+              clearance.
+            </Text>
+          </Card>
+
+          <View style={styles.kpiGrid}>
+            <Card variant="default" style={styles.kpiCard}>
+              <Text style={styles.kpiLabel}>Accrued</Text>
+              <Text style={styles.kpiVal}>
+                {formatCurrencyMinorUnits(summary.totalAccruedMinor, currency)}
+              </Text>
+            </Card>
+            <Card variant="default" style={styles.kpiCard}>
+              <Text style={styles.kpiLabel}>On Hold</Text>
+              <Text style={styles.kpiVal}>
+                {formatCurrencyMinorUnits(summary.totalOnHoldMinor, currency)}
+              </Text>
+            </Card>
+            <Card variant="default" style={styles.kpiCard}>
+              <Text style={styles.kpiLabel}>Settled Paid</Text>
+              <Text style={styles.kpiVal}>
+                {formatCurrencyMinorUnits(summary.totalPaidMinor, currency)}
+              </Text>
+            </Card>
           </View>
-        </View>
-      </View>
 
-      {/* KPI Highlights */}
-      <View style={styles.kpiGrid}>
-        <View style={styles.kpiCard}>
-          <Text style={styles.kpiLabel}>Net Host Earnings (85%)</Text>
-          <Text style={styles.kpiValue}>
-            LKR {financialSummary.netTotal.toLocaleString()}
-          </Text>
-          <Text style={styles.kpiSub}>Total earned to date</Text>
-        </View>
-
-        <View style={styles.kpiCard}>
-          <Text style={styles.kpiLabel}>Pending Next Payout</Text>
-          <Text style={[styles.kpiValue, styles.kpiPending]}>
-            LKR {financialSummary.pendingTotal.toLocaleString()}
-          </Text>
-          <Text style={styles.kpiSub}>Releasing Wed Nov 12</Text>
-        </View>
-      </View>
-
-      {/* 85 / 15 Split Breakdown Card */}
-      <View style={styles.splitCard}>
-        <View style={styles.splitHeader}>
-          <MobileIcon name="pie-chart" size={18} color={mobileColors.terracotta[600]} />
-          <Text style={styles.splitCardTitle}>Revenue Share Breakdown</Text>
-        </View>
-
-        <View style={styles.splitRow}>
-          <Text style={styles.splitLabel}>Gross Paid Guest Volume (100%)</Text>
-          <Text style={styles.splitValGross}>
-            LKR {financialSummary.grossTotal.toLocaleString()}
-          </Text>
-        </View>
-
-        <View style={styles.splitRow}>
-          <Text style={styles.splitLabel}>Platform Service Fee (15%)</Text>
-          <Text style={styles.splitValFee}>
-            -LKR {financialSummary.platformFeeTotal.toLocaleString()}
-          </Text>
-        </View>
-
-        <View style={styles.splitDivider} />
-
-        <View style={styles.splitRow}>
-          <Text style={styles.splitLabelNet}>Net Host Share (85%)</Text>
-          <Text style={styles.splitValNet}>
-            LKR {financialSummary.netTotal.toLocaleString()}
-          </Text>
-        </View>
-
-        {/* DEC-006 Disclaimer */}
-        <View style={styles.splitDisclaimerBox}>
-          <Text style={styles.splitDisclaimerText}>
-            <Text style={styles.boldText}>Policy Note (DEC-006):</Text> The 85% host / 15% platform split
-            and weekly Wednesday batch cycle are illustrative defaults pending final Product Owner
-            commercial sign-off.
-          </Text>
-        </View>
-      </View>
-
-      {/* Bank Account Details Card */}
-      <View style={styles.bankCard}>
-        <View style={styles.bankHeader}>
-          <MobileIcon name="credit-card" size={18} color={mobileColors.navy[900]} />
-          <Text style={styles.bankCardTitle}>Settlement Bank Account (Demo Display)</Text>
-        </View>
-
-        <View style={styles.bankDetailRow}>
-          <Text style={styles.bankDetailLabel}>Financial Institution:</Text>
-          <Text style={styles.bankDetailValue}>Commercial Bank of Ceylon PLC</Text>
-        </View>
-
-        <View style={styles.bankDetailRow}>
-          <Text style={styles.bankDetailLabel}>Branch:</Text>
-          <Text style={styles.bankDetailValue}>Fort Corporate Branch (Colombo 01)</Text>
-        </View>
-
-        <View style={styles.bankDetailRow}>
-          <Text style={styles.bankDetailLabel}>Account Number:</Text>
-          <Text style={styles.bankDetailValue}>**** **** **** 8492</Text>
-        </View>
-
-        <View style={styles.bankDetailRow}>
-          <Text style={styles.bankDetailLabel}>Settlement Currency:</Text>
-          <Text style={styles.bankDetailValue}>LKR (Sri Lankan Rupee)</Text>
-        </View>
-
-        <Text style={styles.bankDisclaimerText}>
-          * Sample settlement profile. Automated bank disbursements require merchant onboarding in production.
-        </Text>
-      </View>
-
-      {/* Transaction History Filter & Header */}
-      <View style={styles.ledgerHeaderRow}>
-        <Text style={styles.sectionTitle}>Transaction History</Text>
-        <View style={styles.filterGroup}>
-          <TouchableOpacity
-            style={[styles.filterBtn, filterBatch === "ALL" && styles.filterBtnActive]}
-            onPress={() => setFilterBatch("ALL")}
-          >
-            <Text
-              style={[
-                styles.filterBtnText,
-                filterBatch === "ALL" && styles.filterBtnTextActive
-              ]}
-            >
-              All
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.filterBtn, filterBatch === "PENDING" && styles.filterBtnActive]}
-            onPress={() => setFilterBatch("PENDING")}
-          >
-            <Text
-              style={[
-                styles.filterBtnText,
-                filterBatch === "PENDING" && styles.filterBtnTextActive
-              ]}
-            >
-              Pending
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.filterBtn, filterBatch === "CLEARED" && styles.filterBtnActive]}
-            onPress={() => setFilterBatch("CLEARED")}
-          >
-            <Text
-              style={[
-                styles.filterBtnText,
-                filterBatch === "CLEARED" && styles.filterBtnTextActive
-              ]}
-            >
-              Cleared
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Transaction Item List */}
-      <View style={styles.txList}>
-        {filteredTransactions.map((tx) => {
-          const isExpanded = expandedTxId === tx.id;
-          const isCleared = tx.payoutStatus === "CLEARED_BATCH" || tx.status === "CLEARED";
-          const refCode = tx.reference || tx.bookingRef;
-          const displayDate = tx.timestamp || tx.date;
-          const netAmt = tx.netHostLkr ?? tx.netPayoutLkr;
-          const batchCode = tx.payoutBatchId || tx.settlementBatch;
-
-          return (
-            <TouchableOpacity
-              key={tx.id}
-              style={styles.txCard}
-              activeOpacity={0.8}
-              onPress={() => setExpandedTxId(isExpanded ? null : tx.id)}
-            >
-              <View style={styles.txTopRow}>
-                <View style={styles.txRefCol}>
-                  <Text style={styles.txRef}>{refCode}</Text>
-                  <Text style={styles.txTraveller}>{tx.travellerName}</Text>
-                  <Text style={styles.txTimestamp}>{displayDate}</Text>
-                </View>
-
-                <View style={styles.txAmountCol}>
-                  <Text style={styles.txNetVal}>
-                    +LKR {netAmt.toLocaleString()}
-                  </Text>
-                  <View
-                    style={[
-                      styles.txStatusPill,
-                      isCleared ? styles.pillCleared : styles.pillPending
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.txStatusText,
-                        isCleared ? styles.textCleared : styles.textPending
-                      ]}
-                    >
-                      {isCleared ? "Cleared Payout" : "Pending Next Batch"}
-                    </Text>
-                  </View>
-                </View>
+          {business ? (
+            <Card variant="default" style={styles.cardGap}>
+              <View style={styles.rowBetween}>
+                <Text style={styles.sectionTitle}>LKR Settlement Bank Account</Text>
+                <Badge
+                  label={payout?.payoutAccountNumberMasked ? "Configured" : "Action Needed"}
+                  variant={payout?.payoutAccountNumberMasked ? "success" : "warning"}
+                  size="sm"
+                />
               </View>
-
-              {/* Collapsible calculation breakdown */}
-              {isExpanded && (
-                <View style={styles.txExpanded}>
-                  <View style={styles.txCalcRow}>
-                    <Text style={styles.txCalcLabel}>Guest Paid (Gross):</Text>
-                    <Text style={styles.txCalcVal}>
-                      LKR {tx.grossAmountLkr.toLocaleString()}
-                    </Text>
-                  </View>
-
-                  <View style={styles.txCalcRow}>
-                    <Text style={styles.txCalcLabel}>Platform Service Fee (15%):</Text>
-                    <Text style={styles.txCalcValFee}>
-                      -LKR {tx.platformFeeLkr.toLocaleString()}
-                    </Text>
-                  </View>
-
-                  <View style={styles.txCalcRow}>
-                    <Text style={styles.txCalcLabel}>Host Net Settlement (85%):</Text>
-                    <Text style={styles.txCalcValNet}>
-                      LKR {netAmt.toLocaleString()}
-                    </Text>
-                  </View>
-
-                  <View style={styles.txCalcRow}>
-                    <Text style={styles.txCalcLabel}>Settlement Batch ID:</Text>
-                    <Text style={styles.txCalcValBatch}>{batchCode}</Text>
-                  </View>
-                </View>
+              {payout?.payoutAccountNumberMasked ? (
+                <Text style={styles.metaText}>
+                  {payout.payoutBankName || "Bank"} • {payout.payoutAccountNumberMasked} •{" "}
+                  {payout.payoutAccountName || business.legalBusinessName}
+                </Text>
+              ) : (
+                <Text style={styles.metaText}>
+                  Add your Sri Lanka bank account details in Partner Onboarding to enable manual LKR
+                  bank settlements.
+                </Text>
               )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+              <Button
+                title="Update Bank Payout Details"
+                size="sm"
+                variant="outline"
+                onPress={() => router.push("/(host)/onboarding")}
+              />
+            </Card>
+          ) : null}
 
-      {/* Honest Prototype Notice */}
-      <View style={styles.prototypeNoticeCard}>
-        <MobileIcon name="info" size={16} color={mobileColors.terracotta[600]} />
-        <Text style={styles.prototypeNoticeText}>
-          <Text style={styles.boldText}>Settlement Ledger Simulation:</Text> Revenue records and
-          batch payouts are simulated demonstration data. Banking rails and automated ACH/SLIPS
-          disbursements will be integrated during live payment system onboarding.
-        </Text>
-      </View>
-    </ScrollView>
+          <Text style={styles.sectionTitle}>Transaction History ({summary.payables.length})</Text>
+
+          {summary.payables.length === 0 ? (
+            <EmptyState
+              mascot="thinking"
+              title="No Payable Records Yet"
+              description="Each paid booking generates a double-entry payable showing gross booking amount, platform commission, and net host payable."
+            />
+          ) : (
+            summary.payables.map((item) => (
+              <Card key={item.id} variant="elevated" style={styles.cardGap}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.refCode}>
+                    #{item.referenceCode || item.bookingId.slice(0, 8)}
+                  </Text>
+                  <StatusBadge status={item.status} size="sm" />
+                </View>
+
+                <Text style={styles.netValue}>
+                  Net Host Payable:{" "}
+                  {formatCurrencyMinorUnits(item.netPayableMinor, (item.currency || currency) as CurrencyCode)}
+                </Text>
+                <Text style={styles.metaText}>
+                  Gross Booking:{" "}
+                  {formatCurrencyMinorUnits(item.grossSubtotalMinor, (item.currency || currency) as CurrencyCode)}{" "}
+                  • Platform Fee:{" "}
+                  {formatCurrencyMinorUnits(item.commissionMinor, (item.currency || currency) as CurrencyCode)}
+                </Text>
+                <Text style={styles.metaText}>
+                  Accrued: {formatColomboDateTime(new Date(item.accruedAt))}
+                </Text>
+              </Card>
+            ))
+          )}
+        </View>
+      )}
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    backgroundColor: mobileColors.sand[100],
-    paddingBottom: 40
+  stack: {
+    gap: mobileSpacing[4]
   },
-  demoFinancialNotice: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFBEB",
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-    gap: 8
+  deniedCard: {
+    gap: mobileSpacing[3],
+    marginTop: mobileSpacing[4],
+    borderColor: mobileStatusTokens.dangerBorder,
+    backgroundColor: mobileStatusTokens.dangerBg
   },
-  demoFinancialNoticeText: {
-    flex: 1,
-    fontSize: 11,
-    color: "#92400E",
-    lineHeight: 15
-  },
-  headerCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2
-  },
-  pageTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: mobileColors.navy[900],
-    marginBottom: 4
-  },
-  pageSubtitle: {
-    fontSize: 13,
-    color: mobileColors.navy[600],
-    lineHeight: 18,
-    marginBottom: 12
-  },
-  scheduleCallout: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: mobileColors.sand[100],
-    borderRadius: 10,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    gap: 8
-  },
-  scheduleTextCol: {
-    flex: 1
-  },
-  scheduleTitle: {
+  deniedBadge: {
     fontSize: 12,
     fontWeight: "700",
+    color: mobileStatusTokens.danger,
+    textTransform: "uppercase"
+  },
+  deniedTitle: {
+    ...mobileTypography.headingMd,
     color: mobileColors.navy[900]
   },
-  scheduleSubtitle: {
+  deniedBody: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.secondary
+  },
+  heroCard: {
+    gap: 6
+  },
+  heroEyebrow: {
     fontSize: 11,
-    color: mobileColors.navy[600],
-    marginTop: 1
+    fontWeight: "700",
+    letterSpacing: 0.8,
+    color: mobileColors.terracotta[300]
+  },
+  heroAmount: {
+    ...mobileTypography.displayLg,
+    color: mobileColors.white
+  },
+  heroSub: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: mobileColors.sand[200]
   },
   kpiGrid: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 16
+    gap: mobileSpacing[2]
   },
   kpiCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2
+    gap: 4
   },
   kpiLabel: {
     fontSize: 11,
     fontWeight: "600",
-    color: mobileColors.navy[600],
-    marginBottom: 4
+    color: mobileTextColors.muted
   },
-  kpiValue: {
-    fontSize: 18,
-    fontWeight: "700",
+  kpiVal: {
+    ...mobileTypography.label,
     color: mobileColors.navy[900]
   },
-  kpiPending: {
-    color: mobileColors.terracotta[600]
+  cardGap: {
+    gap: mobileSpacing[2]
   },
-  kpiSub: {
-    fontSize: 10,
-    color: mobileColors.sand[600],
-    marginTop: 4
-  },
-  splitCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2
-  },
-  splitHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12
-  },
-  splitCardTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
-  },
-  splitRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8
-  },
-  splitLabel: {
-    fontSize: 13,
-    color: mobileColors.navy[600]
-  },
-  splitLabelNet: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
-  },
-  splitValGross: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: mobileColors.navy[800]
-  },
-  splitValFee: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#DC2626"
-  },
-  splitValNet: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#15803D"
-  },
-  splitDivider: {
-    height: 1,
-    backgroundColor: mobileColors.sand[200],
-    marginVertical: 8
-  },
-  splitDisclaimerBox: {
-    backgroundColor: mobileColors.sand[100],
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200]
-  },
-  splitDisclaimerText: {
-    fontSize: 11,
-    color: mobileColors.navy[600],
-    lineHeight: 15
-  },
-  bankCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2
-  },
-  bankHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12
-  },
-  bankCardTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
-  },
-  bankDetailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 6
-  },
-  bankDetailLabel: {
-    fontSize: 12,
-    color: mobileColors.navy[500]
-  },
-  bankDetailValue: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: mobileColors.navy[800]
-  },
-  bankDisclaimerText: {
-    fontSize: 11,
-    color: mobileColors.sand[600],
-    fontStyle: "italic",
-    marginTop: 8
-  },
-  ledgerHeaderRow: {
+  rowBetween: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12
+    gap: mobileSpacing[2]
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
+    ...mobileTypography.headingSm,
+    color: mobileTextColors.primary
   },
-  filterGroup: {
-    flexDirection: "row",
-    backgroundColor: mobileColors.sand[200],
-    borderRadius: 8,
-    padding: 2
-  },
-  filterBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6
-  },
-  filterBtnActive: {
-    backgroundColor: "#FFFFFF"
-  },
-  filterBtnText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: mobileColors.navy[600]
-  },
-  filterBtnTextActive: {
-    color: mobileColors.navy[900]
-  },
-  txList: {
-    marginBottom: 16
-  },
-  txCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1
-  },
-  txTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start"
-  },
-  txRefCol: {
-    flex: 1
-  },
-  txRef: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: mobileColors.navy[900],
-    fontFamily: "monospace"
-  },
-  txTraveller: {
-    fontSize: 13,
-    color: mobileColors.navy[700],
-    marginTop: 2
-  },
-  txTimestamp: {
-    fontSize: 11,
-    color: mobileColors.sand[600],
-    marginTop: 1
-  },
-  txAmountCol: {
-    alignItems: "flex-end"
-  },
-  txNetVal: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#15803D"
-  },
-  txStatusPill: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginTop: 4
-  },
-  pillCleared: {
-    backgroundColor: "#DCFCE7"
-  },
-  pillPending: {
-    backgroundColor: "#FEF3C7"
-  },
-  txStatusText: {
-    fontSize: 10,
-    fontWeight: "700"
-  },
-  textCleared: {
-    color: "#15803D"
-  },
-  textPending: {
-    color: "#B45309"
-  },
-  txExpanded: {
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: mobileColors.sand[200],
-    gap: 4
-  },
-  txCalcRow: {
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  txCalcLabel: {
-    fontSize: 11,
-    color: mobileColors.navy[500]
-  },
-  txCalcVal: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: mobileColors.navy[800]
-  },
-  txCalcValFee: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#DC2626"
-  },
-  txCalcValNet: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#15803D"
-  },
-  txCalcValBatch: {
-    fontSize: 11,
-    fontFamily: "monospace",
-    color: mobileColors.navy[600]
-  },
-  prototypeNoticeCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    backgroundColor: "#FFFBEB",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-    gap: 10
-  },
-  prototypeNoticeText: {
-    flex: 1,
+  refCode: {
     fontSize: 12,
-    color: "#92400E",
-    lineHeight: 16
-  },
-  boldText: {
-    fontWeight: "700"
-  },
-  deniedContainer: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24
-  },
-  deniedCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 24,
-    width: "100%",
-    maxWidth: 380,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    alignItems: "center"
-  },
-  deniedBadge: {
-    fontSize: 11,
     fontWeight: "700",
-    color: "#dc2626",
-    textTransform: "uppercase",
-    marginBottom: 8
+    color: mobileColors.terracotta[600]
   },
-  deniedTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#0f172a",
-    marginBottom: 8
+  netValue: {
+    ...mobileTypography.label,
+    color: mobileColors.navy[900]
   },
-  deniedBody: {
-    fontSize: 13,
-    color: "#475569",
-    textAlign: "center",
-    lineHeight: 19,
-    marginBottom: 20
-  },
-  returnDeskBtn: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    width: "100%",
-    alignItems: "center"
-  },
-  returnDeskBtnText: {
-    color: "#ffffff",
-    fontWeight: "600",
-    fontSize: 14
+  metaText: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: mobileTextColors.secondary
   }
 });

@@ -1,39 +1,89 @@
 import React from "react";
-import { View, Text, StyleSheet, ViewStyle, StyleProp } from "react-native";
-import { mobileColors, mobileRadius } from "../lib/theme";
+import { View, Text, StyleSheet, type ViewStyle } from "react-native";
+import { mobileColors, mobileRadius, mobileSpacing, mobileStatusTokens } from "../lib/theme";
+import { MobileIcon, type MobileIconName } from "./MobileIcon";
 
-interface BadgeProps {
+export type BadgeVariant =
+  | "neutral"
+  | "success"
+  | "warning"
+  | "terracotta"
+  | "info"
+  | "navy"
+  | "danger";
+
+export interface BadgeProps {
   label: string;
-  variant?: "neutral" | "success" | "warning" | "terracotta" | "info" | "navy";
+  variant?: BadgeVariant;
   size?: "sm" | "md";
-  style?: StyleProp<ViewStyle>;
-  icon?: React.ReactNode;
+  icon?: MobileIconName;
+  style?: ViewStyle;
+  testID?: string;
 }
 
 export function Badge({
   label,
   variant = "neutral",
   size = "md",
+  icon,
   style,
-  icon
+  testID
 }: BadgeProps) {
   const variantStyles = {
-    neutral: { container: styles.containerNeutral, text: styles.textNeutral },
-    success: { container: styles.containerSuccess, text: styles.textSuccess },
-    warning: { container: styles.containerWarning, text: styles.textWarning },
-    terracotta: { container: styles.containerTerracotta, text: styles.textTerracotta },
-    info: { container: styles.containerInfo, text: styles.textInfo },
-    navy: { container: styles.containerNavy, text: styles.textNavy }
+    neutral: {
+      container: styles.neutralContainer,
+      text: styles.neutralText,
+      iconColor: mobileStatusTokens.neutralIcon
+    },
+    success: {
+      container: styles.successContainer,
+      text: styles.successText,
+      iconColor: mobileStatusTokens.successIcon
+    },
+    warning: {
+      container: styles.warningContainer,
+      text: styles.warningText,
+      iconColor: mobileStatusTokens.warningIcon
+    },
+    terracotta: {
+      container: styles.terracottaContainer,
+      text: styles.terracottaText,
+      iconColor: mobileColors.terracotta[600]
+    },
+    info: {
+      container: styles.infoContainer,
+      text: styles.infoText,
+      iconColor: mobileStatusTokens.infoIcon
+    },
+    navy: {
+      container: styles.navyContainer,
+      text: styles.navyText,
+      iconColor: mobileColors.navy[900]
+    },
+    danger: {
+      container: styles.dangerContainer,
+      text: styles.dangerText,
+      iconColor: mobileStatusTokens.dangerIcon
+    }
   }[variant];
 
   const sizeStyles = {
-    sm: { container: styles.sizeSm, text: styles.textSizeSm },
-    md: { container: styles.sizeMd, text: styles.textSizeMd }
+    sm: { container: styles.sizeSm, text: styles.textSizeSm, iconSize: 11 },
+    md: { container: styles.sizeMd, text: styles.textSizeMd, iconSize: 13 }
   }[size];
 
   return (
-    <View style={[styles.base, variantStyles.container, sizeStyles.container, style]}>
-      {icon ? <View style={{ marginRight: 4 }}>{icon}</View> : null}
+    <View
+      testID={testID}
+      style={[styles.base, variantStyles.container, sizeStyles.container, style]}
+      accessible
+      accessibilityLabel={label}
+    >
+      {icon ? (
+        <View style={styles.iconWrap}>
+          <MobileIcon name={icon} size={sizeStyles.iconSize} color={variantStyles.iconColor} />
+        </View>
+      ) : null}
       <Text style={[styles.baseText, variantStyles.text, sizeStyles.text]}>{label}</Text>
     </View>
   );
@@ -41,77 +91,82 @@ export function Badge({
 
 const styles = StyleSheet.create({
   base: {
+    borderRadius: mobileRadius.full,
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    borderRadius: mobileRadius.full,
-    alignSelf: "flex-start"
+    borderWidth: 1
+  },
+  iconWrap: {
+    marginRight: mobileSpacing[1]
   },
   baseText: {
-    fontWeight: "700"
+    fontWeight: "700",
+    letterSpacing: 0.2
   },
   sizeSm: {
-    paddingHorizontal: 8,
-    paddingVertical: 2
+    paddingHorizontal: mobileSpacing[2],
+    paddingVertical: 3
   },
   sizeMd: {
-    paddingHorizontal: 10,
-    paddingVertical: 4
+    paddingHorizontal: mobileSpacing[3],
+    paddingVertical: 5
   },
   textSizeSm: {
-    fontSize: 10,
+    fontSize: 11,
     lineHeight: 14
   },
   textSizeMd: {
     fontSize: 12,
     lineHeight: 16
   },
-  containerNeutral: {
-    backgroundColor: mobileColors.sand[100],
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200]
+  neutralContainer: {
+    backgroundColor: mobileStatusTokens.neutralBg,
+    borderColor: mobileStatusTokens.neutralBorder
   },
-  textNeutral: {
-    color: mobileColors.sand[700]
+  neutralText: {
+    color: mobileStatusTokens.neutral
   },
-  containerSuccess: {
-    backgroundColor: mobileColors.emerald[50],
-    borderWidth: 1,
-    borderColor: mobileColors.emerald[100]
+  successContainer: {
+    backgroundColor: mobileStatusTokens.successBg,
+    borderColor: mobileStatusTokens.successBorder
   },
-  textSuccess: {
-    color: mobileColors.emerald[700]
+  successText: {
+    color: mobileStatusTokens.success
   },
-  containerWarning: {
-    backgroundColor: mobileColors.amber[50],
-    borderWidth: 1,
-    borderColor: mobileColors.amber[100]
+  warningContainer: {
+    backgroundColor: mobileStatusTokens.warningBg,
+    borderColor: mobileStatusTokens.warningBorder
   },
-  textWarning: {
-    color: mobileColors.amber[700]
+  warningText: {
+    color: mobileStatusTokens.warning
   },
-  containerTerracotta: {
+  terracottaContainer: {
     backgroundColor: mobileColors.terracotta[50],
-    borderWidth: 1,
-    borderColor: mobileColors.terracotta[100]
+    borderColor: mobileColors.terracotta[200]
   },
-  textTerracotta: {
+  terracottaText: {
     color: mobileColors.terracotta[600]
   },
-  containerInfo: {
-    backgroundColor: mobileColors.sky[50],
-    borderWidth: 1,
-    borderColor: mobileColors.sky[100]
+  infoContainer: {
+    backgroundColor: mobileStatusTokens.infoBg,
+    borderColor: mobileStatusTokens.infoBorder
   },
-  textInfo: {
-    color: mobileColors.sky[700]
+  infoText: {
+    color: mobileStatusTokens.info
   },
-  containerNavy: {
+  navyContainer: {
     backgroundColor: mobileColors.navy[50],
-    borderWidth: 1,
     borderColor: mobileColors.navy[100]
   },
-  textNavy: {
+  navyText: {
     color: mobileColors.navy[900]
+  },
+  dangerContainer: {
+    backgroundColor: mobileStatusTokens.dangerBg,
+    borderColor: mobileStatusTokens.dangerBorder
+  },
+  dangerText: {
+    color: mobileStatusTokens.danger
   }
 });

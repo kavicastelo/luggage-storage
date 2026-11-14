@@ -1,69 +1,84 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal } from "react-native";
-import { TRAVELLER_MOBILE_SCREENS } from "../data/mock-marketplace";
-import { mobileColors, mobileRadius } from "../lib/theme";
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal } from "react-native";
+import { useRouter } from "expo-router";
+import { ALL_MOBILE_SCREENS } from "../data/mock-marketplace";
+import { mobileColors, mobileControlSizes, mobileRadius, mobileSpacing } from "../lib/theme";
+import { MobileIcon } from "./MobileIcon";
+import { IconButton } from "./ui/IconButton";
 
-interface MobileDevDrawerProps {
+export interface MobileDevDrawerProps {
   onSelectScreen?: (screenId: string) => void;
   activeScreenId?: string;
 }
 
 export function MobileDevDrawer({ onSelectScreen, activeScreenId }: MobileDevDrawerProps) {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
 
-  // In production builds where __DEV__ is false, do not render
-  if (typeof __DEV__ !== "undefined" && !__DEV__) {
+  if (!__DEV__) {
     return null;
   }
 
   return (
     <>
-      {/* Discreet floating developer pill */}
       <TouchableOpacity
-        style={styles.floatingPill}
+        style={styles.fab}
         onPress={() => setIsOpen(true)}
-        accessibilityLabel="Developer Audit Drawer"
+        accessibilityRole="button"
+        accessibilityLabel="Open developer inspection drawer"
       >
-        <Text style={styles.floatingPillText}>DEV • QA</Text>
+        <MobileIcon name="wrench" size="xs" color={mobileColors.white} />
+        <Text style={styles.fabText}>DEV</Text>
       </TouchableOpacity>
 
       <Modal visible={isOpen} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.drawerPanel}>
+            <View style={styles.drawerHeader}>
               <View>
-                <Text style={styles.modalTitle}>Developer & QA Drawer</Text>
-                <Text style={styles.modalSubtitle}>
-                  39 Registered Traveller Screens (Isolated from Consumer View)
-                </Text>
+                <Text style={styles.drawerTitle}>Developer Tools</Text>
+                <Text style={styles.drawerSubtitle}>__DEV__ only · Screen & Icon Inspector</Text>
               </View>
-              <TouchableOpacity
-                style={styles.closeBtn}
+              <IconButton
+                icon="x"
                 onPress={() => setIsOpen(false)}
-              >
-                <Text style={styles.closeBtnText}>✕ Close</Text>
-              </TouchableOpacity>
+                accessibilityLabel="Close developer drawer"
+                variant="subtle"
+                iconSize="sm"
+              />
             </View>
 
-            <ScrollView style={styles.screenList}>
-              {TRAVELLER_MOBILE_SCREENS.map((scr) => {
+            <TouchableOpacity
+              style={styles.catalogBtn}
+              onPress={() => {
+                setIsOpen(false);
+                router.push("/(dev)/icons");
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Open vector icon catalogue"
+            >
+              <MobileIcon name="layers" size="sm" color={mobileColors.white} />
+              <Text style={styles.catalogBtnText}>Vector Icon Catalogue (C2)</Text>
+            </TouchableOpacity>
+
+            <ScrollView style={styles.list}>
+              {ALL_MOBILE_SCREENS.map((scr) => {
                 const isActive = scr.id === activeScreenId;
                 return (
                   <TouchableOpacity
                     key={scr.id}
-                    style={[styles.screenRow, isActive && styles.screenRowActive]}
+                    style={[styles.item, isActive ? styles.activeItem : null]}
                     onPress={() => {
-                      if (onSelectScreen) onSelectScreen(scr.id);
+                      onSelectScreen?.(scr.id);
                       setIsOpen(false);
                     }}
+                    disabled={!onSelectScreen}
                   >
-                    <View style={styles.rowTop}>
-                      <Text style={styles.codeTag}>{scr.id}</Text>
-                      <Text style={styles.categoryTag}>{scr.category}</Text>
-                    </View>
-                    <Text style={styles.screenName}>{scr.name}</Text>
-                    <Text style={styles.summaryText} numberOfLines={2}>
-                      {scr.summary}
+                    <Text style={[styles.itemId, isActive ? styles.activeItemText : null]}>
+                      {scr.id}
+                    </Text>
+                    <Text style={[styles.itemTitle, isActive ? styles.activeItemText : null]}>
+                      {scr.name}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -77,104 +92,99 @@ export function MobileDevDrawer({ onSelectScreen, activeScreenId }: MobileDevDra
 }
 
 const styles = StyleSheet.create({
-  floatingPill: {
+  fab: {
     position: "absolute",
-    bottom: 74,
-    right: 12,
+    right: 16,
+    bottom: 84,
     backgroundColor: mobileColors.navy[900],
-    paddingHorizontal: 10,
-    paddingVertical: 5,
     borderRadius: mobileRadius.full,
+    paddingHorizontal: mobileSpacing[3],
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[1],
+    zIndex: 99,
     borderWidth: 1,
-    borderColor: mobileColors.terracotta[400],
-    zIndex: 9999,
-    opacity: 0.85
+    borderColor: mobileColors.terracotta[400]
   },
-  floatingPillText: {
-    color: mobileColors.terracotta[300],
-    fontSize: 10,
+  fabText: {
+    color: mobileColors.white,
+    fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 0.5
+    letterSpacing: 0.4
   },
-  modalOverlay: {
+  modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(10, 25, 47, 0.6)",
+    backgroundColor: "rgba(7, 14, 26, 0.56)",
     justifyContent: "flex-end"
   },
-  modalContent: {
-    backgroundColor: mobileColors.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+  drawerPanel: {
     height: "75%",
-    padding: 16
+    backgroundColor: mobileColors.card,
+    borderTopLeftRadius: mobileRadius["2xl"],
+    borderTopRightRadius: mobileRadius["2xl"],
+    padding: mobileSpacing[5],
+    gap: mobileSpacing[3]
   },
-  modalHeader: {
+  drawerHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    paddingBottom: mobileSpacing[3],
     borderBottomWidth: 1,
-    borderBottomColor: mobileColors.sand[200],
-    paddingBottom: 12,
-    marginBottom: 8
+    borderBottomColor: mobileColors.border
   },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
+  drawerTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: mobileColors.navy[950]
   },
-  modalSubtitle: {
-    fontSize: 11,
-    color: mobileColors.sand[600],
-    marginTop: 2
-  },
-  closeBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: mobileColors.sand[100],
-    borderRadius: 8
-  },
-  closeBtnText: {
+  drawerSubtitle: {
     fontSize: 12,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
+    color: mobileColors.secondaryText
   },
-  screenList: {
+  catalogBtn: {
+    minHeight: mobileControlSizes.minTouchTarget,
+    backgroundColor: mobileColors.terracotta[500],
+    borderRadius: mobileRadius.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: mobileSpacing[2],
+    paddingHorizontal: mobileSpacing[4]
+  },
+  catalogBtnText: {
+    color: mobileColors.white,
+    fontWeight: "700",
+    fontSize: 14
+  },
+  list: {
     flex: 1
   },
-  screenRow: {
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    marginBottom: 8,
-    backgroundColor: mobileColors.sand[50]
-  },
-  screenRowActive: {
-    borderColor: mobileColors.terracotta[500],
-    backgroundColor: mobileColors.terracotta[50]
-  },
-  rowTop: {
+  item: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: mobileSpacing[3],
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.lg,
     marginBottom: 4
   },
-  codeTag: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: mobileColors.terracotta[600]
+  activeItem: {
+    backgroundColor: mobileColors.terracotta[50]
   },
-  categoryTag: {
-    fontSize: 10,
-    color: mobileColors.sand[600]
-  },
-  screenName: {
-    fontSize: 13,
+  itemId: {
+    width: 68,
+    fontSize: 12,
     fontWeight: "700",
-    color: mobileColors.navy[900],
-    marginBottom: 2
+    color: mobileColors.secondaryText
   },
-  summaryText: {
-    fontSize: 11,
-    color: mobileColors.sand[700]
+  itemTitle: {
+    flex: 1,
+    fontSize: 14,
+    color: mobileColors.navy[950]
+  },
+  activeItemText: {
+    color: mobileColors.terracotta[600],
+    fontWeight: "700"
   }
 });

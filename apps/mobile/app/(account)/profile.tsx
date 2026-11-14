@@ -1,36 +1,60 @@
-import React from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Platform
-} from "react-native";
+import React, { useState } from "react";
+import { View, Text, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  MobileIcon,
+  ScreenContainer,
+  StatusBadge
+} from "../../src/components";
 import { useAuthStore } from "../../src/store/useAuthStore";
+import {
+  mobileColors,
+  mobileRadius,
+  mobileSpacing,
+  mobileStatusTokens,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
 
 export default function MobileProfileScreen() {
   const router = useRouter();
-  const { user, sessionId, permissions, logout, isLoading } = useAuthStore();
+  const { user, sessionId, permissions, logout } = useAuthStore();
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   if (!user) {
     return (
-      <View style={styles.centerContainer}>
-        <Text style={styles.emptyText}>Not authenticated</Text>
-      </View>
+      <ScreenContainer>
+        <EmptyState
+          title="Sign In Required"
+          description="Sign in to view your account details, email verification status, and permissions."
+          icon="user"
+          actionTitle="Sign In"
+          onAction={() => router.replace("/(auth)/login")}
+        />
+      </ScreenContainer>
     );
   }
 
   const handleLogout = async () => {
-    await logout();
-    router.replace("/");
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      router.replace("/");
+    } finally {
+      setIsLoggingOut(false);
+      setConfirmLogout(false);
+    }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      {/* Profile Header */}
-      <View style={styles.card}>
+    <ScreenContainer testID="account-profile-screen">
+      <Card variant="elevated" style={styles.headerCard}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{user.displayName.charAt(0).toUpperCase()}</Text>
         </View>
@@ -38,292 +62,202 @@ export default function MobileProfileScreen() {
         <Text style={styles.emailText}>{user.email}</Text>
 
         <View style={styles.badgeRow}>
-          <View style={[styles.statusBadge, user.status === "ACTIVE" ? styles.badgeActive : styles.badgeWarning]}>
-            <Text style={styles.statusBadgeText}>{user.status}</Text>
-          </View>
-          <View style={[styles.statusBadge, user.isEmailVerified ? styles.badgeVerified : styles.badgeUnverified]}>
-            <Text style={styles.statusBadgeText}>
-              {user.isEmailVerified ? "Email Verified" : "Email Unverified"}
-            </Text>
-          </View>
+          <StatusBadge status={user.status} size="sm" />
+          <Badge
+            label={user.isEmailVerified ? "Email Verified" : "Email Unverified"}
+            variant={user.isEmailVerified ? "success" : "warning"}
+            icon={user.isEmailVerified ? "check-circle" : "alert-circle"}
+            size="sm"
+          />
         </View>
 
-        {!user.isEmailVerified && (
-          <View style={styles.unverifiedAlert}>
-            <Text style={styles.unverifiedAlertText}>
-              Please verify your email address to enable luggage storage location hosting.
+        {!user.isEmailVerified ? (
+          <View style={styles.verifyCallout}>
+            <Text style={styles.verifyCalloutText}>
+              Verify your email to create luggage bookings, change your password, or register as a host.
             </Text>
+            <Button
+              title="Verify Email Address"
+              size="sm"
+              onPress={() =>
+                router.push({ pathname: "/(auth)/verify-email", params: { email: user.email } })
+              }
+              fullWidth
+            />
           </View>
-        )}
-      </View>
+        ) : null}
+      </Card>
 
-      {/* Account Details */}
-      <View style={styles.card}>
-        <Text style={styles.sectionHeader}>Account Information</Text>
+      <Card variant="default" style={styles.card}>
+        <Text style={styles.sectionTitle}>Identity Summary (Read-Only)</Text>
+        <Text style={styles.helperNote}>
+          Self-service profile editing is not exposed by the mobile API; contact support for legal identity changes.
+        </Text>
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>User ID</Text>
-          <Text style={styles.detailValueMono} numberOfLines={1}>
+          <Text style={styles.detailMono} numberOfLines={1}>
             {user.id}
           </Text>
         </View>
 
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Active Session ID</Text>
-          <Text style={styles.detailValueMono} numberOfLines={1}>
-            {sessionId || "N/A"}
+          <Text style={styles.detailLabel}>Active Session</Text>
+          <Text style={styles.detailMono} numberOfLines={1}>
+            {sessionId ?? "Active"}
           </Text>
         </View>
 
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Assigned Roles</Text>
-          <View style={styles.roleChipsContainer}>
+          <Text style={styles.detailLabel}>Roles</Text>
+          <View style={styles.chipsWrap}>
             {user.roles.map((r) => (
-              <View key={r} style={styles.roleChip}>
-                <Text style={styles.roleChipText}>{r}</Text>
-              </View>
+              <Badge key={r} label={r} variant="navy" size="sm" />
             ))}
           </View>
         </View>
-      </View>
+      </Card>
 
-      {/* Effective Permissions */}
-      <View style={styles.card}>
-        <Text style={styles.sectionHeader}>Effective Permissions ({permissions.length})</Text>
-        <Text style={styles.permissionsSubtitle}>
-          Evaluated dynamically from PostgreSQL role-permission mappings:
-        </Text>
-        <View style={styles.permissionsGrid}>
-          {permissions.map((p) => (
-            <View key={p} style={styles.permChip}>
-              <Text style={styles.permText}>{p}</Text>
+      <Card variant="default" style={styles.card}>
+        <Text style={styles.sectionTitle}>Effective Permissions ({permissions.length})</Text>
+        <View style={styles.chipsWrap}>
+          {permissions.map((perm) => (
+            <View key={perm} style={styles.permChip}>
+              <Text style={styles.permText}>{perm}</Text>
             </View>
           ))}
         </View>
-      </View>
+      </Card>
 
-      {/* Navigation Actions */}
-      <View style={styles.card}>
-        <TouchableOpacity
-          style={styles.menuItem}
+      <View style={styles.actions}>
+        <Button
+          title="Password & Security"
+          variant="outline"
+          leftIcon={<MobileIcon name="lock" size="sm" />}
           onPress={() => router.push("/(account)/security")}
-        >
-          <Text style={styles.menuItemText}>Change Password</Text>
-          <Text style={styles.menuItemArrow}>›</Text>
-        </TouchableOpacity>
-
-        <View style={styles.divider} />
-
-        <TouchableOpacity
-          style={styles.menuItem}
+          fullWidth
+        />
+        <Button
+          title="Active Sessions"
+          variant="outline"
+          leftIcon={<MobileIcon name="smartphone" size="sm" />}
           onPress={() => router.push("/(account)/sessions")}
-        >
-          <Text style={styles.menuItemText}>Active Sessions & Devices</Text>
-          <Text style={styles.menuItemArrow}>›</Text>
-        </TouchableOpacity>
-
-        <View style={styles.divider} />
-
-        <TouchableOpacity
-          style={[styles.menuItem, styles.logoutItem]}
-          onPress={handleLogout}
-          disabled={isLoading}
-        >
-          <Text style={styles.logoutText}>Sign Out of Device</Text>
-        </TouchableOpacity>
+          fullWidth
+        />
+        <Button
+          title="Sign Out"
+          variant="danger"
+          leftIcon={<MobileIcon name="log-out" size="sm" color={mobileColors.white} />}
+          onPress={() => setConfirmLogout(true)}
+          fullWidth
+        />
       </View>
-    </ScrollView>
+
+      <ConfirmDialog
+        visible={confirmLogout}
+        title="Sign Out"
+        description="Sign out from this device?"
+        confirmLabel="Sign Out"
+        destructive
+        icon="log-out"
+        isLoading={isLoggingOut}
+        onConfirm={handleLogout}
+        onCancel={() => setConfirmLogout(false)}
+      />
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f8fafc"
-  },
-  contentContainer: {
-    padding: 16,
-    paddingBottom: 32
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: "center",
+  headerCard: {
     alignItems: "center",
-    backgroundColor: "#f8fafc"
-  },
-  emptyText: {
-    color: "#64748b",
-    fontSize: 14
-  },
-  card: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-    alignItems: "center"
+    gap: mobileSpacing[2],
+    marginBottom: mobileSpacing[4]
   },
   avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#dbeafe",
-    justifyContent: "center",
+    width: 68,
+    height: 68,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.navy[900],
     alignItems: "center",
-    marginBottom: 12
+    justifyContent: "center"
   },
   avatarText: {
-    color: "#2563eb",
+    color: mobileColors.white,
     fontSize: 26,
-    fontWeight: "bold"
+    fontWeight: "800"
   },
   displayName: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#0f172a"
+    ...mobileTypography.headingLg
   },
   emailText: {
-    fontSize: 13,
-    color: "#64748b",
-    marginTop: 2
+    ...mobileTypography.bodyMd,
+    color: mobileTextColors.muted
   },
   badgeRow: {
     flexDirection: "row",
-    gap: 8,
-    marginTop: 12
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: mobileSpacing[2],
+    marginTop: mobileSpacing[1]
   },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12
-  },
-  badgeActive: {
-    backgroundColor: "#dcfce7"
-  },
-  badgeWarning: {
-    backgroundColor: "#fef3c7"
-  },
-  badgeVerified: {
-    backgroundColor: "#dbeafe"
-  },
-  badgeUnverified: {
-    backgroundColor: "#fee2e2"
-  },
-  statusBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#1e293b"
-  },
-  unverifiedAlert: {
-    backgroundColor: "#fffbeb",
-    borderColor: "#fde68a",
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 14,
-    width: "100%"
-  },
-  unverifiedAlertText: {
-    color: "#b45309",
-    fontSize: 12,
-    textAlign: "center"
-  },
-  sectionHeader: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#0f172a",
+  verifyCallout: {
     width: "100%",
-    marginBottom: 12
+    backgroundColor: mobileStatusTokens.warningBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.warningBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3],
+    gap: mobileSpacing[2],
+    marginTop: mobileSpacing[2]
+  },
+  verifyCalloutText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.warning
+  },
+  card: {
+    gap: mobileSpacing[3],
+    marginBottom: mobileSpacing[4]
+  },
+  sectionTitle: {
+    ...mobileTypography.headingSm
+  },
+  helperNote: {
+    ...mobileTypography.bodySm
   },
   detailRow: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
+    gap: 4,
+    paddingVertical: mobileSpacing[1],
     borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9"
+    borderBottomColor: mobileColors.sand[100]
   },
   detailLabel: {
-    fontSize: 13,
-    color: "#64748b"
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted
   },
-  detailValueMono: {
-    fontSize: 11,
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    color: "#1e293b",
-    maxWidth: 200
+  detailMono: {
+    ...mobileTypography.codeMono,
+    fontSize: 12
   },
-  roleChipsContainer: {
+  chipsWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 4
-  },
-  roleChip: {
-    backgroundColor: "#e0e7ff",
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 2
-  },
-  roleChipText: {
-    color: "#3730a3",
-    fontSize: 11,
-    fontWeight: "600"
-  },
-  permissionsSubtitle: {
-    fontSize: 12,
-    color: "#64748b",
-    width: "100%",
-    marginBottom: 8
-  },
-  permissionsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    width: "100%"
+    gap: mobileSpacing[2]
   },
   permChip: {
-    backgroundColor: "#f1f5f9",
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    backgroundColor: mobileColors.sand[100],
+    borderRadius: mobileRadius.sm,
+    paddingHorizontal: mobileSpacing[2],
     paddingVertical: 4
   },
   permText: {
     fontSize: 11,
-    color: "#334155",
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace"
+    fontWeight: "600",
+    color: mobileColors.navy[900],
+    fontFamily: "monospace"
   },
-  menuItem: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 14
-  },
-  menuItemText: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#1e293b"
-  },
-  menuItemArrow: {
-    fontSize: 18,
-    color: "#94a3b8"
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#f1f5f9",
-    width: "100%"
-  },
-  logoutItem: {
-    justifyContent: "center"
-  },
-  logoutText: {
-    color: "#dc2626",
-    fontSize: 15,
-    fontWeight: "600"
+  actions: {
+    gap: mobileSpacing[3],
+    marginBottom: mobileSpacing[6]
   }
 });

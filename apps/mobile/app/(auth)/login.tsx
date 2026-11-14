@@ -1,268 +1,199 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView
-} from "react-native";
-import { useRouter } from "expo-router";
-import { useAuthStore } from "../../src/store/useAuthStore";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { LoginRequestSchema } from "@luggage-storage/contracts";
+import {
+  Button,
+  Card,
+  ErrorState,
+  MobileIcon,
+  SafeHeader,
+  ScreenContainer,
+  TextInput
+} from "../../src/components";
 import { validateWithZod } from "../../src/lib/validation";
-import { ApiClientError } from "../../src/services/api-client";
+import { useAuthStore } from "../../src/store/useAuthStore";
+import {
+  mobileColors,
+  mobileSpacing,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
 
 export default function MobileLoginScreen() {
   const router = useRouter();
-  const { login, isLoading } = useAuthStore();
+  const { redirectTo } = useLocalSearchParams<{ redirectTo?: string }>();
+  const { login, isLoading, error, setError } = useAuthStore();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [serverError, setServerError] = useState<string | null>(null);
 
   const handleLogin = async () => {
-    setServerError(null);
+    setError(null);
     setFieldErrors({});
 
-    const validation = validateWithZod(LoginRequestSchema, { email, password });
+    const validation = validateWithZod(LoginRequestSchema, {
+      email: email.trim(),
+      password
+    });
     if (!validation.success) {
       setFieldErrors(validation.errors);
       return;
     }
 
     try {
-      await login(validation.data);
-      router.replace("/");
-    } catch (err) {
-      if (err instanceof ApiClientError) {
-        if (err.statusCode === 401) {
-          setServerError("Invalid email or password. Please try again.");
-        } else if (err.statusCode === 403) {
-          if (err.message.toLowerCase().includes("suspended")) {
-            setServerError("Your account has been suspended by an administrator. Please contact support.");
-          } else if (err.message.toLowerCase().includes("deactivated")) {
-            setServerError("This account has been deactivated. Please contact support to reactivate.");
-          } else {
-            setServerError(err.message || "Access denied.");
-          }
-        } else {
-          setServerError(err.message || "Login failed. Please verify your credentials.");
-        }
+      await login({
+        email: validation.data.email,
+        password: validation.data.password
+      });
+      if (redirectTo && redirectTo.startsWith("/")) {
+        router.replace(redirectTo as "/(traveller)");
       } else {
-        setServerError(err instanceof Error ? err.message : "Network error. Please try again.");
+        router.replace("/");
       }
+    } catch {
+      // Store populates error banner
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.keyboardContainer}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <ScreenContainer
+      keyboardAvoiding
+      header={
+        <SafeHeader
+          title="Sign In"
+          subtitle="Access bookings, passes & host tools"
+          onBack={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+        />
+      }
+      testID="auth-login-screen"
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-        <View style={styles.card}>
-          <Text style={styles.title}>Sign In</Text>
-          <Text style={styles.subtitle}>Luggage Storage Marketplace</Text>
-
-          {serverError && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>{serverError}</Text>
-              {(serverError.toLowerCase().includes("verify your email") ||
-                serverError.toLowerCase().includes("pending_verification")) && (
-                <TouchableOpacity
-                  style={{ marginTop: 8 }}
-                  onPress={() =>
-                    router.push(
-                      `/(traveller)?screen=TM-008&email=${encodeURIComponent(email.trim())}`
-                    )
-                  }
-                >
-                  <Text style={styles.forgotLink}>
-                    Verify or Resend Confirmation Email →
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email Address</Text>
-            <TextInput
-              style={[styles.input, fieldErrors.email ? styles.inputError : null]}
-              placeholder="you@example.com"
-              placeholderTextColor="#94a3b8"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              editable={!isLoading}
-            />
-            {fieldErrors.email && <Text style={styles.fieldErrorText}>{fieldErrors.email}</Text>}
-          </View>
-
-          <View style={styles.inputGroup}>
-            <View style={styles.labelRow}>
-              <Text style={styles.label}>Password</Text>
-              <TouchableOpacity onPress={() => router.push("/(auth)/forgot-password")}>
-                <Text style={styles.forgotLink}>Forgot?</Text>
-              </TouchableOpacity>
-            </View>
-            <TextInput
-              style={[styles.input, fieldErrors.password ? styles.inputError : null]}
-              placeholder="••••••••"
-              placeholderTextColor="#94a3b8"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-              editable={!isLoading}
-            />
-            {fieldErrors.password && <Text style={styles.fieldErrorText}>{fieldErrors.password}</Text>}
-          </View>
-
-          <TouchableOpacity
-            style={[styles.button, isLoading ? styles.buttonDisabled : null]}
-            onPress={handleLogin}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#ffffff" size="small" />
-            ) : (
-              <Text style={styles.buttonText}>Sign In</Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Don&apos;t have an account? </Text>
-            <TouchableOpacity onPress={() => router.push("/(auth)/register")}>
-              <Text style={styles.signUpLink}>Register</Text>
-            </TouchableOpacity>
-          </View>
+      <Card variant="elevated" style={styles.card}>
+        <View style={styles.intro}>
+          <MobileIcon name="shield-check" size="xl" variant="primary" />
+          <Text style={styles.heading}>Welcome Back</Text>
+          <Text style={styles.subtext}>
+            Sign in with your verified Luggage Storage email and password.
+          </Text>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+        {error ? <ErrorState title="Sign In Failed" message={error} /> : null}
+
+        <TextInput
+          label="Email Address"
+          required
+          leftIcon="mail"
+          placeholder="you@example.com"
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoComplete="email"
+          value={email}
+          onChangeText={(val) => {
+            setEmail(val);
+            if (error) setError(null);
+          }}
+          errorText={fieldErrors.email}
+          testID="login-email-input"
+        />
+
+        <TextInput
+          label="Password"
+          required
+          leftIcon="lock"
+          placeholder="Enter your password"
+          secureTextEntry
+          enablePasswordToggle
+          autoComplete="password"
+          value={password}
+          onChangeText={(val) => {
+            setPassword(val);
+            if (error) setError(null);
+          }}
+          errorText={fieldErrors.password}
+          testID="login-password-input"
+        />
+
+        <TouchableOpacity
+          onPress={() => router.push("/(auth)/forgot-password")}
+          style={styles.forgotLinkWrap}
+          accessibilityRole="link"
+        >
+          <Text style={styles.linkText}>Forgot password?</Text>
+        </TouchableOpacity>
+
+        <Button
+          title="Sign In"
+          onPress={handleLogin}
+          isLoading={isLoading}
+          fullWidth
+          testID="login-submit-btn"
+        />
+
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerLabel}>New here?</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        <Button
+          title="Create Traveller Account"
+          variant="outline"
+          onPress={() => router.push("/(auth)/register")}
+          fullWidth
+        />
+
+        <Button
+          title="Verify Email with Token"
+          variant="ghost"
+          size="sm"
+          onPress={() => router.push("/(auth)/verify-email")}
+          fullWidth
+        />
+      </Card>
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  keyboardContainer: {
-    flex: 1,
-    backgroundColor: "#f8fafc"
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20
-  },
   card: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 24,
-    width: "100%",
-    maxWidth: 380,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2
+    gap: mobileSpacing[3]
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#0f172a",
-    textAlign: "center"
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#64748b",
-    textAlign: "center",
-    marginTop: 4,
-    marginBottom: 20
-  },
-  errorBanner: {
-    backgroundColor: "#fef2f2",
-    borderColor: "#fecaca",
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16
-  },
-  errorBannerText: {
-    color: "#b91c1c",
-    fontSize: 13,
-    lineHeight: 18
-  },
-  inputGroup: {
-    marginBottom: 16
-  },
-  labelRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center"
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#334155",
-    marginBottom: 6
-  },
-  forgotLink: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#2563eb"
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#0f172a",
-    backgroundColor: "#ffffff"
-  },
-  inputError: {
-    borderColor: "#f87171"
-  },
-  fieldErrorText: {
-    color: "#dc2626",
-    fontSize: 12,
-    marginTop: 4
-  },
-  button: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingVertical: 12,
+  intro: {
     alignItems: "center",
-    marginTop: 8
+    gap: mobileSpacing[1],
+    marginBottom: mobileSpacing[2]
   },
-  buttonDisabled: {
-    opacity: 0.7
+  heading: {
+    ...mobileTypography.headingLg
   },
-  buttonText: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "600"
+  subtext: {
+    ...mobileTypography.bodyMd,
+    textAlign: "center",
+    color: mobileTextColors.muted
   },
-  footerRow: {
+  forgotLinkWrap: {
+    alignSelf: "flex-end",
+    minHeight: 44,
+    justifyContent: "center"
+  },
+  linkText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: mobileColors.terracotta[600]
+  },
+  dividerRow: {
     flexDirection: "row",
-    justifyContent: "center",
-    marginTop: 20
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    marginVertical: mobileSpacing[1]
   },
-  footerText: {
-    fontSize: 13,
-    color: "#64748b"
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: mobileColors.border
   },
-  signUpLink: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#2563eb"
+  dividerLabel: {
+    ...mobileTypography.bodySm
   }
 });
-

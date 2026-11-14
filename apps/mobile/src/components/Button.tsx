@@ -4,24 +4,43 @@ import {
   Text,
   ActivityIndicator,
   StyleSheet,
-  ViewStyle,
-  TextStyle,
-  StyleProp
+  View,
+  type ViewStyle,
+  type TextStyle,
+  type AccessibilityProps
 } from "react-native";
-import { mobileColors, mobileRadius } from "../lib/theme";
+import {
+  mobileColors,
+  mobileControlSizes,
+  mobileRadius,
+  mobileSpacing,
+  mobileTextColors
+} from "../lib/theme";
 
-export interface ButtonProps {
+export type ButtonVariant =
+  | "primary"
+  | "secondary"
+  | "outline"
+  | "ghost"
+  | "danger"
+  | "ocean";
+
+export type ButtonSize = "sm" | "md" | "lg";
+
+export interface ButtonProps extends AccessibilityProps {
   title: string;
   onPress: () => void;
-  variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
-  size?: "sm" | "md" | "lg";
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   disabled?: boolean;
+  isLoading?: boolean;
   loading?: boolean;
-  style?: StyleProp<ViewStyle>;
-  textStyle?: StyleProp<TextStyle>;
-  accessibilityLabel?: string;
+  fullWidth?: boolean;
+  style?: ViewStyle;
+  textStyle?: TextStyle;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  testID?: string;
 }
 
 export function Button({
@@ -30,79 +49,89 @@ export function Button({
   variant = "primary",
   size = "md",
   disabled = false,
+  isLoading = false,
   loading = false,
+  fullWidth = false,
   style,
   textStyle,
-  accessibilityLabel,
   leftIcon,
-  rightIcon
+  rightIcon,
+  testID,
+  accessibilityLabel,
+  accessibilityHint,
+  ...a11yProps
 }: ButtonProps) {
-  const variantContainerStyle = {
-    primary: styles.btnPrimary,
-    secondary: styles.btnSecondary,
-    outline: styles.btnOutline,
-    ghost: styles.btnGhost,
-    danger: styles.btnDanger
+  const busy = Boolean(isLoading || loading);
+  const isDisabled = disabled || busy;
+
+  const variantContainerStyle: ViewStyle = {
+    primary: styles.primaryContainer,
+    secondary: styles.secondaryContainer,
+    ocean: styles.oceanContainer,
+    outline: styles.outlineContainer,
+    ghost: styles.ghostContainer,
+    danger: styles.dangerContainer
   }[variant];
 
-  const variantTextStyle = {
-    primary: styles.textPrimary,
-    secondary: styles.textSecondary,
-    outline: styles.textOutline,
-    ghost: styles.textGhost,
-    danger: styles.textDanger
+  const variantTextStyle: TextStyle = {
+    primary: styles.primaryText,
+    secondary: styles.secondaryText,
+    ocean: styles.oceanText,
+    outline: styles.outlineText,
+    ghost: styles.ghostText,
+    danger: styles.dangerText
   }[variant];
 
-  const sizeContainerStyle = {
+  const sizeContainerStyle: ViewStyle = {
     sm: styles.sizeSm,
     md: styles.sizeMd,
     lg: styles.sizeLg
   }[size];
 
-  const sizeTextStyle = {
+  const sizeTextStyle: TextStyle = {
     sm: styles.textSizeSm,
     md: styles.textSizeMd,
     lg: styles.textSizeLg
   }[size];
 
+  const spinnerColor =
+    variant === "outline" || variant === "ghost"
+      ? mobileColors.navy[900]
+      : mobileColors.white;
+
   return (
     <TouchableOpacity
+      {...a11yProps}
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled: isDisabled, busy }}
       style={[
         styles.base,
         variantContainerStyle,
         sizeContainerStyle,
-        disabled && styles.disabledContainer,
+        fullWidth ? styles.fullWidth : null,
+        isDisabled ? styles.disabled : null,
         style
       ]}
       onPress={onPress}
-      disabled={disabled || loading}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel || title}
-      activeOpacity={0.8}
+      disabled={isDisabled}
+      activeOpacity={0.82}
     >
-      {loading ? (
-        <ActivityIndicator
-          size="small"
-          color={variant === "primary" || variant === "danger" ? mobileColors.white : mobileColors.navy[900]}
-        />
+      {busy ? (
+        <ActivityIndicator size="small" color={spinnerColor} />
       ) : (
-        <>
-          {leftIcon ? <>{leftIcon}</> : null}
+        <View style={styles.contentRow}>
+          {leftIcon ? <View style={styles.iconLeft}>{leftIcon}</View> : null}
           <Text
-            style={[
-              styles.baseText,
-              variantTextStyle,
-              sizeTextStyle,
-              disabled && styles.disabledText,
-              Boolean(leftIcon) && { marginLeft: 8 },
-              Boolean(rightIcon) && { marginRight: 8 },
-              textStyle
-            ]}
+            style={[styles.baseText, variantTextStyle, sizeTextStyle, textStyle]}
+            numberOfLines={2}
           >
             {title}
           </Text>
-          {rightIcon ? <>{rightIcon}</> : null}
-        </>
+          {rightIcon ? <View style={styles.iconRight}>{rightIcon}</View> : null}
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -110,67 +139,85 @@ export function Button({
 
 const styles = StyleSheet.create({
   base: {
-    flexDirection: "row",
+    borderRadius: mobileRadius.lg,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: mobileRadius.lg,
-    minHeight: 48, // Minimum 44pt touch target (48px)
-    paddingHorizontal: 20
+    flexDirection: "row"
+  },
+  fullWidth: {
+    width: "100%"
+  },
+  contentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  iconLeft: {
+    marginRight: mobileSpacing[2]
+  },
+  iconRight: {
+    marginLeft: mobileSpacing[2]
   },
   baseText: {
-    fontWeight: "600",
-    textAlign: "center"
+    fontWeight: "700",
+    textAlign: "center",
+    letterSpacing: -0.1
   },
-  btnPrimary: {
-    backgroundColor: mobileColors.terracotta[500], // #C55013 (WCAG AA >= 4.5:1 with white)
-    borderWidth: 0
+  primaryContainer: {
+    backgroundColor: mobileColors.ctaBg
   },
-  textPrimary: {
+  primaryText: {
+    color: mobileColors.ctaText
+  },
+  secondaryContainer: {
+    backgroundColor: mobileColors.navy[900]
+  },
+  secondaryText: {
     color: mobileColors.white
   },
-  btnSecondary: {
-    backgroundColor: mobileColors.navy[900], // #0A192F
-    borderWidth: 0
+  oceanContainer: {
+    backgroundColor: mobileColors.navy[800]
   },
-  textSecondary: {
+  oceanText: {
     color: mobileColors.white
   },
-  btnOutline: {
-    backgroundColor: "transparent",
+  outlineContainer: {
+    backgroundColor: mobileColors.card,
     borderWidth: 1.5,
     borderColor: mobileColors.navy[900]
   },
-  textOutline: {
+  outlineText: {
     color: mobileColors.navy[900]
   },
-  btnGhost: {
-    backgroundColor: "transparent",
-    borderWidth: 0
+  ghostContainer: {
+    backgroundColor: "transparent"
   },
-  textGhost: {
-    color: mobileColors.navy[900]
+  ghostText: {
+    color: mobileTextColors.heading
   },
-  btnDanger: {
-    backgroundColor: mobileColors.rose[600],
-    borderWidth: 0
+  dangerContainer: {
+    backgroundColor: mobileColors.rose[600]
   },
-  textDanger: {
+  dangerText: {
     color: mobileColors.white
   },
+  disabled: {
+    opacity: 0.55
+  },
   sizeSm: {
-    minHeight: 40,
-    paddingVertical: 8,
-    paddingHorizontal: 14
+    minHeight: mobileControlSizes.buttonSm,
+    paddingHorizontal: mobileSpacing[3],
+    paddingVertical: mobileSpacing[2]
   },
   sizeMd: {
-    minHeight: 48,
-    paddingVertical: 12,
-    paddingHorizontal: 20
+    minHeight: mobileControlSizes.buttonMd,
+    paddingHorizontal: mobileSpacing[5],
+    paddingVertical: mobileSpacing[3]
   },
   sizeLg: {
-    minHeight: 54,
-    paddingVertical: 16,
-    paddingHorizontal: 28
+    minHeight: mobileControlSizes.buttonLg,
+    paddingHorizontal: mobileSpacing[6],
+    paddingVertical: mobileSpacing[4]
   },
   textSizeSm: {
     fontSize: 13,
@@ -183,12 +230,5 @@ const styles = StyleSheet.create({
   textSizeLg: {
     fontSize: 16,
     lineHeight: 22
-  },
-  disabledContainer: {
-    opacity: 0.5,
-    backgroundColor: mobileColors.sand[200]
-  },
-  disabledText: {
-    color: mobileColors.sand[600]
   }
 });

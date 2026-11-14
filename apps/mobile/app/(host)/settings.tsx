@@ -1,512 +1,307 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet
-} from "react-native";
+import React, { useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  LoadingSkeleton,
+  MobileIcon,
+  SafeHeader,
+  ScreenContainer,
+  StatusBadge,
+  type MobileIconName
+} from "../../src/components";
+import { useOwnedBusinessesQuery, useOwnedLocationsQuery } from "../../src/hooks";
 import { useAuthStore } from "../../src/store/useAuthStore";
-import { useHostStore } from "../../src/store/useHostStore";
-import { MobileIcon } from "../../src/components/MobileIcon";
-import { mobileColors } from "../../src/lib/theme";
-import { marketplaceApi } from "../../src/services/marketplace-api";
-import { HostBusiness, StorageLocation } from "@luggage-storage/contracts";
+import { useMobileStore } from "../../src/store/useMobileStore";
+import {
+  mobileColors,
+  mobileRadius,
+  mobileSpacing,
+  mobileStatusTokens,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
+
+function SettingsMenuRow({
+  icon,
+  title,
+  subtitle,
+  onPress
+}: {
+  icon: MobileIconName;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.menuRow}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+    >
+      <View style={styles.menuIconWrap}>
+        <MobileIcon name={icon} size={18} color={mobileColors.navy[900]} />
+      </View>
+      <View style={styles.menuCol}>
+        <Text style={styles.menuTitle}>{title}</Text>
+        <Text style={styles.menuSub}>{subtitle}</Text>
+      </View>
+      <MobileIcon name="chevron-right" size={18} color={mobileTextColors.muted} />
+    </TouchableOpacity>
+  );
+}
 
 export default function HostSettingsScreen() {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
-  const { activeDemoRole, hub, resetToDefaults } = useHostStore();
-  const [resetSuccess, setResetSuccess] = useState(false);
-  const [liveBusiness, setLiveBusiness] = useState<HostBusiness | null>(null);
-  const [liveLocation, setLiveLocation] = useState<StorageLocation | null>(null);
+  const { user, logout } = useAuthStore();
+  const { setRole } = useMobileStore();
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
 
-  const isOwner = isAuthenticated
-    ? Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"))
-    : activeDemoRole === "HOST_OWNER";
+  const isOwner = Boolean(
+    user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN")
+  );
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadLiveHostData() {
-      if (!isOwner) return;
-      try {
-        const businesses = await marketplaceApi.getOwnedBusinesses();
-        if (isMounted && businesses && businesses.length > 0) {
-          setLiveBusiness(businesses[0]);
-        }
-        const locations = await marketplaceApi.getOwnedLocations();
-        if (isMounted && locations && locations.length > 0) {
-          setLiveLocation(locations[0]);
-        }
-      } catch {
-        // Fallback to local store fixtures
-      }
-    }
-    loadLiveHostData();
-    return () => {
-      isMounted = false;
-    };
-  }, [isOwner]);
+  const businessesQuery = useOwnedBusinessesQuery(isOwner);
+  const locationsQuery = useOwnedLocationsQuery(isOwner);
 
-  // Role Guard for Host Staff
   if (!isOwner) {
     return (
-      <View style={styles.deniedContainer}>
-        <View style={styles.deniedCard}>
+      <ScreenContainer
+        header={<SafeHeader title="Storage Partner Profile" />}
+        testID="host-settings-forbidden"
+      >
+        <Card variant="outlined" style={styles.deniedCard}>
           <Text style={styles.deniedBadge}>RBAC Guard • 403 Forbidden</Text>
           <Text style={styles.deniedTitle}>Host Owner Access Required</Text>
           <Text style={styles.deniedBody}>
-            Partner profile settings, business compliance records, and session configuration
-            are restricted to Host Owner accounts. Staff members have operational access only
-            (Live Desk, Requests, Scanner, Intake, and Vault).
+            Partner business configuration and hub management require HOST_OWNER or SUPERADMIN
+            permissions.
           </Text>
-          <TouchableOpacity
-            style={styles.returnDeskBtn}
+          <Button
+            title="Return to Live Desk"
             onPress={() => router.replace("/(host)")}
-          >
-            <Text style={styles.returnDeskBtnText}>Return to Live Desk</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+          />
+        </Card>
+      </ScreenContainer>
     );
   }
 
-  const handleReset = () => {
-    resetToDefaults();
-    setResetSuccess(true);
-    setTimeout(() => setResetSuccess(false), 3000);
-  };
+  const business = businessesQuery.data?.[0] ?? null;
+  const locationsCount = locationsQuery.data?.length ?? 0;
 
   return (
-    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header Card */}
-      <View style={styles.headerCard}>
-        <Text style={styles.pageTitle}>Storage Partner Profile</Text>
-        <Text style={styles.pageSubtitle}>
-          Location configurations, counter staff directory, and simulated business credentials.
-        </Text>
-      </View>
+    <ScreenContainer
+      header={
+        <SafeHeader
+          title="Storage Partner Profile"
+          subtitle="Business Governance & Workspace Settings"
+        />
+      }
+      testID="host-settings-screen"
+    >
+      {businessesQuery.isLoading ? (
+        <LoadingSkeleton count={3} />
+      ) : (
+        <View style={styles.stack}>
+          <Card variant="elevated" style={styles.cardGap}>
+            <View style={styles.rowBetween}>
+              <View style={styles.flexCol}>
+                <Text style={styles.bizName}>
+                  {business?.tradeName || "Partner Setup Incomplete"}
+                </Text>
+                <Text style={styles.bizLegal}>
+                  {business?.legalBusinessName || user?.email}
+                </Text>
+              </View>
+              {business ? <StatusBadge status={business.status} size="sm" /> : null}
+            </View>
+            <View style={styles.badgesRow}>
+              <Badge
+                label={`${locationsCount} Storage Hub(s)`}
+                variant="navy"
+                size="sm"
+              />
+              {business?.payoutAccountNumberMasked ? (
+                <Badge
+                  label={`Payout: ${business.payoutAccountNumberMasked}`}
+                  variant="success"
+                  size="sm"
+                />
+              ) : null}
+            </View>
+          </Card>
 
-      {resetSuccess && (
-        <View style={styles.successBanner}>
-          <MobileIcon name="check-circle" size={18} color="#15803D" />
-          <Text style={styles.successBannerText}>
-            Local session reset to canonical initial state.
-          </Text>
+          <Card variant="default" style={styles.menuCard}>
+            <SettingsMenuRow
+              icon="building"
+              title="Business Profile, KYC & Bank Payouts"
+              subtitle="Edit legal business info, upload verification docs, update LKR bank account"
+              onPress={() => router.push("/(host)/onboarding")}
+            />
+            <SettingsMenuRow
+              icon="map-pin"
+              title="My Storage Hubs & Availability"
+              subtitle="Configure addresses, facility photos, 7-day hours, zones, capacity & pricing"
+              onPress={() => router.push("/(host)/locations")}
+            />
+            <SettingsMenuRow
+              icon="lock"
+              title="Account Security & Password"
+              subtitle="Update password and sign out other devices"
+              onPress={() => router.push("/(account)/security")}
+            />
+            <SettingsMenuRow
+              icon="smartphone"
+              title="Active Sign-In Sessions"
+              subtitle="Audit and revoke active partner device tokens"
+              onPress={() => router.push("/(account)/sessions")}
+            />
+          </Card>
+
+          <Card variant="outlined" style={styles.staffNoticeCard}>
+            <Text style={styles.noticeTitle}>Counter Staff Access</Text>
+            <Text style={styles.noticeBody}>
+              Dedicated self-service staff invitation links are not currently exposed in the API
+              contract. Counter staff accounts with assigned HOST_STAFF permissions can sign in
+              directly to access Live Desk, Requests, Scanner, Intake, and Vault.
+            </Text>
+          </Card>
+
+          <Button
+            title="Switch to Traveller Mode"
+            variant="secondary"
+            leftIcon={<MobileIcon name="compass" size={16} color={mobileColors.white} />}
+            onPress={() => {
+              setRole("traveller");
+              router.replace("/(traveller)");
+            }}
+          />
+
+          <Button
+            title="Sign Out"
+            variant="danger"
+            leftIcon={<MobileIcon name="log-out" size={16} color={mobileColors.white} />}
+            onPress={() => setConfirmSignOut(true)}
+          />
         </View>
       )}
 
-      {/* Facility & Location Card */}
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <MobileIcon name="map-pin" size={18} color={mobileColors.terracotta[600]} />
-          <Text style={styles.sectionTitle}>Physical Facility Details</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Facility Name:</Text>
-          <Text style={styles.detailValue}>{liveLocation?.name || hub.name}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Location Identifier:</Text>
-          <Text style={styles.detailCode}>{liveLocation?.id || hub.id}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Physical Address:</Text>
-          <Text style={styles.detailValue}>
-            {liveLocation?.addressLine1 ? `${liveLocation.addressLine1}, ${liveLocation.city}` : hub.address}
-          </Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Operating Hours:</Text>
-          <Text style={styles.detailValue}>{hub.operatingHours}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Status:</Text>
-          <Text style={styles.detailValue}>{liveLocation?.status || "ACTIVE"}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Luggage Capacity:</Text>
-          <Text style={styles.detailValue}>{hub.totalCapacityBags} Bags Maximum</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Active Host Staff:</Text>
-          <Text style={styles.detailValue}>{hub.primaryHostName}</Text>
-        </View>
-      </View>
-
-      {/* Team Directory Card */}
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <MobileIcon name="users" size={18} color={mobileColors.navy[900]} />
-          <Text style={styles.sectionTitle}>Counter Staff Directory</Text>
-        </View>
-
-        <View style={styles.teamMemberRow}>
-          <View style={styles.avatarPill}>
-            <Text style={styles.avatarInitials}>RF</Text>
-          </View>
-          <View style={styles.teamTextCol}>
-            <Text style={styles.memberName}>Roshan Fernando</Text>
-            <Text style={styles.memberRole}>Counter Supervisor • Active On-Duty</Text>
-            <Text style={styles.memberContact}>+94 77 123 4567 • Staff ID #STF-084</Text>
-          </View>
-        </View>
-
-        <View style={styles.teamDivider} />
-
-        <View style={styles.teamMemberRow}>
-          <View style={styles.avatarPill}>
-            <Text style={styles.avatarInitials}>PW</Text>
-          </View>
-          <View style={styles.teamTextCol}>
-            <Text style={styles.memberName}>Priyantha Wickramasinghe</Text>
-            <Text style={styles.memberRole}>Partner Business Owner • Admin</Text>
-            <Text style={styles.memberContact}>+94 71 987 6543 • Host ID #HST-012</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Business Credentials (DEC-010 Compliant) */}
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <MobileIcon name="shield" size={18} color={mobileColors.terracotta[600]} />
-          <Text style={styles.sectionTitle}>Host Business &amp; Compliance Records (Simulated Compliance Records)</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Trade / Brand Name:</Text>
-          <Text style={styles.detailValue}>{liveBusiness?.tradeName || "Colombo Fort Hub"}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Legal Entity Name:</Text>
-          <Text style={styles.detailValue}>{liveBusiness?.legalBusinessName || "Lanka Storage Hub PVT LTD"}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Business Reg. No (BRN):</Text>
-          <Text style={styles.detailCode}>{liveBusiness?.businessRegistrationNumber || "PV-00294812 (Demo)"}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Tax ID (TIN):</Text>
-          <Text style={styles.detailCode}>{liveBusiness?.taxIdentifier || "TIN-10928472-0001"}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Verification Status:</Text>
-          <Text style={styles.detailCode}>{liveBusiness?.verification?.status || liveBusiness?.status || "NOT_SUBMITTED"}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Public Liability Policy:</Text>
-          <Text style={styles.detailCode}>POL-LUG-2026-9912</Text>
-        </View>
-
-        <View style={styles.decNoticeBox}>
-          <Text style={styles.decNoticeText}>
-            <Text style={styles.boldText}>Compliance Invariant (DEC-010):</Text> The records above
-            are local testing fixtures. Production status requires authenticated municipal verification
-            and AML/KYC checks during merchant settlement onboarding.
-          </Text>
-        </View>
-      </View>
-
-      {/* App Controls */}
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <MobileIcon name="settings" size={18} color={mobileColors.navy[800]} />
-          <Text style={styles.sectionTitle}>Prototype Session Controls</Text>
-        </View>
-
-        <TouchableOpacity style={styles.resetBtn} onPress={handleReset}>
-          <MobileIcon name="refresh" size={16} color={mobileColors.navy[800]} />
-          <Text style={styles.resetBtnText}>Reset Demo State to Initial Defaults</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.switchSurfaceBtn}
-          onPress={() => router.push("/")}
-        >
-          <MobileIcon name="arrow-left" size={16} color={mobileColors.terracotta[600]} />
-          <Text style={styles.switchSurfaceBtnText}>Return to Role Select Home</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Honest Prototype Notice */}
-      <View style={styles.prototypeNoticeCard}>
-        <MobileIcon name="info" size={16} color={mobileColors.terracotta[600]} />
-        <Text style={styles.prototypeNoticeText}>
-          <Text style={styles.boldText}>Settings Prototype:</Text> Profile management operates
-          on client session fixtures. Partner verification workflows will connect with Superadmin
-          onboarding services in Phase 3+.
-        </Text>
-      </View>
-    </ScrollView>
+      <ConfirmDialog
+        visible={confirmSignOut}
+        title="Sign Out of Partner Workspace?"
+        description="Your local cache will be cleared and refresh credentials revoked."
+        confirmLabel="Sign Out"
+        destructive
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={() => {
+          setConfirmSignOut(false);
+          void logout().then(() => {
+            router.replace("/(auth)/login");
+          });
+        }}
+      />
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 16,
-    backgroundColor: mobileColors.sand[100],
-    paddingBottom: 40
+  stack: {
+    gap: mobileSpacing[4]
   },
-  headerCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2
+  deniedCard: {
+    gap: mobileSpacing[3],
+    marginTop: mobileSpacing[4],
+    borderColor: mobileStatusTokens.dangerBorder,
+    backgroundColor: mobileStatusTokens.dangerBg
   },
-  pageTitle: {
-    fontSize: 20,
+  deniedBadge: {
+    fontSize: 12,
     fontWeight: "700",
-    color: mobileColors.navy[900],
-    marginBottom: 4
+    color: mobileStatusTokens.danger,
+    textTransform: "uppercase"
   },
-  pageSubtitle: {
-    fontSize: 13,
-    color: mobileColors.navy[600],
-    lineHeight: 18
-  },
-  successBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#DCFCE7",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#86EFAC",
-    gap: 8
-  },
-  successBannerText: {
-    flex: 1,
-    fontSize: 13,
-    color: "#15803D",
-    fontWeight: "600"
-  },
-  sectionCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200],
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 14
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
+  deniedTitle: {
+    ...mobileTypography.headingMd,
     color: mobileColors.navy[900]
   },
-  detailRow: {
+  deniedBody: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.secondary
+  },
+  cardGap: {
+    gap: mobileSpacing[2]
+  },
+  rowBetween: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 10
+    gap: mobileSpacing[2]
   },
-  detailLabel: {
-    fontSize: 12,
-    color: mobileColors.navy[500],
-    width: "40%"
-  },
-  detailValue: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: mobileColors.navy[800],
-    width: "58%",
-    textAlign: "right"
-  },
-  detailCode: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: mobileColors.terracotta[600],
-    fontFamily: "monospace",
-    width: "58%",
-    textAlign: "right"
-  },
-  teamMemberRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 4
-  },
-  avatarPill: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: mobileColors.navy[900],
-    justifyContent: "center",
-    alignItems: "center"
-  },
-  avatarInitials: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 14
-  },
-  teamTextCol: {
+  flexCol: {
     flex: 1
   },
-  memberName: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: mobileColors.navy[900]
+  bizName: {
+    ...mobileTypography.headingMd,
+    color: mobileTextColors.primary
   },
-  memberRole: {
-    fontSize: 12,
-    color: mobileColors.terracotta[600],
-    fontWeight: "500",
-    marginTop: 1
+  bizLegal: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.secondary
   },
-  memberContact: {
-    fontSize: 11,
-    color: mobileColors.navy[500],
-    marginTop: 2
+  badgesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6
   },
-  teamDivider: {
-    height: 1,
-    backgroundColor: mobileColors.sand[200],
-    marginVertical: 12
+  menuCard: {
+    padding: 0,
+    overflow: "hidden"
   },
-  decNoticeBox: {
+  menuRow: {
+    minHeight: 56,
+    paddingHorizontal: mobileSpacing[4],
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: mobileColors.sand[200]
+  },
+  menuIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: mobileRadius.md,
     backgroundColor: mobileColors.sand[100],
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[200]
-  },
-  decNoticeText: {
-    fontSize: 11,
-    color: mobileColors.navy[600],
-    lineHeight: 15
-  },
-  resetBtn: {
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: mobileColors.sand[100],
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: mobileColors.sand[300],
-    gap: 8,
-    marginBottom: 10
+    justifyContent: "center"
   },
-  resetBtnText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: mobileColors.navy[800]
+  menuCol: {
+    flex: 1
   },
-  switchSurfaceBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: mobileColors.terracotta[600],
-    gap: 8
+  menuTitle: {
+    ...mobileTypography.label,
+    color: mobileTextColors.primary
   },
-  switchSurfaceBtnText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: mobileColors.terracotta[600]
-  },
-  prototypeNoticeCard: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    backgroundColor: "#FFFBEB",
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-    gap: 10
-  },
-  prototypeNoticeText: {
-    flex: 1,
+  menuSub: {
     fontSize: 12,
-    color: "#92400E",
-    lineHeight: 16
+    lineHeight: 16,
+    color: mobileTextColors.muted
   },
-  boldText: {
-    fontWeight: "700"
+  staffNoticeCard: {
+    gap: 4,
+    backgroundColor: mobileColors.sand[50]
   },
-  deniedContainer: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24
+  noticeTitle: {
+    ...mobileTypography.label,
+    color: mobileTextColors.primary
   },
-  deniedCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 24,
-    width: "100%",
-    maxWidth: 380,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    alignItems: "center"
-  },
-  deniedBadge: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#dc2626",
-    textTransform: "uppercase",
-    marginBottom: 8
-  },
-  deniedTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#0f172a",
-    marginBottom: 8
-  },
-  deniedBody: {
-    fontSize: 13,
-    color: "#475569",
-    textAlign: "center",
-    lineHeight: 19,
-    marginBottom: 20
-  },
-  returnDeskBtn: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    width: "100%",
-    alignItems: "center"
-  },
-  returnDeskBtnText: {
-    color: "#ffffff",
-    fontWeight: "600",
-    fontSize: 14
+  noticeBody: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: mobileTextColors.secondary
   }
 });

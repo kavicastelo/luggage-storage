@@ -1,83 +1,60 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { Stack, useRouter } from "expo-router";
-import { useAuthStore } from "../../src/store/useAuthStore";
+import { View, StyleSheet } from "react-native";
+import { Slot, usePathname, useRouter } from "expo-router";
+import {
+  BottomNavigation,
+  SafeHeader,
+  type BottomNavItem
+} from "../../src/components";
+import { mobileColors } from "../../src/lib/theme";
+
+const ACCOUNT_TABS: readonly BottomNavItem[] = [
+  { key: "profile", label: "Profile", icon: "user" },
+  { key: "security", label: "Security", icon: "lock" },
+  { key: "sessions", label: "Devices", icon: "smartphone" }
+];
 
 export default function AccountLayout() {
   const router = useRouter();
-  const { isAuthenticated, user } = useAuthStore();
+  const pathname = usePathname();
 
-  if (!isAuthenticated || !user) {
-    return (
-      <View style={styles.guardContainer}>
-        <View style={styles.guardCard}>
-          <Text style={styles.guardTitle}>Authentication Required</Text>
-          <Text style={styles.guardBody}>
-            Please sign in to access your profile, active sessions, and account security settings.
-          </Text>
-          <TouchableOpacity
-            style={styles.signInBtn}
-            onPress={() => router.replace("/(auth)/login")}
-          >
-            <Text style={styles.signInBtnText}>Sign In</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
+  const activeKey = pathname.includes("/security")
+    ? "security"
+    : pathname.includes("/sessions")
+      ? "sessions"
+      : "profile";
+
+  const handleSelect = (key: string) => {
+    if (key === "security") router.replace("/(account)/security");
+    else if (key === "sessions") router.replace("/(account)/sessions");
+    else router.replace("/(account)/profile");
+  };
 
   return (
-    <Stack>
-      <Stack.Screen name="profile" options={{ title: "My Profile" }} />
-      <Stack.Screen name="security" options={{ title: "Security & Password" }} />
-      <Stack.Screen name="sessions" options={{ title: "Active Devices & Sessions" }} />
-    </Stack>
+    <View style={styles.root}>
+      <SafeHeader
+        title="Account & Security"
+        subtitle="Identity, password & active sessions"
+        onBack={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+      />
+      <View style={styles.content}>
+        <Slot />
+      </View>
+      <BottomNavigation
+        items={ACCOUNT_TABS}
+        activeKey={activeKey}
+        onSelect={handleSelect}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  guardContainer: {
+  root: {
     flex: 1,
-    backgroundColor: "#f8fafc",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24
+    backgroundColor: mobileColors.canvas
   },
-  guardCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 24,
-    width: "100%",
-    maxWidth: 360,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    alignItems: "center"
-  },
-  guardTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#0f172a",
-    marginBottom: 8
-  },
-  guardBody: {
-    fontSize: 13,
-    color: "#64748b",
-    textAlign: "center",
-    marginBottom: 16,
-    lineHeight: 18
-  },
-  signInBtn: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    width: "100%",
-    alignItems: "center"
-  },
-  signInBtnText: {
-    color: "#ffffff",
-    fontWeight: "600",
-    fontSize: 14
+  content: {
+    flex: 1
   }
 });
-
