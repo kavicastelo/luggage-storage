@@ -1,19 +1,20 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView
-} from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { ForgotPasswordRequestSchema } from "@luggage-storage/contracts";
+import {
+  Badge,
+  Button,
+  Card,
+  ErrorState,
+  MobileIcon,
+  SafeHeader,
+  ScreenContainer,
+  TextInput
+} from "../../src/components";
 import { validateWithZod } from "../../src/lib/validation";
 import { authApi } from "../../src/services/auth-api";
+import { mobileColors, mobileSpacing, mobileTextColors, mobileTypography } from "../../src/lib/theme";
 
 export default function MobileForgotPasswordScreen() {
   const router = useRouter();
@@ -37,7 +38,6 @@ export default function MobileForgotPasswordScreen() {
     setIsLoading(true);
     try {
       await authApi.forgotPassword(validation.data);
-      // Strictly enumeration-resistant confirmation
       setIsSubmitted(true);
     } catch (err) {
       setServerError(err instanceof Error ? err.message : "Request failed. Please try again.");
@@ -46,225 +46,119 @@ export default function MobileForgotPasswordScreen() {
     }
   };
 
-  if (isSubmitted) {
-    return (
-      <View style={styles.successContainer}>
-        <View style={styles.card}>
-          <Text style={styles.successBadge}>✓ Instructions Sent</Text>
-          <Text style={styles.title}>Check Your Inbox</Text>
-          <Text style={styles.subtitle}>
-            If an account is associated with <Text style={styles.boldText}>{email}</Text>, password reset instructions have been dispatched.
-          </Text>
-          <Text style={styles.privacyNote}>
-            For your security and privacy, we do not confirm whether an account is registered with this email.
-          </Text>
-
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => router.push("/(auth)/reset-password")}
-          >
-            <Text style={styles.buttonText}>I have a recovery token</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.button, styles.secondaryButton]}
-            onPress={() => router.replace("/(auth)/login")}
-          >
-            <Text style={styles.secondaryButtonText}>Back to Sign In</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
   return (
-    <KeyboardAvoidingView
-      style={styles.keyboardContainer}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <ScreenContainer
+      keyboardAvoiding
+      header={
+        <SafeHeader
+          title="Password Recovery"
+          subtitle="Request reset instructions"
+          onBack={() => (router.canGoBack() ? router.back() : router.replace("/(auth)/login"))}
+        />
+      }
+      testID="auth-forgot-password-screen"
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
-        <View style={styles.card}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
-
-          <Text style={styles.title}>Forgot Password?</Text>
-          <Text style={styles.subtitle}>
-            Enter your registered email address to receive password reset instructions.
+      {isSubmitted ? (
+        <Card variant="elevated" style={styles.card}>
+          <Badge label="Instructions Sent" variant="success" icon="check-circle" />
+          <Text style={styles.heading}>Check Your Inbox</Text>
+          <Text style={styles.subtext}>
+            If an account is associated with{" "}
+            <Text style={styles.boldEmail}>{email.trim()}</Text>, password reset instructions
+            have been dispatched.
           </Text>
-
-          {serverError && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>{serverError}</Text>
-            </View>
-          )}
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email Address</Text>
-            <TextInput
-              style={[styles.input, fieldErrors.email ? styles.inputError : null]}
-              placeholder="you@example.com"
-              placeholderTextColor="#94a3b8"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              editable={!isLoading}
-            />
-            {fieldErrors.email && <Text style={styles.fieldErrorText}>{fieldErrors.email}</Text>}
+          <View style={styles.noteBox}>
+            <MobileIcon name="shield" size="sm" color={mobileColors.navy[700]} />
+            <Text style={styles.noteText}>
+              For account security, we never disclose whether a specific email is registered.
+            </Text>
+          </View>
+          <Button
+            title="Enter Recovery Token"
+            onPress={() => router.push("/(auth)/reset-password")}
+            fullWidth
+          />
+          <Button
+            title="Back to Sign In"
+            variant="outline"
+            onPress={() => router.replace("/(auth)/login")}
+            fullWidth
+          />
+        </Card>
+      ) : (
+        <Card variant="elevated" style={styles.card}>
+          <View style={styles.intro}>
+            <MobileIcon name="key" size="xl" variant="primary" />
+            <Text style={styles.heading}>Forgot Password?</Text>
+            <Text style={styles.subtext}>
+              Enter your registered email address to receive a single-use password reset token.
+            </Text>
           </View>
 
-          <TouchableOpacity
-            style={[styles.button, isLoading ? styles.buttonDisabled : null]}
+          {serverError ? <ErrorState message={serverError} /> : null}
+
+          <TextInput
+            label="Registered Email"
+            required
+            leftIcon="mail"
+            placeholder="you@example.com"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+            errorText={fieldErrors.email}
+          />
+
+          <Button
+            title="Send Reset Instructions"
             onPress={handleSubmit}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#ffffff" size="small" />
-            ) : (
-              <Text style={styles.buttonText}>Send Instructions</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+            isLoading={isLoading}
+            fullWidth
+          />
+
+          <Button
+            title="I already have a recovery token"
+            variant="ghost"
+            size="sm"
+            onPress={() => router.push("/(auth)/reset-password")}
+            fullWidth
+          />
+        </Card>
+      )}
+    </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  keyboardContainer: {
-    flex: 1,
-    backgroundColor: "#f8fafc"
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20
-  },
-  successContainer: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20
-  },
   card: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 24,
-    width: "100%",
-    maxWidth: 380,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2
+    gap: mobileSpacing[3]
   },
-  backButton: {
-    marginBottom: 12
-  },
-  backButtonText: {
-    color: "#64748b",
-    fontSize: 13,
-    fontWeight: "600"
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#0f172a",
-    textAlign: "center"
-  },
-  subtitle: {
-    fontSize: 13,
-    color: "#64748b",
-    textAlign: "center",
-    marginTop: 4,
-    marginBottom: 20,
-    lineHeight: 18
-  },
-  boldText: {
-    fontWeight: "bold",
-    color: "#0f172a"
-  },
-  privacyNote: {
-    fontSize: 11,
-    color: "#94a3b8",
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 20,
-    fontStyle: "italic"
-  },
-  successBadge: {
-    color: "#2563eb",
-    fontSize: 13,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 4
-  },
-  errorBanner: {
-    backgroundColor: "#fef2f2",
-    borderColor: "#fecaca",
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16
-  },
-  errorBannerText: {
-    color: "#b91c1c",
-    fontSize: 13,
-    lineHeight: 18
-  },
-  inputGroup: {
-    marginBottom: 16
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#334155",
-    marginBottom: 6
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: "#0f172a",
-    backgroundColor: "#ffffff"
-  },
-  inputError: {
-    borderColor: "#f87171"
-  },
-  fieldErrorText: {
-    color: "#dc2626",
-    fontSize: 12,
-    marginTop: 4
-  },
-  button: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingVertical: 12,
+  intro: {
     alignItems: "center",
-    marginTop: 8
+    gap: mobileSpacing[1],
+    marginBottom: mobileSpacing[2]
   },
-  buttonDisabled: {
-    opacity: 0.7
+  heading: {
+    ...mobileTypography.headingLg
   },
-  buttonText: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "600"
+  subtext: {
+    ...mobileTypography.bodyMd,
+    color: mobileTextColors.muted
   },
-  secondaryButton: {
-    backgroundColor: "#f1f5f9",
-    marginTop: 10
+  boldEmail: {
+    fontWeight: "700",
+    color: mobileColors.navy[950]
   },
-  secondaryButtonText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "600"
+  noteBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileColors.sand[100],
+    borderRadius: 12,
+    padding: mobileSpacing[3]
+  },
+  noteText: {
+    ...mobileTypography.bodySm,
+    flex: 1
   }
 });
-

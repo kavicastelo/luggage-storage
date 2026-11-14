@@ -6,6 +6,7 @@ allowBuilds:
   argon2: true
 minimumReleaseAgeExclude:
   - image-size@2.1.0
+  - lucide-react-native@1.73.0
 overrides:
   tar: ^7.5.22
   tinypool: ^2.2.0
