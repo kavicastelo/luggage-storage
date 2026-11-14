@@ -1,5 +1,11 @@
 import crypto from "node:crypto";
-import { SandboxWebhookPayload, SandboxWebhookPayloadSchema } from "@luggage-storage/contracts";
+import {
+  PayHereCheckoutCustomerResolved,
+  PayHereCheckoutCustomerResolvedSchema,
+  PayHereCheckoutFormFieldsSchema,
+  SandboxWebhookPayload,
+  SandboxWebhookPayloadSchema
+} from "@luggage-storage/contracts";
 import { env } from "../../config/env.js";
 import { AppError } from "../../common/errors/app-error.js";
 
@@ -17,6 +23,7 @@ export interface CreateGatewayCheckoutParams {
   currency: string;
   customerEmail: string;
   customerName: string;
+  customerDetails?: Partial<PayHereCheckoutCustomerResolved>;
 }
 
 export interface RawWebhookNotificationInput {
@@ -261,7 +268,9 @@ export class PayHereGatewayAdapter implements PaymentGatewayPort {
     private readonly merchantId: string,
     private readonly merchantSecret: string,
     private readonly sandboxMode: boolean,
-    private readonly notifyUrl?: string
+    private readonly notifyUrl?: string,
+    private readonly returnUrl?: string,
+    private readonly cancelUrl?: string
   ) {}
 
   private payHereMd5Upper(value: string): string {
@@ -292,6 +301,12 @@ export class PayHereGatewayAdapter implements PaymentGatewayPort {
   }
 
   buildCheckoutPayload(params: CreateGatewayCheckoutParams): Record<string, unknown> {
+    if (!this.notifyUrl || !this.returnUrl || !this.cancelUrl) {
+      throw AppError.internal(
+        "PayHere callback URLs (PAYHERE_NOTIFY_URL, PAYHERE_RETURN_URL, PAYHERE_CANCEL_URL) are not configured"
+      );
+    }
+
     const formattedAmount = formatMinorAmountTwoDecimals(params.amountMinor);
     const normalizedCurrency = normalizeIsoCurrency(params.currency);
     const hashedSecret = this.payHereMd5Upper(this.merchantSecret);
@@ -299,20 +314,62 @@ export class PayHereGatewayAdapter implements PaymentGatewayPort {
       `${this.merchantId}${params.providerOrderId}${formattedAmount}${normalizedCurrency}${hashedSecret}`
     );
 
-    return {
-      mode: this.sandboxMode ? "PAYHERE_SANDBOX_REDIRECT" : "PAYHERE_LIVE_REDIRECT",
-      actionUrl: this.sandboxMode
-        ? "https://sandbox.payhere.lk/pay/checkout"
-        : "https://www.payhere.lk/pay/checkout",
+    const nameParts = params.customerName.trim().split(/\s+/).filter(Boolean);
+    const mergedFirstName = params.customerDetails?.firstName?.trim() || nameParts[0] || "";
+    const mergedLastName =
+      params.customerDetails?.lastName?.trim() ||
+      (nameParts.length > 1 ? nameParts.slice(1).join(" ") : "");
+    const mergedEmail = params.customerDetails?.email?.trim() || params.customerEmail.trim();
+    const mergedPhone = params.customerDetails?.phone?.trim() || "";
+    const mergedAddress = params.customerDetails?.address?.trim() || "";
+    const mergedCity = params.customerDetails?.city?.trim() || "";
+    const mergedCountry = params.customerDetails?.country?.trim() || "";
+
+    const parsedCustomer = PayHereCheckoutCustomerResolvedSchema.safeParse({
+      firstName: mergedFirstName,
+      lastName: mergedLastName,
+      email: mergedEmail,
+      phone: mergedPhone,
+      address: mergedAddress,
+      city: mergedCity,
+      country: mergedCountry
+    });
+
+    if (!parsedCustomer.success) {
+      throw AppError.badRequest(
+        "Complete customer billing details (firstName, lastName, email, phone, address, city, country) are required for PayHere checkout"
+      );
+    }
+
+    const actionUrl = this.sandboxMode
+      ? ("https://sandbox.payhere.lk/pay/checkout" as const)
+      : ("https://www.payhere.lk/pay/checkout" as const);
+
+    const fields = PayHereCheckoutFormFieldsSchema.parse({
       merchant_id: this.merchantId,
+      return_url: this.returnUrl,
+      cancel_url: this.cancelUrl,
+      notify_url: this.notifyUrl,
       order_id: params.providerOrderId,
       items: `Luggage Storage Booking ${params.referenceCode}`,
       currency: normalizedCurrency,
       amount: formattedAmount,
+      first_name: parsedCustomer.data.firstName,
+      last_name: parsedCustomer.data.lastName,
+      email: parsedCustomer.data.email,
+      phone: parsedCustomer.data.phone,
+      address: parsedCustomer.data.address,
+      city: parsedCustomer.data.city,
+      country: parsedCustomer.data.country,
       hash: checkoutHash,
       custom_1: params.intentId,
-      custom_2: params.bookingId,
-      ...(this.notifyUrl ? { notify_url: this.notifyUrl } : {})
+      custom_2: params.bookingId
+    });
+
+    return {
+      mode: this.sandboxMode ? "PAYHERE_SANDBOX_REDIRECT" : "PAYHERE_LIVE_REDIRECT",
+      actionUrl,
+      ...fields
     };
   }
 
@@ -556,13 +613,24 @@ export function resolveSandboxGatewayAdapter(): SandboxSignedGatewayAdapter {
 }
 
 export function resolvePayHereGatewayAdapter(): PayHereGatewayAdapter {
-  if (!env.PAYHERE_MERCHANT_ID || !env.PAYHERE_MERCHANT_SECRET) {
-    throw AppError.internal("PayHere gateway credentials are not configured");
+  if (
+    !env.PAYHERE_MERCHANT_ID ||
+    !env.PAYHERE_MERCHANT_SECRET ||
+    !env.PAYHERE_NOTIFY_URL ||
+    !env.PAYHERE_RETURN_URL ||
+    !env.PAYHERE_CANCEL_URL
+  ) {
+    throw AppError.internal(
+      "PayHere gateway credentials or callback URLs (PAYHERE_NOTIFY_URL, PAYHERE_RETURN_URL, PAYHERE_CANCEL_URL) are not configured"
+    );
   }
   return new PayHereGatewayAdapter(
     env.PAYHERE_MERCHANT_ID,
     env.PAYHERE_MERCHANT_SECRET,
-    env.PAYHERE_SANDBOX_MODE
+    env.PAYHERE_SANDBOX_MODE,
+    env.PAYHERE_NOTIFY_URL,
+    env.PAYHERE_RETURN_URL,
+    env.PAYHERE_CANCEL_URL
   );
 }
 

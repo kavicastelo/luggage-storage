@@ -69,6 +69,7 @@ export function isCorsOriginAllowed(
 
 export function buildApp(): FastifyInstance {
   const app = fastify({
+    routerOptions: { maxParamLength: 512 },
     genReqId: (req) => (req.headers["x-correlation-id"] as string) || randomUUID(),
     logger: {
       level: env.LOG_LEVEL

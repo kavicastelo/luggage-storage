@@ -31,7 +31,8 @@ import {
   RefundRecord,
   AdminTransitionRefundRequest,
   AdminLedgerResponse,
-  RefundStatus
+  RefundStatus,
+  RefundSettlementMode
 } from "@luggage-storage/contracts";
 import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { ScreenHeaderBadge, DeferredBackendNotice } from "@/components/ui/DeferredBackendNotice";
@@ -825,11 +826,12 @@ export function AdminPaymentTransactionsLogPage() {
               >
                 <div>
                   <span className="font-mono font-bold text-slate-900">
-                    {tx.provider} • {tx.providerTransactionId || tx.id.slice(0, 8)}
+                    {tx.provider} • {tx.providerTransactionId || tx.manualReference || tx.id.slice(0, 8)}
                   </span>
                   <span className="ml-2 text-slate-500">
-                    Booking {tx.referenceCode || tx.bookingId.slice(0, 8)} • sigVerified=
-                    {String(tx.signatureVerified)}
+                    {tx.transactionType} • Booking {tx.referenceCode || tx.bookingId.slice(0, 8)} •{" "}
+                    evidence={tx.evidenceSource} • sigVerified={String(tx.signatureVerified)}
+                    {tx.manualReference ? ` • ref=${tx.manualReference}` : ""}
                   </span>
                 </div>
                 <span className="font-bold text-emerald-700">
@@ -870,6 +872,16 @@ export function AdminRefundManagementQueuePage() {
   const canExecuteRefunds = Boolean(isAuthenticated && user?.roles?.includes("SUPERADMIN"));
   const [refunds, setRefunds] = useState<RefundRecord[]>([]);
   const [refundNotice, setRefundNotice] = useState<string | null>(null);
+  const [refundError, setRefundError] = useState<string | null>(null);
+  const [activeTransition, setActiveTransition] = useState<{
+    refund: RefundRecord;
+    targetStatus: AdminTransitionRefundRequest["targetStatus"];
+  } | null>(null);
+  const [settlementMode, setSettlementMode] = useState<RefundSettlementMode>("PROVIDER_CONFIRMED");
+  const [providerRefundIdInput, setProviderRefundIdInput] = useState("");
+  const [manualReferenceInput, setManualReferenceInput] = useState("");
+  const [auditNotesInput, setAuditNotesInput] = useState("");
+  const [transitionSubmitting, setTransitionSubmitting] = useState(false);
 
   useEffect(() => {
     if (!canReadRefunds) return;
@@ -902,22 +914,77 @@ export function AdminRefundManagementQueuePage() {
     }
   };
 
-  const handleAdvanceRefund = async (item: RefundRecord) => {
-    const next = nextRefundStage(item.status);
-    if (!next) return;
+  const openTransitionPanel = (
+    item: RefundRecord,
+    targetStatus: AdminTransitionRefundRequest["targetStatus"]
+  ) => {
     setRefundNotice(null);
+    setRefundError(null);
+    setActiveTransition({ refund: item, targetStatus });
+    setSettlementMode(item.settlementMode ?? "PROVIDER_CONFIRMED");
+    setProviderRefundIdInput(item.providerRefundId ?? "");
+    setManualReferenceInput(item.manualReference ?? "");
+    setAuditNotesInput("");
+  };
+
+  const handleSubmitTransition = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeTransition || transitionSubmitting) return;
+
+    const { refund, targetStatus } = activeTransition;
+    const trimmedNotes = auditNotesInput.trim();
+    if (trimmedNotes.length < 3) {
+      setRefundError("Audit notes must be at least 3 characters.");
+      return;
+    }
+
+    const payload: AdminTransitionRefundRequest = {
+      targetStatus,
+      notes: trimmedNotes
+    };
+
+    if (targetStatus === "SUCCEEDED") {
+      payload.settlementMode = settlementMode;
+      if (settlementMode === "PROVIDER_CONFIRMED") {
+        const trimmedRef = providerRefundIdInput.trim();
+        if (trimmedRef.length < 3) {
+          setRefundError(
+            "Provider refund ID is required for PROVIDER_CONFIRMED refund settlement."
+          );
+          return;
+        }
+        payload.providerRefundId = trimmedRef;
+      } else {
+        const trimmedManual = manualReferenceInput.trim();
+        if (trimmedManual.length < 3) {
+          setRefundError(
+            "Manual settlement reference is required for MANUAL_OFFLINE refund settlement."
+          );
+          return;
+        }
+        payload.manualReference = trimmedManual;
+      }
+    } else if (
+      (targetStatus === "INITIATED" || targetStatus === "PROCESSING") &&
+      providerRefundIdInput.trim().length > 0
+    ) {
+      payload.providerRefundId = providerRefundIdInput.trim();
+    }
+
+    setTransitionSubmitting(true);
+    setRefundNotice(null);
+    setRefundError(null);
     try {
-      const updated = await marketplaceApi.adminTransitionRefund(item.id, {
-        targetStatus: next,
-        providerRefundId: next === "INITIATED" ? `RFD-GW-${Date.now()}` : undefined,
-        notes: `Advanced to ${next} via Superadmin Queue`
-      });
-      setRefunds((prev) => prev.map((r) => (r.id === item.id ? updated : r)));
+      const updated = await marketplaceApi.adminTransitionRefund(refund.id, payload);
+      setRefunds((prev) => prev.map((r) => (r.id === refund.id ? updated : r)));
       setRefundNotice(
         `Refund ${updated.referenceCode || updated.bookingId.slice(0, 8)} transitioned to ${updated.status}.`
       );
+      setActiveTransition(null);
     } catch (err: unknown) {
-      setRefundNotice(err instanceof Error ? err.message : "Refund transition failed.");
+      setRefundError(err instanceof Error ? err.message : "Refund transition failed.");
+    } finally {
+      setTransitionSubmitting(false);
     }
   };
 
@@ -941,6 +1008,143 @@ export function AdminRefundManagementQueuePage() {
         </div>
       )}
 
+      {refundError && (
+        <div
+          role="alert"
+          className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-950"
+        >
+          {refundError}
+        </div>
+      )}
+
+      {activeTransition && (
+        <form
+          onSubmit={handleSubmitTransition}
+          className="bg-white rounded-2xl border-2 border-purple-200 p-6 space-y-4 text-xs"
+          aria-label="Refund Settlement Evidence Form"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                Transition Refund{" "}
+                {activeTransition.refund.referenceCode ||
+                  activeTransition.refund.bookingId.slice(0, 8)}{" "}
+                to {activeTransition.targetStatus}
+              </h2>
+              <p className="text-slate-500 mt-0.5">
+                {activeTransition.targetStatus === "SUCCEEDED"
+                  ? "Select the verified settlement path and enter real evidence. Admin settlement does not mark webhook cryptographic verification as true."
+                  : "Record verifiable operator notes (and optional real provider refund reference if already assigned)."}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTransition(null)}
+              className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700 font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+
+          {activeTransition.targetStatus === "SUCCEEDED" && (
+            <div className="space-y-3">
+              <label className="block font-bold text-slate-800" htmlFor="refund-settlement-mode">
+                Settlement Mode
+              </label>
+              <select
+                id="refund-settlement-mode"
+                value={settlementMode}
+                onChange={(e) => setSettlementMode(e.target.value as RefundSettlementMode)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-900"
+              >
+                <option value="PROVIDER_CONFIRMED">
+                  PROVIDER_CONFIRMED (Gateway portal confirmed)
+                </option>
+                <option value="MANUAL_OFFLINE">
+                  MANUAL_OFFLINE (Bank transfer / offline settlement)
+                </option>
+              </select>
+
+              {settlementMode === "PROVIDER_CONFIRMED" ? (
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1" htmlFor="provider-refund-id">
+                    Provider Refund ID
+                  </label>
+                  <input
+                    id="provider-refund-id"
+                    type="text"
+                    value={providerRefundIdInput}
+                    onChange={(e) => setProviderRefundIdInput(e.target.value)}
+                    placeholder="Real gateway refund ID (e.g. ph-rfnd-99210)"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-mono"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block font-bold text-slate-800 mb-1" htmlFor="manual-refund-ref">
+                    Manual Settlement Reference
+                  </label>
+                  <input
+                    id="manual-refund-ref"
+                    type="text"
+                    value={manualReferenceInput}
+                    onChange={(e) => setManualReferenceInput(e.target.value)}
+                    placeholder="Bank slip / payout reference (e.g. BANK-TRF-2026-0041)"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-mono"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {(activeTransition.targetStatus === "INITIATED" ||
+            activeTransition.targetStatus === "PROCESSING") && (
+            <div>
+              <label
+                className="block font-bold text-slate-800 mb-1"
+                htmlFor="optional-provider-refund-id"
+              >
+                Provider Refund ID (optional)
+              </label>
+              <input
+                id="optional-provider-refund-id"
+                type="text"
+                value={providerRefundIdInput}
+                onChange={(e) => setProviderRefundIdInput(e.target.value)}
+                placeholder="Enter only if issued by payment gateway"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs font-mono"
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block font-bold text-slate-800 mb-1" htmlFor="refund-audit-notes">
+              Audit Notes
+            </label>
+            <input
+              id="refund-audit-notes"
+              type="text"
+              value={auditNotesInput}
+              onChange={(e) => setAuditNotesInput(e.target.value)}
+              placeholder="Reason and verification evidence (min 3 characters)"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={transitionSubmitting}
+              className="px-4 py-2 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-bold disabled:opacity-50"
+            >
+              {transitionSubmitting
+                ? "Submitting..."
+                : `Confirm ${activeTransition.targetStatus}`}
+            </button>
+          </div>
+        </form>
+      )}
+
       {refunds.length > 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
           {refunds.map((item) => {
@@ -959,12 +1163,15 @@ export function AdminRefundManagementQueuePage() {
                   </span>
                   <p className="text-slate-600 mt-0.5">
                     Reason: {item.reasonCategory} • Current Stage: <strong>{item.status}</strong>
+                    {item.settlementMode ? ` • Mode: ${item.settlementMode}` : ""}
+                    {item.providerRefundId ? ` • ProviderRef: ${item.providerRefundId}` : ""}
+                    {item.manualReference ? ` • ManualRef: ${item.manualReference}` : ""}
                   </p>
                 </div>
                 {canExecuteRefunds && next && (
                   <button
                     type="button"
-                    onClick={() => handleAdvanceRefund(item)}
+                    onClick={() => openTransitionPanel(item, next)}
                     className="px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-bold"
                   >
                     Advance to {next}

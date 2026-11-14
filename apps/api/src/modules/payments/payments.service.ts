@@ -1,13 +1,21 @@
 import crypto from "node:crypto";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import {
+  CheckoutStatusQuery,
+  CheckoutStatusQuerySchema,
+  CheckoutStatusResponse,
   CreatePaymentIntentRequest,
   CreatePaymentIntentRequestSchema,
+  PayHereCheckoutFormFieldsSchema,
+  PaymentCheckoutHandoff,
   PaymentIntent,
+  PaymentNextAction,
+  PaymentTransactionEvidenceSource,
   SandboxSimulatePaymentRequest,
   SandboxSimulatePaymentRequestSchema,
   SandboxWebhookPayload,
   RefundRecord,
+  RefundSettlementMode,
   RefundStatus,
   AdminTransitionRefundRequest,
   AdminTransitionRefundRequestSchema,
@@ -42,17 +50,166 @@ const VALID_REFUND_TRANSITIONS: Record<RefundStatus, RefundStatus[]> = {
   FAILED: ["MANUAL_REVIEW_REQUIRED", "AUTHORIZED"]
 };
 
+const UUID_FORMAT_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HANDOFF_TOKEN_REGEX = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+const ALLOWED_PAYHERE_ACTION_URLS = new Set([
+  "https://sandbox.payhere.lk/pay/checkout",
+  "https://www.payhere.lk/pay/checkout"
+]);
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function signPayHereHandoffToken(intentId: string, expiresAt: Date): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      iid: intentId,
+      exp: Math.floor(expiresAt.getTime() / 1000)
+    }),
+    "utf8"
+  ).toString("base64url");
+  const sig = crypto
+    .createHmac("sha256", env.CUSTODY_TOKEN_HMAC_SECRET)
+    .update(`payhere-handoff-v1:${payload}`, "utf8")
+    .digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function verifyPayHereHandoffToken(token: string): { intentId: string; exp: number } {
+  const trimmed = token.trim();
+  if (!HANDOFF_TOKEN_REGEX.test(trimmed)) {
+    throw AppError.unauthorized("Invalid payment handoff token format");
+  }
+  const [payloadB64, sigB64] = trimmed.split(".");
+  const expectedSigB64 = crypto
+    .createHmac("sha256", env.CUSTODY_TOKEN_HMAC_SECRET)
+    .update(`payhere-handoff-v1:${payloadB64}`, "utf8")
+    .digest("base64url");
+
+  const providedBuf = Buffer.from(sigB64, "utf8");
+  const expectedBuf = Buffer.from(expectedSigB64, "utf8");
+  if (
+    providedBuf.length !== expectedBuf.length ||
+    !crypto.timingSafeEqual(providedBuf, expectedBuf)
+  ) {
+    throw AppError.unauthorized("Invalid payment handoff token signature");
+  }
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+  } catch {
+    throw AppError.unauthorized("Malformed payment handoff token payload");
+  }
+
+  if (!decoded || typeof decoded !== "object") {
+    throw AppError.unauthorized("Invalid payment handoff token payload");
+  }
+  const candidate = decoded as { iid?: unknown; exp?: unknown };
+  if (
+    typeof candidate.iid !== "string" ||
+    !UUID_FORMAT_REGEX.test(candidate.iid) ||
+    typeof candidate.exp !== "number" ||
+    !Number.isSafeInteger(candidate.exp)
+  ) {
+    throw AppError.unauthorized("Incomplete payment handoff token claims");
+  }
+
+  return { intentId: candidate.iid, exp: candidate.exp };
+}
+
+function extractPayHereFormFields(payload: Record<string, unknown>) {
+  const candidate: Record<string, unknown> = {
+    merchant_id: payload.merchant_id,
+    return_url: payload.return_url,
+    cancel_url: payload.cancel_url,
+    notify_url: payload.notify_url,
+    order_id: payload.order_id,
+    items: payload.items,
+    currency: payload.currency,
+    amount: payload.amount,
+    first_name: payload.first_name,
+    last_name: payload.last_name,
+    email: payload.email,
+    phone: payload.phone,
+    address: payload.address,
+    city: payload.city,
+    country: payload.country,
+    hash: payload.hash
+  };
+  if (payload.custom_1 !== undefined) {
+    candidate.custom_1 = payload.custom_1;
+  }
+  if (payload.custom_2 !== undefined) {
+    candidate.custom_2 = payload.custom_2;
+  }
+  return PayHereCheckoutFormFieldsSchema.safeParse(candidate);
+}
+
 function serializeIntent(row: typeof schema.paymentIntents.$inferSelect): PaymentIntent {
+  const payload = (row.checkoutPayload as Record<string, unknown>) ?? {};
+  const provider = row.provider as PaymentIntent["provider"];
+
+  let nextAction: PaymentNextAction;
+  let checkoutHandoff: PaymentCheckoutHandoff;
+
+  if (provider === "PAYHERE") {
+    const parsedFields = extractPayHereFormFields(payload);
+    if (!parsedFields.success) {
+      throw AppError.internal("PayHere payment intent has incomplete checkout form fields");
+    }
+    const rawActionUrl =
+      typeof payload.actionUrl === "string" ? payload.actionUrl : "https://sandbox.payhere.lk/pay/checkout";
+    const actionUrl =
+      rawActionUrl === "https://www.payhere.lk/pay/checkout"
+        ? "https://www.payhere.lk/pay/checkout"
+        : "https://sandbox.payhere.lk/pay/checkout";
+    const mode =
+      payload.mode === "PAYHERE_LIVE_REDIRECT"
+        ? "PAYHERE_LIVE_REDIRECT"
+        : "PAYHERE_SANDBOX_REDIRECT";
+    const handoffToken = signPayHereHandoffToken(row.id, row.expiresAt);
+
+    nextAction = "REDIRECT_TO_PROVIDER";
+    checkoutHandoff = {
+      mode,
+      provider: "PAYHERE",
+      method: "POST_FORM",
+      actionUrl,
+      fields: parsedFields.data,
+      mobileHandoffPath: `/payments/handoff/${handoffToken}`
+    };
+  } else {
+    nextAction = "SANDBOX_SIMULATION";
+    checkoutHandoff = {
+      mode: "SANDBOX_SIMULATION",
+      provider: "SANDBOX_GATEWAY",
+      method: "SIMULATED_API",
+      intentId: row.id,
+      orderId: row.providerOrderId,
+      amountMinor: row.amountMinor,
+      currency: row.currency
+    };
+  }
+
   return {
     id: row.id,
     bookingId: row.bookingId,
     travellerUserId: row.travellerUserId,
-    provider: row.provider as PaymentIntent["provider"],
+    provider,
     providerOrderId: row.providerOrderId,
     amountMinor: row.amountMinor,
     currency: row.currency,
     status: row.status as PaymentIntent["status"],
-    checkoutPayload: (row.checkoutPayload as Record<string, unknown>) ?? {},
+    nextAction,
+    checkoutHandoff,
+    checkoutPayload: payload,
     expiresAt: row.expiresAt.toISOString(),
     verifiedAt: row.verifiedAt ? row.verifiedAt.toISOString() : null,
     failureReason: row.failureReason,
@@ -95,9 +252,13 @@ export class PaymentsService {
             b.hold_expires_at,
             u.email AS traveller_email,
             u.display_name AS traveller_display_name,
+            u.phone_number AS traveller_phone_number,
+            tp.first_name AS traveller_first_name,
+            tp.last_name AS traveller_last_name,
             NOW() AS db_now
           FROM bookings b
           INNER JOIN users u ON u.id = b.traveller_user_id
+          LEFT JOIN traveller_profiles tp ON tp.user_id = u.id
           WHERE b.id = ${input.bookingId}
           FOR UPDATE OF b;
         `);
@@ -112,6 +273,9 @@ export class PaymentsService {
               hold_expires_at: Date | string | null;
               traveller_email: string;
               traveller_display_name: string;
+              traveller_phone_number: string | null;
+              traveller_first_name: string | null;
+              traveller_last_name: string | null;
               db_now: Date | string;
             }
           | undefined;
@@ -245,10 +409,63 @@ export class PaymentsService {
               i.provider === gateway.providerName &&
               i.expiresAt.getTime() > dbNow.getTime()
           );
-          if (activeReusable) {
+          if (activeReusable && !(gateway.providerName === "PAYHERE" && input.customerDetails)) {
             return { kind: "INTENT", intent: activeReusable };
           }
+        }
 
+        const intentId = crypto.randomUUID();
+        const providerOrderId = `ORD-${bookingRow.reference_code}-${crypto
+          .randomBytes(3)
+          .toString("hex")
+          .toUpperCase()}`;
+        const expiresAt = bookingRow.hold_expires_at
+          ? new Date(bookingRow.hold_expires_at)
+          : new Date(dbNow.getTime() + 10 * 60_000);
+
+        const displayNameParts = String(bookingRow.traveller_display_name ?? "")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const resolvedFirstName =
+          input.customerDetails?.firstName?.trim() ||
+          bookingRow.traveller_first_name?.trim() ||
+          displayNameParts[0] ||
+          undefined;
+        const resolvedLastName =
+          input.customerDetails?.lastName?.trim() ||
+          bookingRow.traveller_last_name?.trim() ||
+          (displayNameParts.length > 1 ? displayNameParts.slice(1).join(" ") : undefined);
+        const resolvedEmail =
+          input.customerDetails?.email?.trim() ||
+          String(bookingRow.traveller_email ?? "").trim() ||
+          undefined;
+        const resolvedPhone =
+          input.customerDetails?.phone?.trim() ||
+          bookingRow.traveller_phone_number?.trim() ||
+          undefined;
+
+        const checkoutPayload = gateway.buildCheckoutPayload({
+          intentId,
+          bookingId: bookingRow.id,
+          referenceCode: bookingRow.reference_code,
+          providerOrderId,
+          amountMinor: Number(bookingRow.total_amount_minor),
+          currency: bookingRow.currency,
+          customerEmail: bookingRow.traveller_email,
+          customerName: bookingRow.traveller_display_name,
+          customerDetails: {
+            firstName: resolvedFirstName,
+            lastName: resolvedLastName,
+            email: resolvedEmail,
+            phone: resolvedPhone,
+            address: input.customerDetails?.address?.trim(),
+            city: input.customerDetails?.city?.trim(),
+            country: input.customerDetails?.country?.trim()
+          }
+        });
+
+        if (!input.idempotencyKey) {
           const openIdsToSupersede = intentRows
             .filter((i) => i.status === "INITIATED" || i.status === "PENDING_GATEWAY")
             .map((i) => i.id);
@@ -264,26 +481,6 @@ export class PaymentsService {
               .where(inArray(schema.paymentIntents.id, openIdsToSupersede));
           }
         }
-
-        const intentId = crypto.randomUUID();
-        const providerOrderId = `ORD-${bookingRow.reference_code}-${crypto
-          .randomBytes(3)
-          .toString("hex")
-          .toUpperCase()}`;
-        const expiresAt = bookingRow.hold_expires_at
-          ? new Date(bookingRow.hold_expires_at)
-          : new Date(dbNow.getTime() + 10 * 60_000);
-
-        const checkoutPayload = gateway.buildCheckoutPayload({
-          intentId,
-          bookingId: bookingRow.id,
-          referenceCode: bookingRow.reference_code,
-          providerOrderId,
-          amountMinor: Number(bookingRow.total_amount_minor),
-          currency: bookingRow.currency,
-          customerEmail: bookingRow.traveller_email,
-          customerName: bookingRow.traveller_display_name
-        });
 
         const [inserted] = await tx
           .insert(schema.paymentIntents)
@@ -332,12 +529,202 @@ export class PaymentsService {
   }
 
   /**
+   * Verifies a short-lived HMAC-signed handoff token and renders an auto-submitting
+   * PayHere checkout POST HTML bridge using stored server-side fields only.
+   */
+  async renderPayHerePostHandoffHtml(
+    handoffToken: string
+  ): Promise<{ html: string; cspHeader: string }> {
+    const { intentId, exp } = verifyPayHereHandoffToken(handoffToken);
+    if (exp <= Math.floor(Date.now() / 1000)) {
+      throw AppError.conflict("Payment checkout handoff link has expired");
+    }
+
+    const rows = await db
+      .select({
+        intent: schema.paymentIntents,
+        bookingStatus: schema.bookings.status,
+        holdExpiresAt: schema.bookings.holdExpiresAt,
+        referenceCode: schema.bookings.referenceCode
+      })
+      .from(schema.paymentIntents)
+      .innerJoin(schema.bookings, eq(schema.paymentIntents.bookingId, schema.bookings.id))
+      .where(eq(schema.paymentIntents.id, intentId))
+      .limit(1);
+
+    const record = rows[0];
+    if (!record) {
+      throw AppError.notFound("Payment intent not found for checkout handoff");
+    }
+
+    const { intent, bookingStatus, holdExpiresAt, referenceCode } = record;
+    if (intent.provider !== "PAYHERE") {
+      throw AppError.badRequest("Checkout POST handoff is only valid for PayHere payment intents");
+    }
+    if (intent.status !== "INITIATED" && intent.status !== "PENDING_GATEWAY") {
+      throw AppError.conflict(
+        `Payment intent is in closed status ${intent.status} and cannot launch checkout`
+      );
+    }
+    if (intent.expiresAt.getTime() <= Date.now()) {
+      throw AppError.conflict("Payment intent has expired");
+    }
+    if (bookingStatus !== "PENDING_PAYMENT") {
+      throw AppError.conflict(
+        `Booking ${referenceCode} is in status ${bookingStatus} and is not awaiting payment`
+      );
+    }
+    if (holdExpiresAt && holdExpiresAt.getTime() <= Date.now()) {
+      throw AppError.conflict("Booking payment hold has expired");
+    }
+
+    const payload = (intent.checkoutPayload as Record<string, unknown>) ?? {};
+    const rawActionUrl = typeof payload.actionUrl === "string" ? payload.actionUrl : "";
+    if (!ALLOWED_PAYHERE_ACTION_URLS.has(rawActionUrl)) {
+      throw AppError.internal("PayHere checkout actionUrl is invalid");
+    }
+
+    const parsedFields = extractPayHereFormFields(payload);
+    if (!parsedFields.success) {
+      throw AppError.internal("PayHere checkout payload fields are incomplete");
+    }
+
+    const nonce = crypto.randomBytes(16).toString("base64url");
+    const hiddenInputsHtml = Object.entries(parsedFields.data)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(
+        ([name, value]) =>
+          `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}" />`
+      )
+      .join("\n      ");
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redirecting to PayHere Checkout</title>
+    <style nonce="${nonce}">
+      body { font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; color: #0f172a; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; padding: 24px; }
+      .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 24px; max-width: 420px; width: 100%; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06); }
+      h1 { font-size: 18px; margin: 0 0 8px; }
+      p { font-size: 14px; color: #475569; margin: 0 0 18px; line-height: 1.5; }
+      button { width: 100%; padding: 12px 16px; border: 0; border-radius: 10px; background: #0f172a; color: #ffffff; font-size: 14px; font-weight: 600; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Redirecting to PayHere</h1>
+      <p>Preparing your encrypted payment session for booking ${escapeHtml(referenceCode)}.</p>
+      <form id="payhere-checkout-form" method="POST" action="${escapeHtml(rawActionUrl)}">
+        ${hiddenInputsHtml}
+        <button type="submit">Continue to PayHere</button>
+      </form>
+    </main>
+    <script nonce="${nonce}">
+      window.addEventListener("DOMContentLoaded", function () {
+        var form = document.getElementById("payhere-checkout-form");
+        if (form) { form.submit(); }
+      });
+    </script>
+  </body>
+</html>`;
+
+    const cspHeader =
+      `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; ` +
+      `form-action https://sandbox.payhere.lk https://www.payhere.lk; base-uri 'none'; frame-ancestors 'none'`;
+
+    return { html, cspHeader };
+  }
+
+  /**
+   * Returns authoritative booking & latest payment intent state for checkout return / polling.
+   */
+  async getCheckoutStatus(
+    userId: string,
+    userRoles: string[],
+    rawQuery: CheckoutStatusQuery
+  ): Promise<CheckoutStatusResponse> {
+    const query = CheckoutStatusQuerySchema.parse(rawQuery);
+    await quotationService.sweepExpiredHolds();
+
+    let resolvedBookingId = query.bookingId;
+    let matchedOrderIntent: typeof schema.paymentIntents.$inferSelect | null = null;
+
+    if (query.orderId) {
+      const [intentByOrder] = await db
+        .select()
+        .from(schema.paymentIntents)
+        .where(eq(schema.paymentIntents.providerOrderId, query.orderId))
+        .limit(1);
+      if (!intentByOrder) {
+        throw AppError.notFound("Payment order not found");
+      }
+      if (resolvedBookingId && intentByOrder.bookingId !== resolvedBookingId) {
+        throw AppError.notFound("Payment order does not belong to requested booking");
+      }
+      resolvedBookingId = intentByOrder.bookingId;
+      matchedOrderIntent = intentByOrder;
+    }
+
+    if (!resolvedBookingId) {
+      throw AppError.badRequest("Either bookingId or orderId is required");
+    }
+
+    const [booking] = await db
+      .select()
+      .from(schema.bookings)
+      .where(eq(schema.bookings.id, resolvedBookingId))
+      .limit(1);
+
+    if (!booking) {
+      throw AppError.notFound("Booking not found");
+    }
+
+    const isAdminOrSupport =
+      userRoles.includes("SUPERADMIN") ||
+      userRoles.includes("SUPPORT") ||
+      userRoles.includes("ADMIN");
+    if (booking.travellerUserId !== userId && !isAdminOrSupport) {
+      throw AppError.forbidden("You do not have permission to view payment status for this booking");
+    }
+
+    const intentRows = await db
+      .select()
+      .from(schema.paymentIntents)
+      .where(eq(schema.paymentIntents.bookingId, booking.id))
+      .orderBy(desc(schema.paymentIntents.createdAt));
+
+    const settledIntent = intentRows.find(
+      (i) => i.status === "SUCCEEDED" || i.status === "ORPHANED_SUCCEEDED"
+    );
+    const selectedIntent = settledIntent ?? matchedOrderIntent ?? intentRows[0] ?? null;
+
+    const holdNotExpired =
+      !booking.holdExpiresAt || booking.holdExpiresAt.getTime() > Date.now();
+    const custodyReady = ["CONFIRMED", "CHECKED_IN", "IN_STORAGE"].includes(booking.status);
+
+    return {
+      bookingId: booking.id,
+      referenceCode: booking.referenceCode,
+      bookingStatus: booking.status,
+      holdExpiresAt: booking.holdExpiresAt ? booking.holdExpiresAt.toISOString() : null,
+      confirmedAt: booking.confirmedAt ? booking.confirmedAt.toISOString() : null,
+      canRetryPayment: booking.status === "PENDING_PAYMENT" && holdNotExpired,
+      custodyReady,
+      pollRecommended: booking.status === "PENDING_PAYMENT" && holdNotExpired,
+      paymentIntent: selectedIntent ? serializeIntent(selectedIntent) : null
+    };
+  }
+
+  /**
    * Verifies and processes an HMAC-SHA256 signed sandbox payment gateway webhook.
    */
   async processSandboxWebhook(
     rawPayload: string,
     signatureHeader: string | undefined,
-    clientInfo?: AuditClientInfo
+    clientInfo?: AuditClientInfo,
+    options?: { evidenceSource?: "PROVIDER_WEBHOOK" | "SANDBOX_SIMULATOR" }
   ): Promise<{
     duplicate: boolean;
     outcome: string;
@@ -351,7 +738,8 @@ export class PaymentsService {
         headers: signatureHeader ? { "x-sandbox-signature": signatureHeader } : {},
         contentType: "application/json"
       },
-      clientInfo
+      clientInfo,
+      options
     );
   }
 
@@ -406,7 +794,8 @@ export class PaymentsService {
   private async processGatewayWebhook(
     adapter: PaymentGatewayPort,
     rawInput: RawWebhookNotificationInput,
-    clientInfo?: AuditClientInfo
+    clientInfo?: AuditClientInfo,
+    options?: { evidenceSource?: "PROVIDER_WEBHOOK" | "SANDBOX_SIMULATOR" }
   ): Promise<{
     duplicate: boolean;
     outcome: string;
@@ -423,13 +812,14 @@ export class PaymentsService {
       }
     });
 
-    return this.processGatewayWebhookInternal(adapter, rawInput, clientInfo);
+    return this.processGatewayWebhookInternal(adapter, rawInput, clientInfo, options);
   }
 
   private async processGatewayWebhookInternal(
     adapter: PaymentGatewayPort,
     rawInput: RawWebhookNotificationInput,
-    clientInfo?: AuditClientInfo
+    clientInfo?: AuditClientInfo,
+    options?: { evidenceSource?: "PROVIDER_WEBHOOK" | "SANDBOX_SIMULATOR" }
   ): Promise<{
     duplicate: boolean;
     outcome: string;
@@ -697,6 +1087,10 @@ export class PaymentsService {
               ? "PENDING"
               : "FAILED";
 
+          const evidenceSource: PaymentTransactionEvidenceSource =
+            options?.evidenceSource ?? "PROVIDER_WEBHOOK";
+          const signatureVerified = evidenceSource === "PROVIDER_WEBHOOK";
+
           if (!existingTx) {
             await tx
               .insert(schema.paymentTransactions)
@@ -710,7 +1104,8 @@ export class PaymentsService {
                 amountMinor: notification.amountMinor,
                 currency: notification.currency,
                 rawStatusCode: notification.rawStatusCode,
-                signatureVerified: true,
+                evidenceSource,
+                signatureVerified,
                 metadata: {
                   eventId: notification.providerEventId,
                   eventIdDerived: notification.eventIdDerived,
@@ -1201,6 +1596,11 @@ export class PaymentsService {
     if (intent.travellerUserId !== travellerUserId) {
       throw AppError.forbidden("You can only complete checkout for your own payment intent");
     }
+    if (intent.provider !== "SANDBOX_GATEWAY") {
+      throw AppError.forbidden(
+        "Sandbox payment simulation cannot be used for non-sandbox payment intents"
+      );
+    }
 
     const webhookPayload: SandboxWebhookPayload = {
       eventId: `evt_sbx_${crypto.randomUUID()}`,
@@ -1217,7 +1617,9 @@ export class PaymentsService {
     const adapter = resolveSandboxGatewayAdapter();
     const signature = adapter.signWebhookPayload(rawBody);
 
-    return this.processSandboxWebhook(rawBody, signature, clientInfo);
+    return this.processSandboxWebhook(rawBody, signature, clientInfo, {
+      evidenceSource: "SANDBOX_SIMULATOR"
+    });
   }
 
   /**
@@ -1246,202 +1648,483 @@ export class PaymentsService {
       throw AppError.notFound("Refund record not found");
     }
 
-    return withSerializableOrDeadlockRetry(() =>
-      db.transaction(async (tx) => {
-        // Tier 2 Lock: bookings FIRST
-        const bookingRes = await tx.execute(sql`
-          SELECT id, business_id, reference_code, NOW() AS db_now
-          FROM bookings
-          WHERE id = ${refundLookup.bookingId}
-          FOR UPDATE;
-        `);
-        const bookingRow = bookingRes.rows[0] as
-          | {
-              id: string;
-              business_id: string;
-              reference_code: string;
-              db_now: Date | string;
-            }
-          | undefined;
+    try {
+      return await withSerializableOrDeadlockRetry(() =>
+        db.transaction(async (tx) => {
+          // Tier 2 Lock: bookings FIRST
+          const bookingRes = await tx.execute(sql`
+            SELECT id, business_id, reference_code, NOW() AS db_now
+            FROM bookings
+            WHERE id = ${refundLookup.bookingId}
+            FOR UPDATE;
+          `);
+          const bookingRow = bookingRes.rows[0] as
+            | {
+                id: string;
+                business_id: string;
+                reference_code: string;
+                db_now: Date | string;
+              }
+            | undefined;
 
-        if (!bookingRow) {
-          throw AppError.notFound("Associated booking not found");
-        }
-
-        // Tier 3 Lock: payment_intents ORDER BY id ASC
-        const intentsRes = await tx.execute(sql`
-          SELECT id, provider
-          FROM payment_intents
-          WHERE booking_id = ${bookingRow.id}
-          ORDER BY id ASC
-          FOR UPDATE;
-        `);
-        const lockedIntents = intentsRes.rows as Array<{
-          id: string;
-          provider: "SANDBOX_GATEWAY" | "PAYHERE";
-        }>;
-
-        // Tier 4 Lock: refund_records FOR UPDATE
-        const refundRes = await tx.execute(sql`
-          SELECT *
-          FROM refund_records
-          WHERE id = ${refundId}
-          FOR UPDATE;
-        `);
-        const row = refundRes.rows[0] as
-          | {
-              id: string;
-              booking_id: string;
-              payment_intent_id: string | null;
-              amount_minor: number;
-              currency: string;
-              refund_percentage: number;
-              reason_category: string;
-              status: RefundStatus;
-              provider_refund_id: string | null;
-              requested_by_user_id: string | null;
-              authorized_by_user_id: string | null;
-              notes: string | null;
-              completed_at: Date | null;
-              created_at: Date;
-              updated_at: Date;
-            }
-          | undefined;
-
-        if (!row) {
-          throw AppError.notFound("Refund record not found");
-        }
-
-        // Idempotent retry when already in targetStatus (no duplicate ledger/transaction posting)
-        if (row.status === input.targetStatus) {
-          return {
-            id: row.id,
-            bookingId: row.booking_id,
-            referenceCode: bookingRow.reference_code,
-            paymentIntentId: row.payment_intent_id,
-            amountMinor: Number(row.amount_minor),
-            currency: row.currency,
-            refundPercentage: Number(row.refund_percentage),
-            reasonCategory: row.reason_category as RefundRecord["reasonCategory"],
-            status: row.status,
-            providerRefundId: row.provider_refund_id,
-            requestedByUserId: row.requested_by_user_id,
-            authorizedByUserId: row.authorized_by_user_id,
-            notes: row.notes,
-            completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
-            createdAt: new Date(row.created_at).toISOString(),
-            updatedAt: new Date(row.updated_at).toISOString()
-          };
-        }
-
-        const allowed = VALID_REFUND_TRANSITIONS[row.status] ?? [];
-        if (!allowed.includes(input.targetStatus)) {
-          throw AppError.conflict(
-            `Invalid refund lifecycle transition from ${row.status} to ${input.targetStatus}`
-          );
-        }
-
-        let resolvedProvider: "SANDBOX_GATEWAY" | "PAYHERE" | null = null;
-        if (row.payment_intent_id) {
-          const matchingIntent = lockedIntents.find((i) => i.id === row.payment_intent_id);
-          if (!matchingIntent) {
-            throw AppError.internal("Associated payment intent not found for refund record");
+          if (!bookingRow) {
+            throw AppError.notFound("Associated booking not found");
           }
-          resolvedProvider = matchingIntent.provider;
-        }
 
-        const now = new Date(bookingRow.db_now);
-        const providerRefundId =
-          input.providerRefundId ??
-          row.provider_refund_id ??
-          (input.targetStatus === "SUCCEEDED"
-            ? `rfnd_${crypto.randomBytes(6).toString("hex")}`
-            : null);
+          // Tier 3 Lock: payment_intents ORDER BY id ASC
+          const intentsRes = await tx.execute(sql`
+            SELECT id, provider, status, currency
+            FROM payment_intents
+            WHERE booking_id = ${bookingRow.id}
+            ORDER BY id ASC
+            FOR UPDATE;
+          `);
+          const lockedIntents = intentsRes.rows as Array<{
+            id: string;
+            provider: "SANDBOX_GATEWAY" | "PAYHERE";
+            status: string;
+            currency: string;
+          }>;
 
-        const [updated] = await tx
-          .update(schema.refundRecords)
-          .set({
-            status: input.targetStatus,
-            providerRefundId,
-            authorizedByUserId:
-              input.targetStatus === "AUTHORIZED" || !row.authorized_by_user_id
-                ? adminUserId
-                : row.authorized_by_user_id,
-            notes: input.notes,
-            completedAt: input.targetStatus === "SUCCEEDED" ? now : row.completed_at,
-            updatedAt: now
-          })
-          .where(eq(schema.refundRecords.id, refundId))
-          .returning();
+          // Tier 4 Lock: refund_records FOR UPDATE
+          const refundRes = await tx.execute(sql`
+            SELECT *
+            FROM refund_records
+            WHERE id = ${refundId}
+            FOR UPDATE;
+          `);
+          const row = refundRes.rows[0] as
+            | {
+                id: string;
+                booking_id: string;
+                payment_intent_id: string | null;
+                amount_minor: number;
+                currency: string;
+                refund_percentage: number;
+                reason_category: string;
+                status: RefundStatus;
+                settlement_mode: RefundSettlementMode | null;
+                provider_refund_id: string | null;
+                manual_reference: string | null;
+                requested_by_user_id: string | null;
+                authorized_by_user_id: string | null;
+                settled_by_user_id: string | null;
+                notes: string | null;
+                completed_at: Date | null;
+                created_at: Date;
+                updated_at: Date;
+              }
+            | undefined;
 
-        if (input.targetStatus === "SUCCEEDED" && Number(row.amount_minor) > 0) {
-          if (row.payment_intent_id && providerRefundId && resolvedProvider) {
-            await tx
-              .insert(schema.paymentTransactions)
-              .values({
+          if (!row) {
+            throw AppError.notFound("Refund record not found");
+          }
+
+          const serializeRefundRow = (r: typeof schema.refundRecords.$inferSelect): RefundRecord => ({
+            id: r.id,
+            bookingId: r.bookingId,
+            referenceCode: bookingRow.reference_code,
+            paymentIntentId: r.paymentIntentId,
+            amountMinor: r.amountMinor,
+            currency: r.currency,
+            refundPercentage: r.refundPercentage,
+            reasonCategory: r.reasonCategory as RefundRecord["reasonCategory"],
+            status: r.status as RefundRecord["status"],
+            settlementMode: (r.settlementMode as RefundSettlementMode | null) ?? null,
+            providerRefundId: r.providerRefundId,
+            manualReference: r.manualReference,
+            requestedByUserId: r.requestedByUserId,
+            authorizedByUserId: r.authorizedByUserId,
+            settledByUserId: r.settledByUserId,
+            notes: r.notes,
+            completedAt: r.completedAt ? r.completedAt.toISOString() : null,
+            createdAt: r.createdAt.toISOString(),
+            updatedAt: r.updatedAt.toISOString()
+          });
+
+          // Idempotent retry when already in targetStatus (conflict if settled mode or reference changed)
+          if (row.status === input.targetStatus) {
+            if (row.status === "SUCCEEDED") {
+              if (row.settlement_mode !== input.settlementMode) {
+                throw AppError.conflict(
+                  "Refund is already settled under a different settlementMode"
+                );
+              }
+              if (
+                input.settlementMode === "PROVIDER_CONFIRMED" &&
+                row.provider_refund_id !== input.providerRefundId?.trim()
+              ) {
+                throw AppError.conflict(
+                  "Refund is already settled with a different providerRefundId"
+                );
+              }
+              if (
+                input.settlementMode === "MANUAL_OFFLINE" &&
+                row.manual_reference !== input.manualReference?.trim()
+              ) {
+                throw AppError.conflict(
+                  "Refund is already settled with a different manualReference"
+                );
+              }
+            }
+
+            return {
+              id: row.id,
+              bookingId: row.booking_id,
+              referenceCode: bookingRow.reference_code,
+              paymentIntentId: row.payment_intent_id,
+              amountMinor: Number(row.amount_minor),
+              currency: row.currency,
+              refundPercentage: Number(row.refund_percentage),
+              reasonCategory: row.reason_category as RefundRecord["reasonCategory"],
+              status: row.status,
+              settlementMode: row.settlement_mode ?? null,
+              providerRefundId: row.provider_refund_id,
+              manualReference: row.manual_reference ?? null,
+              requestedByUserId: row.requested_by_user_id,
+              authorizedByUserId: row.authorized_by_user_id,
+              settledByUserId: row.settled_by_user_id ?? null,
+              notes: row.notes,
+              completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+              createdAt: new Date(row.created_at).toISOString(),
+              updatedAt: new Date(row.updated_at).toISOString()
+            };
+          }
+
+          const allowed = VALID_REFUND_TRANSITIONS[row.status] ?? [];
+          if (!allowed.includes(input.targetStatus)) {
+            throw AppError.conflict(
+              `Invalid refund lifecycle transition from ${row.status} to ${input.targetStatus}`
+            );
+          }
+
+          let resolvedProvider: "SANDBOX_GATEWAY" | "PAYHERE" | null = null;
+          let matchedIntent: (typeof lockedIntents)[number] | undefined;
+          if (row.payment_intent_id) {
+            matchedIntent = lockedIntents.find((i) => i.id === row.payment_intent_id);
+            if (!matchedIntent) {
+              throw AppError.internal("Associated payment intent not found for refund record");
+            }
+            resolvedProvider = matchedIntent.provider;
+          }
+
+          const now = new Date(bookingRow.db_now);
+          const amountMinor = Number(row.amount_minor);
+          let nextSettlementMode: RefundSettlementMode | null = row.settlement_mode ?? null;
+          let nextProviderRefundId: string | null =
+            input.providerRefundId?.trim() ?? row.provider_refund_id;
+          let nextManualReference: string | null = row.manual_reference ?? null;
+          let nextSettledByUserId: string | null = row.settled_by_user_id ?? null;
+
+          if (input.targetStatus !== "SUCCEEDED" && input.providerRefundId?.trim()) {
+            const candidateRef = input.providerRefundId.trim();
+            const dupRefund = await tx.execute(sql`
+              SELECT id
+              FROM refund_records
+              WHERE provider_refund_id = ${candidateRef}
+                AND id <> ${row.id}
+              LIMIT 1;
+            `);
+            if (dupRefund.rows.length > 0) {
+              throw AppError.conflict(
+                "Provider refund ID is already associated with another refund record"
+              );
+            }
+            if (resolvedProvider) {
+              const dupTx = await tx.execute(sql`
+                SELECT id
+                FROM payment_transactions
+                WHERE provider = ${resolvedProvider}
+                  AND provider_transaction_id = ${candidateRef}
+                LIMIT 1;
+              `);
+              if (dupTx.rows.length > 0) {
+                throw AppError.conflict(
+                  "Provider refund ID collides with an existing payment transaction reference"
+                );
+              }
+            }
+          }
+
+          if (input.targetStatus === "SUCCEEDED") {
+            const mode = input.settlementMode!;
+            nextSettlementMode = mode;
+            nextSettledByUserId = adminUserId;
+
+            if (mode === "PROVIDER_CONFIRMED") {
+              nextProviderRefundId = input.providerRefundId!.trim();
+              nextManualReference = null;
+            } else {
+              nextProviderRefundId = null;
+              nextManualReference = input.manualReference!.trim();
+            }
+
+            if (amountMinor > 0) {
+              if (!matchedIntent || !resolvedProvider || !row.payment_intent_id) {
+                throw AppError.conflict(
+                  "Cannot mark positive refund SUCCEEDED without an associated settled payment intent"
+                );
+              }
+              if (
+                matchedIntent.status !== "SUCCEEDED" &&
+                matchedIntent.status !== "ORPHANED_SUCCEEDED"
+              ) {
+                throw AppError.conflict(
+                  `Cannot mark refund SUCCEEDED while associated payment intent is ${matchedIntent.status}`
+                );
+              }
+              if (matchedIntent.currency !== row.currency) {
+                throw AppError.conflict(
+                  "Refund currency does not match associated payment intent currency"
+                );
+              }
+
+              const bookingTxRes = await tx.execute(sql`
+                SELECT
+                  id,
+                  payment_intent_id,
+                  refund_id,
+                  provider,
+                  provider_transaction_id,
+                  transaction_type,
+                  status,
+                  amount_minor,
+                  currency
+                FROM payment_transactions
+                WHERE booking_id = ${bookingRow.id}
+                ORDER BY id ASC
+                FOR UPDATE;
+              `);
+              const bookingTxRows = bookingTxRes.rows as Array<{
+                id: string;
+                payment_intent_id: string;
+                refund_id: string | null;
+                provider: string;
+                provider_transaction_id: string | null;
+                transaction_type: string;
+                status: string;
+                amount_minor: number;
+                currency: string;
+              }>;
+
+              const capturedIntentTxs = bookingTxRows.filter(
+                (t) =>
+                  t.payment_intent_id === row.payment_intent_id &&
+                  t.transaction_type === "CHARGE" &&
+                  t.status === "SUCCEEDED"
+              );
+              if (capturedIntentTxs.length === 0) {
+                throw AppError.conflict(
+                  "Cannot mark refund SUCCEEDED without a captured CHARGE transaction"
+                );
+              }
+              if (
+                capturedIntentTxs.some(
+                  (t) => t.provider !== resolvedProvider || t.currency !== row.currency
+                )
+              ) {
+                throw AppError.conflict(
+                  "Captured charge provider or currency does not match refund record"
+                );
+              }
+
+              const totalCapturedMinor = bookingTxRows
+                .filter(
+                  (t) =>
+                    t.transaction_type === "CHARGE" &&
+                    t.status === "SUCCEEDED" &&
+                    t.currency === row.currency
+                )
+                .reduce((sum, t) => sum + Number(t.amount_minor), 0);
+
+              const totalRefundTxMinor = bookingTxRows
+                .filter((t) => t.transaction_type === "REFUND" && t.status === "SUCCEEDED")
+                .reduce((sum, t) => sum + Number(t.amount_minor), 0);
+
+              const otherSucceededRefundsRes = await tx.execute(sql`
+                SELECT COALESCE(SUM(amount_minor), 0)::bigint AS total_refunded
+                FROM refund_records
+                WHERE booking_id = ${bookingRow.id}
+                  AND status = 'SUCCEEDED'
+                  AND id <> ${row.id};
+              `);
+              const otherRefundsMinor = Number(
+                (otherSucceededRefundsRes.rows[0] as { total_refunded?: string | number } | undefined)
+                  ?.total_refunded ?? 0
+              );
+
+              if (
+                totalRefundTxMinor + amountMinor > totalCapturedMinor ||
+                otherRefundsMinor + amountMinor > totalCapturedMinor
+              ) {
+                throw AppError.conflict(
+                  "Refund amount exceeds total captured charges for this booking"
+                );
+              }
+
+              if (
+                bookingTxRows.some(
+                  (t) =>
+                    t.refund_id === row.id &&
+                    t.transaction_type === "REFUND" &&
+                    t.status === "SUCCEEDED"
+                )
+              ) {
+                throw AppError.conflict(
+                  "A succeeded REFUND transaction already exists for this refund record"
+                );
+              }
+
+              if (mode === "PROVIDER_CONFIRMED" && nextProviderRefundId) {
+                const dupProviderTx = await tx.execute(sql`
+                  SELECT id, transaction_type
+                  FROM payment_transactions
+                  WHERE provider = ${resolvedProvider}
+                    AND provider_transaction_id = ${nextProviderRefundId}
+                  LIMIT 1;
+                `);
+                if (dupProviderTx.rows.length > 0) {
+                  throw AppError.conflict(
+                    "Provider refund ID is already recorded on another payment or refund transaction"
+                  );
+                }
+
+                const dupOtherRefund = await tx.execute(sql`
+                  SELECT id
+                  FROM refund_records
+                  WHERE provider_refund_id = ${nextProviderRefundId}
+                    AND id <> ${row.id}
+                  LIMIT 1;
+                `);
+                if (dupOtherRefund.rows.length > 0) {
+                  throw AppError.conflict(
+                    "Provider refund ID is already assigned to another refund record"
+                  );
+                }
+              }
+            }
+          }
+
+          const [updated] = await tx
+            .update(schema.refundRecords)
+            .set({
+              status: input.targetStatus,
+              settlementMode: nextSettlementMode,
+              providerRefundId: nextProviderRefundId,
+              manualReference: nextManualReference,
+              settledByUserId: nextSettledByUserId,
+              authorizedByUserId:
+                input.targetStatus === "AUTHORIZED" || !row.authorized_by_user_id
+                  ? adminUserId
+                  : row.authorized_by_user_id,
+              notes: input.notes,
+              completedAt: input.targetStatus === "SUCCEEDED" ? now : row.completed_at,
+              updatedAt: now
+            })
+            .where(eq(schema.refundRecords.id, refundId))
+            .returning();
+
+          if (input.targetStatus === "SUCCEEDED" && amountMinor > 0) {
+            if (!row.payment_intent_id || !resolvedProvider) {
+              throw AppError.conflict(
+                "Missing payment intent or provider attribution for settled refund"
+              );
+            }
+
+            if (nextSettlementMode === "PROVIDER_CONFIRMED") {
+              await tx.insert(schema.paymentTransactions).values({
                 paymentIntentId: row.payment_intent_id,
                 bookingId: row.booking_id,
+                refundId: row.id,
                 provider: resolvedProvider,
-                providerTransactionId: providerRefundId,
+                providerTransactionId: nextProviderRefundId!,
                 transactionType: "REFUND",
                 status: "SUCCEEDED",
-                amountMinor: Number(row.amount_minor),
+                amountMinor,
                 currency: row.currency,
                 rawStatusCode: "REFUNDED",
-                signatureVerified: true,
-                metadata: { refundId, provider: resolvedProvider }
-              })
-              .onConflictDoNothing();
+                evidenceSource: "ADMIN_PROVIDER_ATTESTED",
+                manualReference: null,
+                settledByUserId: adminUserId,
+                signatureVerified: false,
+                metadata: {
+                  refundId: row.id,
+                  provider: resolvedProvider,
+                  settlementMode: "PROVIDER_CONFIRMED"
+                }
+              });
+            } else {
+              await tx.insert(schema.paymentTransactions).values({
+                paymentIntentId: row.payment_intent_id,
+                bookingId: row.booking_id,
+                refundId: row.id,
+                provider: resolvedProvider,
+                providerTransactionId: null,
+                transactionType: "REFUND",
+                status: "SUCCEEDED",
+                amountMinor,
+                currency: row.currency,
+                rawStatusCode: "MANUAL_REFUNDED",
+                evidenceSource: "ADMIN_MANUAL_OFFLINE",
+                manualReference: nextManualReference!,
+                settledByUserId: adminUserId,
+                signatureVerified: false,
+                metadata: {
+                  refundId: row.id,
+                  provider: resolvedProvider,
+                  settlementMode: "MANUAL_OFFLINE",
+                  manualReference: nextManualReference
+                }
+              });
+            }
+
+            await ledgerService.recordRefundDisbursed(tx, {
+              bookingId: row.booking_id,
+              businessId: bookingRow.business_id,
+              refundId: row.id,
+              amountMinor,
+              currency: row.currency,
+              referenceCode: bookingRow.reference_code
+            });
           }
 
-          await ledgerService.recordRefundDisbursed(tx, {
-            bookingId: row.booking_id,
-            businessId: bookingRow.business_id,
-            refundId: row.id,
-            amountMinor: Number(row.amount_minor),
-            currency: row.currency,
-            referenceCode: bookingRow.reference_code
+          await auditService.recordEvent({
+            eventType: SecurityEventType.REFUND_STATUS_CHANGED,
+            userId: adminUserId,
+            clientInfo,
+            metadata: {
+              refundId: row.id,
+              bookingId: row.booking_id,
+              referenceCode: bookingRow.reference_code,
+              provider: resolvedProvider ?? undefined,
+              previousStatus: row.status,
+              newStatus: input.targetStatus,
+              settlementMode: nextSettlementMode ?? undefined,
+              evidenceSource:
+                input.targetStatus === "SUCCEEDED"
+                  ? nextSettlementMode === "MANUAL_OFFLINE"
+                    ? "ADMIN_MANUAL_OFFLINE"
+                    : "ADMIN_PROVIDER_ATTESTED"
+                  : undefined,
+              amountMinor,
+              currency: row.currency,
+              adminNotes: input.notes
+            },
+            tx
           });
-        }
 
-        await auditService.recordEvent({
-          eventType: SecurityEventType.REFUND_STATUS_CHANGED,
-          userId: adminUserId,
-          clientInfo,
-          metadata: {
-            refundId: row.id,
-            bookingId: row.booking_id,
-            referenceCode: bookingRow.reference_code,
-            provider: resolvedProvider ?? undefined,
-            previousStatus: row.status,
-            newStatus: input.targetStatus,
-            amountMinor: Number(row.amount_minor),
-            currency: row.currency,
-            adminNotes: input.notes
-          },
-          tx
-        });
-
-        return {
-          id: updated.id,
-          bookingId: updated.bookingId,
-          referenceCode: bookingRow.reference_code,
-          paymentIntentId: updated.paymentIntentId,
-          amountMinor: updated.amountMinor,
-          currency: updated.currency,
-          refundPercentage: updated.refundPercentage,
-          reasonCategory: updated.reasonCategory as RefundRecord["reasonCategory"],
-          status: updated.status as RefundRecord["status"],
-          providerRefundId: updated.providerRefundId,
-          requestedByUserId: updated.requestedByUserId,
-          authorizedByUserId: updated.authorizedByUserId,
-          notes: updated.notes,
-          completedAt: updated.completedAt ? updated.completedAt.toISOString() : null,
-          createdAt: updated.createdAt.toISOString(),
-          updatedAt: updated.updatedAt.toISOString()
-        };
-      })
-    );
+          return serializeRefundRow(updated);
+        })
+      );
+    } catch (err) {
+      const pgErr = err as { code?: string };
+      if (pgErr?.code === "23505") {
+        throw AppError.conflict(
+          "Refund settlement conflicts with an existing provider transaction or refund reference"
+        );
+      }
+      throw err;
+    }
   }
 
   /**
@@ -1486,9 +2169,12 @@ export class PaymentsService {
       refundPercentage: refund.refundPercentage,
       reasonCategory: refund.reasonCategory as RefundRecord["reasonCategory"],
       status: refund.status as RefundRecord["status"],
+      settlementMode: (refund.settlementMode as RefundSettlementMode | null) ?? null,
       providerRefundId: refund.providerRefundId,
+      manualReference: refund.manualReference,
       requestedByUserId: refund.requestedByUserId,
       authorizedByUserId: refund.authorizedByUserId,
+      settledByUserId: refund.settledByUserId,
       notes: refund.notes,
       completedAt: refund.completedAt ? refund.completedAt.toISOString() : null,
       createdAt: refund.createdAt.toISOString(),
@@ -1538,12 +2224,16 @@ export class PaymentsService {
       paymentIntentId: tx.paymentIntentId,
       bookingId: tx.bookingId,
       referenceCode,
+      refundId: tx.refundId ?? null,
       provider: tx.provider as PaymentTransactionRecord["provider"],
-      providerTransactionId: tx.providerTransactionId,
+      providerTransactionId: tx.providerTransactionId ?? null,
       transactionType: tx.transactionType as PaymentTransactionRecord["transactionType"],
       status: tx.status as PaymentTransactionRecord["status"],
       amountMinor: tx.amountMinor,
       currency: tx.currency,
+      evidenceSource: tx.evidenceSource as PaymentTransactionEvidenceSource,
+      manualReference: tx.manualReference ?? null,
+      settledByUserId: tx.settledByUserId ?? null,
       signatureVerified: tx.signatureVerified,
       createdAt: tx.createdAt.toISOString()
     }));

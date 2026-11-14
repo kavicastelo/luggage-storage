@@ -4,6 +4,10 @@ import { secureStorage } from "./secure-storage.service";
 const API_BASE =
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000/api/v1";
 
+export function getApiBaseUrl(): string {
+  return API_BASE;
+}
+
 /**
  * Custom error class for Mobile API errors.
  */

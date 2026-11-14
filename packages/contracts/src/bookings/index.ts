@@ -269,9 +269,11 @@ export const BookingDetailSchema = z.object({
     .object({
       intentId: z.string().uuid().nullable(),
       provider: z.string().nullable(),
+      providerOrderId: z.string().nullable().optional(),
       status: z.string(),
       amountMinor: z.number().int().nonnegative(),
-      verifiedAt: z.string().nullable()
+      verifiedAt: z.string().nullable(),
+      failureReason: z.string().nullable()
     })
     .nullable(),
   refundSummary: z

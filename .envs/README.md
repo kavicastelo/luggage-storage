@@ -129,3 +129,4 @@ The `DB_IDENTITY_SECRET` authorizes privileged role assignment and revocation op
 - [ ] `CORS_ORIGIN` contains explicit trusted domains (no wildcard `*`).
 - [ ] No secret begins with `dev_` or `test_`.
 - [ ] `VITE_ENABLE_DEMO_PREVIEW` is set to `false`.
+- [ ] When `PAYMENT_PROVIDER=payhere`, `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_NOTIFY_URL`, `PAYHERE_RETURN_URL`, and `PAYHERE_CANCEL_URL` are all set to live HTTPS public URLs with `PAYHERE_SANDBOX_MODE=false`.

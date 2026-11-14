@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  CheckoutStatusQuerySchema,
   CreatePaymentIntentRequestSchema,
   SandboxSimulatePaymentRequestSchema,
   createSuccessResponse
@@ -47,6 +48,54 @@ export async function paymentRoutes(app: FastifyInstance): Promise<void> {
         getClientInfo(request)
       );
       return reply.status(201).send(createSuccessResponse(intent, request.id));
+    }
+  );
+
+  // 1b. Signed server-rendered PayHere checkout POST handoff page (for external mobile browser launch)
+  app.get<{ Params: { handoffToken: string } }>(
+    "/handoff/:handoffToken",
+    {
+      schema: {
+        tags: ["Payments"],
+        summary: "Render auto-submitting PayHere checkout POST form from signed handoff token"
+      }
+    },
+    async (request, reply) => {
+      const { html, cspHeader } = await paymentsService.renderPayHerePostHandoffHtml(
+        request.params.handoffToken
+      );
+      return reply
+        .status(200)
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Content-Security-Policy", cspHeader)
+        .header("Cache-Control", "no-store, no-cache, must-revalidate, private")
+        .header("Pragma", "no-cache")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("X-Frame-Options", "DENY")
+        .header("Referrer-Policy", "no-referrer")
+        .send(html);
+    }
+  );
+
+  // 1c. Authoritative checkout & booking status check (never trusts URL query flags)
+  app.get(
+    "/checkout-status",
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        tags: ["Payments"],
+        summary: "Retrieve authoritative booking and latest payment intent status for checkout return",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const query = CheckoutStatusQuerySchema.parse(request.query);
+      const result = await paymentsService.getCheckoutStatus(
+        request.user.sub,
+        request.user.roles ?? [],
+        query
+      );
+      return reply.status(200).send(createSuccessResponse(result, request.id));
     }
   );
 

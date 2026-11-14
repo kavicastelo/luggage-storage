@@ -31,6 +31,9 @@ EMAIL_FROM_NAME=Test Runner
 PAYMENT_PROVIDER=sandbox
 PAYMENT_WEBHOOK_SECRET=test_payment_webhook_hmac_secret_minimum_32_characters_long!
 PAYHERE_SANDBOX_MODE=true
+PAYHERE_NOTIFY_URL=http://127.0.0.1:3001/api/v1/payments/webhooks/payhere
+PAYHERE_RETURN_URL=http://127.0.0.1:5173/booking/confirm
+PAYHERE_CANCEL_URL=http://127.0.0.1:5173/booking/confirm?cancelled=1
 CUSTODY_TOKEN_HMAC_SECRET=test_custody_token_hmac_secret_minimum_32_characters_long!
 
 # Fast test hashing parameters (Reduced CPU cost for fast test runs)

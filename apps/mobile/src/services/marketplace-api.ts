@@ -40,6 +40,8 @@ import {
   CompleteCollectionRequest,
   CustodyRecordDetail,
   CreatePaymentIntentRequest,
+  CheckoutStatusQuery,
+  CheckoutStatusResponse,
   PaymentIntent,
   SandboxSimulatePaymentRequest,
   HostFinanceSummaryResponse,
@@ -370,6 +372,16 @@ export const marketplaceApi = {
       method: "POST",
       body: JSON.stringify(data)
     });
+    return res.data;
+  },
+
+  async getCheckoutStatus(query: CheckoutStatusQuery): Promise<CheckoutStatusResponse> {
+    const params = new URLSearchParams();
+    if (query.bookingId) params.set("bookingId", query.bookingId);
+    if (query.orderId) params.set("orderId", query.orderId);
+    const res = await fetchApi<CheckoutStatusResponse>(
+      `/payments/checkout-status?${params.toString()}`
+    );
     return res.data;
   },
 

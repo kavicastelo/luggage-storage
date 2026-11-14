@@ -103,7 +103,7 @@ describe("Phase 2C.2 — Public Traveller Web Experience Verification", () => {
       expect(html).toContain("Price Breakdown");
       expect(html).toContain("Total Payable");
       expect(html).toContain("Demo &amp; Prototype Mode");
-      expect(html).toContain("Confirm Reservation &amp; View Custody Pass");
+      expect(html).toContain("Proceed to Payment");
     });
 
     it("suppresses developer tracking codes from checkout flow", () => {
