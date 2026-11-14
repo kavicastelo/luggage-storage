@@ -320,7 +320,10 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
           PAYMENT_PROVIDER: "payhere",
           PAYHERE_MERCHANT_ID: "1229999",
           PAYHERE_MERCHANT_SECRET: "live_merchant_secret_1234567890",
-          PAYHERE_SANDBOX_MODE: "true"
+          PAYHERE_SANDBOX_MODE: "true",
+          PAYHERE_NOTIFY_URL: "https://api.luggagestorage.lk/api/v1/payments/webhooks/payhere",
+          PAYHERE_RETURN_URL: "https://app.luggagestorage.lk/booking/confirm",
+          PAYHERE_CANCEL_URL: "https://app.luggagestorage.lk/booking/confirm?cancelled=1"
         })
       ).toThrow(/PAYHERE_SANDBOX_MODE must be false in production/i);
     });
@@ -382,7 +385,7 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
         const appliedClean = await runMigrations(cleanMigUrl.toString());
         expect(appliedClean).toBeGreaterThanOrEqual(14);
 
-        // Prepare upgrade DB through 0011 (first 12 migrations: 0000..0011), then upgrade -> 0012..0013
+        // Prepare upgrade DB through 0011 (first 12 migrations: 0000..0011), then upgrade -> 0012..0014
         const upgMigUrl = new URL(parsed.toString());
         upgMigUrl.pathname = `/${upgradeDb}`;
         const upgPool = new Pool({ connectionString: upgMigUrl.toString(), max: 1 });
@@ -419,7 +422,7 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
         }
 
         const upgradedCount = await runMigrations(upgMigUrl.toString());
-        expect(upgradedCount).toBe(2);
+        expect(upgradedCount).toBeGreaterThanOrEqual(3);
       } finally {
         await adminPool.query(`DROP DATABASE IF EXISTS ${cleanDb} WITH (FORCE);`).catch(() => {});
         await adminPool.query(`DROP DATABASE IF EXISTS ${upgradeDb} WITH (FORCE);`).catch(() => {});
@@ -1121,7 +1124,12 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
         method: "POST",
         url: `/api/v1/admin/refunds/${refundId}/transition`,
         headers: { authorization: `Bearer ${support.accessToken}` },
-        payload: { targetStatus: "SUCCEEDED", notes: "Support trying to disburse" }
+        payload: {
+          targetStatus: "SUCCEEDED",
+          settlementMode: "PROVIDER_CONFIRMED",
+          providerRefundId: "SUP-DENIED-001",
+          notes: "Support trying to disburse"
+        }
       });
       expect(supportMutateDenied.statusCode).toBe(403);
 
@@ -1138,7 +1146,16 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
           method: "POST",
           url: `/api/v1/admin/refunds/${refundId}/transition`,
           headers: { authorization: `Bearer ${superadmin.accessToken}` },
-          payload: { targetStatus: stage, notes: `Advancing refund to ${stage}` }
+          payload: {
+            targetStatus: stage,
+            ...(stage === "SUCCEEDED"
+              ? {
+                  settlementMode: "PROVIDER_CONFIRMED",
+                  providerRefundId: `SBX-RFD-${refundId.slice(0, 8)}`
+                }
+              : {}),
+            notes: `Advancing refund to ${stage}`
+          }
         });
         expect(trRes.statusCode).toBe(200);
         expect(JSON.parse(trRes.body).data.status).toBe(stage);

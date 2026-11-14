@@ -68,11 +68,17 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
     const prevMerchantId = env.PAYHERE_MERCHANT_ID;
     const prevMerchantSecret = env.PAYHERE_MERCHANT_SECRET;
     const prevSandboxMode = env.PAYHERE_SANDBOX_MODE;
+    const prevNotifyUrl = env.PAYHERE_NOTIFY_URL;
+    const prevReturnUrl = env.PAYHERE_RETURN_URL;
+    const prevCancelUrl = env.PAYHERE_CANCEL_URL;
 
     env.PAYMENT_PROVIDER = "payhere";
     env.PAYHERE_MERCHANT_ID = TEST_PAYHERE_MERCHANT_ID;
     env.PAYHERE_MERCHANT_SECRET = TEST_PAYHERE_MERCHANT_SECRET;
     env.PAYHERE_SANDBOX_MODE = true;
+    env.PAYHERE_NOTIFY_URL = "https://api.luggage.example/api/v1/payments/webhooks/payhere";
+    env.PAYHERE_RETURN_URL = "https://web.luggage.example/booking/confirm";
+    env.PAYHERE_CANCEL_URL = "https://web.luggage.example/booking/confirm?cancelled=1";
 
     try {
       return await fn();
@@ -81,6 +87,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
       env.PAYHERE_MERCHANT_ID = prevMerchantId;
       env.PAYHERE_MERCHANT_SECRET = prevMerchantSecret;
       env.PAYHERE_SANDBOX_MODE = prevSandboxMode;
+      env.PAYHERE_NOTIFY_URL = prevNotifyUrl;
+      env.PAYHERE_RETURN_URL = prevReturnUrl;
+      env.PAYHERE_CANCEL_URL = prevCancelUrl;
     }
   }
 
@@ -353,7 +362,16 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
       headers: { authorization: `Bearer ${params.travellerToken}` },
       payload: {
         bookingId: booking.id,
-        ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {})
+        ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
+        customerDetails: {
+          firstName: "Kasun",
+          lastName: "Perera",
+          email: "traveller@example.com",
+          phone: "+94771234567",
+          address: "42 Station Road",
+          city: "Colombo",
+          country: "Sri Lanka"
+        }
       }
     });
     expect(iRes.statusCode).toBe(201);
@@ -445,7 +463,10 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
         PAYMENT_PROVIDER: "payhere",
         PAYHERE_MERCHANT_ID: "2219999",
         PAYHERE_MERCHANT_SECRET: "live_merchant_secret_9876543210",
-        PAYHERE_SANDBOX_MODE: "false"
+        PAYHERE_SANDBOX_MODE: "false",
+        PAYHERE_NOTIFY_URL: "https://api.luggagestorage.lk/api/v1/payments/webhooks/payhere",
+        PAYHERE_RETURN_URL: "https://app.luggagestorage.lk/booking/confirm",
+        PAYHERE_CANCEL_URL: "https://app.luggagestorage.lk/booking/confirm?cancelled=1"
       };
 
       expect(() =>
@@ -1017,9 +1038,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
           await upgPool.end();
         }
 
-        // Apply migration 0013 via official runner
+        // Apply migrations 0013+ via official runner
         const upgradedCount = await runMigrations(upgMigUrl.toString());
-        expect(upgradedCount).toBe(1);
+        expect(upgradedCount).toBeGreaterThanOrEqual(2);
 
         const verifyPool = new Pool({ connectionString: upgMigUrl.toString(), max: 1 });
         try {
@@ -1110,10 +1131,26 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
     });
 
     it("computes deterministic PayHere checkout MD5 hash and notification md5sig, and blocks sandbox adapter in production", () => {
+      const testNotifyUrl = "https://api.luggage.example/api/v1/payments/webhooks/payhere";
+      const testReturnUrl = "https://web.luggage.example/booking/confirm";
+      const testCancelUrl = "https://web.luggage.example/booking/confirm?cancelled=1";
+      const sampleCustomerDetails = {
+        firstName: "Kasun",
+        lastName: "Perera",
+        email: "traveller@example.com",
+        phone: "+94771234567",
+        address: "42 Station Road",
+        city: "Colombo",
+        country: "Sri Lanka"
+      };
+
       const phAdapter = new PayHereGatewayAdapter(
         TEST_PAYHERE_MERCHANT_ID,
         TEST_PAYHERE_MERCHANT_SECRET,
-        true
+        true,
+        testNotifyUrl,
+        testReturnUrl,
+        testCancelUrl
       );
       const intentId = crypto.randomUUID();
       const bookingId = crypto.randomUUID();
@@ -1125,7 +1162,8 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
         amountMinor: 150000,
         currency: "LKR",
         customerEmail: "traveller@example.com",
-        customerName: "Kasun Perera"
+        customerName: "Kasun Perera",
+        customerDetails: sampleCustomerDetails
       });
 
       const hashedSecret = crypto
@@ -1148,7 +1186,10 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
       const liveAdapter = new PayHereGatewayAdapter(
         TEST_PAYHERE_MERCHANT_ID,
         TEST_PAYHERE_MERCHANT_SECRET,
-        false
+        false,
+        testNotifyUrl,
+        testReturnUrl,
+        testCancelUrl
       );
       const liveCheckout = liveAdapter.buildCheckoutPayload({
         intentId,
@@ -1158,7 +1199,8 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
         amountMinor: 150000,
         currency: "LKR",
         customerEmail: "traveller@example.com",
-        customerName: "Kasun Perera"
+        customerName: "Kasun Perera",
+        customerDetails: sampleCustomerDetails
       });
       expect(liveCheckout.actionUrl).toBe("https://www.payhere.lk/pay/checkout");
 
@@ -1964,30 +2006,51 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
         expect(cxlRes.statusCode).toBe(200);
         const refundId = JSON.parse(cxlRes.body).data.refundSummary.refundId as string;
 
+        const batchProviderRef = `PH-CONC-REF-${Date.now()}`;
         const [tr1, tr2, tr3, tr4, replayWh] = await Promise.all([
           app.inject({
             method: "POST",
             url: `/api/v1/admin/refunds/${refundId}/transition`,
             headers: { authorization: `Bearer ${superadmin.accessToken}` },
-            payload: { targetStatus: "SUCCEEDED", notes: "Batch refund transition" }
+            payload: {
+              targetStatus: "SUCCEEDED",
+              settlementMode: "PROVIDER_CONFIRMED",
+              providerRefundId: batchProviderRef,
+              notes: "Batch refund transition"
+            }
           }),
           app.inject({
             method: "POST",
             url: `/api/v1/admin/refunds/${refundId}/transition`,
             headers: { authorization: `Bearer ${superadmin.accessToken}` },
-            payload: { targetStatus: "SUCCEEDED", notes: "Batch refund transition" }
+            payload: {
+              targetStatus: "SUCCEEDED",
+              settlementMode: "PROVIDER_CONFIRMED",
+              providerRefundId: batchProviderRef,
+              notes: "Batch refund transition"
+            }
           }),
           app.inject({
             method: "POST",
             url: `/api/v1/admin/refunds/${refundId}/transition`,
             headers: { authorization: `Bearer ${superadmin.accessToken}` },
-            payload: { targetStatus: "SUCCEEDED", notes: "Batch refund transition" }
+            payload: {
+              targetStatus: "SUCCEEDED",
+              settlementMode: "PROVIDER_CONFIRMED",
+              providerRefundId: batchProviderRef,
+              notes: "Batch refund transition"
+            }
           }),
           app.inject({
             method: "POST",
             url: `/api/v1/admin/refunds/${refundId}/transition`,
             headers: { authorization: `Bearer ${superadmin.accessToken}` },
-            payload: { targetStatus: "SUCCEEDED", notes: "Batch refund transition" }
+            payload: {
+              targetStatus: "SUCCEEDED",
+              settlementMode: "PROVIDER_CONFIRMED",
+              providerRefundId: batchProviderRef,
+              notes: "Batch refund transition"
+            }
           }),
           app.inject({
             method: "POST",
@@ -2520,8 +2583,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
           headers: { authorization: `Bearer ${superadmin.accessToken}` },
           payload: {
             targetStatus: "SUCCEEDED",
-            notes: "Settled manually via bank transfer",
-            providerRefundId: manualRefId
+            settlementMode: "MANUAL_OFFLINE",
+            manualReference: manualRefId,
+            notes: "Settled manually via bank transfer"
           }
         });
         expect(finalOk.statusCode).toBe(200);
@@ -2532,18 +2596,26 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
           method: "POST",
           url: `/api/v1/admin/refunds/${refundId}/transition`,
           headers: { authorization: `Bearer ${superadmin.accessToken}` },
-          payload: { targetStatus: "SUCCEEDED", notes: "Duplicate click" }
+          payload: {
+            targetStatus: "SUCCEEDED",
+            settlementMode: "MANUAL_OFFLINE",
+            manualReference: manualRefId,
+            notes: "Duplicate click"
+          }
         });
         expect(idempRetry.statusCode).toBe(200);
 
-        // Verify actual PAYHERE provider attribution on REFUND payment_transactions
+        // Verify actual PAYHERE provider attribution & honest manual offline evidence on REFUND payment_transactions
         const refTx = await migratorPool.query(
-          "SELECT provider, provider_transaction_id FROM payment_transactions WHERE booking_id = $1 AND transaction_type = 'REFUND';",
+          "SELECT provider, provider_transaction_id, manual_reference, evidence_source, signature_verified FROM payment_transactions WHERE booking_id = $1 AND transaction_type = 'REFUND';",
           [pair.booking.id]
         );
         expect(refTx.rows.length).toBe(1);
         expect(refTx.rows[0].provider).toBe("PAYHERE");
-        expect(refTx.rows[0].provider_transaction_id).toBe(manualRefId);
+        expect(refTx.rows[0].provider_transaction_id).toBeNull();
+        expect(refTx.rows[0].manual_reference).toBe(manualRefId);
+        expect(refTx.rows[0].evidence_source).toBe("ADMIN_MANUAL_OFFLINE");
+        expect(refTx.rows[0].signature_verified).toBe(false);
       });
 
       // Global double-entry invariant check across ALL ledger groups in PostgreSQL

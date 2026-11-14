@@ -152,6 +152,18 @@ export const EnvSchema = z
       z.string().min(16, "PAYHERE_MERCHANT_SECRET must be at least 16 characters").optional()
     ),
     PAYHERE_SANDBOX_MODE: booleanFlagSchema(true),
+    PAYHERE_NOTIFY_URL: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    PAYHERE_RETURN_URL: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    PAYHERE_CANCEL_URL: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
     CUSTODY_TOKEN_HMAC_SECRET: z.preprocess(
       (val) => (typeof val === "string" ? val.trim() : val),
       z.string().min(32, "CUSTODY_TOKEN_HMAC_SECRET must be at least 32 characters")
@@ -445,6 +457,110 @@ export const EnvSchema = z
           code: z.ZodIssueCode.custom,
           message: "PAYHERE_SANDBOX_MODE must be false in production",
           path: ["PAYHERE_SANDBOX_MODE"]
+        });
+      }
+      if (!data.PAYHERE_NOTIFY_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYHERE_NOTIFY_URL is required when PAYMENT_PROVIDER is 'payhere'",
+          path: ["PAYHERE_NOTIFY_URL"]
+        });
+      }
+      if (!data.PAYHERE_RETURN_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYHERE_RETURN_URL is required when PAYMENT_PROVIDER is 'payhere'",
+          path: ["PAYHERE_RETURN_URL"]
+        });
+      }
+      if (!data.PAYHERE_CANCEL_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYHERE_CANCEL_URL is required when PAYMENT_PROVIDER is 'payhere'",
+          path: ["PAYHERE_CANCEL_URL"]
+        });
+      }
+    }
+
+    const payHereUrlEntries: Array<[key: "PAYHERE_NOTIFY_URL" | "PAYHERE_RETURN_URL" | "PAYHERE_CANCEL_URL", value: string | undefined]> = [
+      ["PAYHERE_NOTIFY_URL", data.PAYHERE_NOTIFY_URL],
+      ["PAYHERE_RETURN_URL", data.PAYHERE_RETURN_URL],
+      ["PAYHERE_CANCEL_URL", data.PAYHERE_CANCEL_URL]
+    ];
+    for (const [key, rawUrl] of payHereUrlEntries) {
+      if (!rawUrl) continue;
+      if (rawUrl.includes("REPLACE_WITH")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${key} cannot use a placeholder template value`,
+          path: [key]
+        });
+        continue;
+      }
+      let parsed: URL;
+      try {
+        parsed = new URL(rawUrl);
+      } catch {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${key} must be a valid absolute URL`,
+          path: [key]
+        });
+        continue;
+      }
+      if (parsed.username || parsed.password) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${key} must not contain embedded credentials`,
+          path: [key]
+        });
+      }
+      if (data.NODE_ENV === "production") {
+        if (parsed.protocol !== "https:") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `${key} must use https:// in production`,
+            path: [key]
+          });
+        }
+        const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+        const isPrivateOrLocal =
+          host === "localhost" ||
+          host.endsWith(".localhost") ||
+          host.endsWith(".local") ||
+          host.endsWith(".internal") ||
+          host.endsWith(".test") ||
+          host === "example.com" ||
+          host.endsWith(".example.com") ||
+          host === "example.org" ||
+          host.endsWith(".example.org") ||
+          host === "example.net" ||
+          host.endsWith(".example.net") ||
+          host === "0.0.0.0" ||
+          host === "::" ||
+          host === "::1" ||
+          host.startsWith("fe80:") ||
+          host.startsWith("fc") ||
+          host.startsWith("fd") ||
+          /^127\./.test(host) ||
+          /^10\./.test(host) ||
+          /^192\.168\./.test(host) ||
+          /^169\.254\./.test(host) ||
+          /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
+          /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(host) ||
+          !host.includes(".");
+        if (isPrivateOrLocal) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `${key} must point to a public non-placeholder hostname in production`,
+            path: [key]
+          });
+        }
+      } else if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `${key} must use https:// or http:// protocol`,
+          path: [key]
         });
       }
     }

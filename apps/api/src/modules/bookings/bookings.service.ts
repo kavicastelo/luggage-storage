@@ -492,9 +492,11 @@ export class BookingsService {
         ? {
             intentId: latestIntent.id,
             provider: latestIntent.provider,
+            providerOrderId: latestIntent.providerOrderId,
             status: latestIntent.status,
             amountMinor: latestIntent.amountMinor,
-            verifiedAt: latestIntent.verifiedAt ? latestIntent.verifiedAt.toISOString() : null
+            verifiedAt: latestIntent.verifiedAt ? latestIntent.verifiedAt.toISOString() : null,
+            failureReason: latestIntent.failureReason ?? null
           }
         : null,
       refundSummary: latestRefund

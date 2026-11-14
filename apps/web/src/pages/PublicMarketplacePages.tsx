@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   MapPin,
@@ -22,7 +22,9 @@ import {
   Printer,
   Check,
   Info,
-  X
+  X,
+  RefreshCw,
+  ExternalLink
 } from "lucide-react";
 import {
   Button,
@@ -40,10 +42,20 @@ import {
 import { useAuthStore } from "@/store/useAuthStore";
 import { marketplaceApi } from "@/services/marketplace-api";
 import {
+  clearPendingCheckoutContext,
+  isPayHerePostHandoff,
+  loadPendingCheckoutContext,
+  parseCheckoutReturnQuery,
+  savePendingCheckoutContext,
+  submitPayHereCheckoutForm
+} from "@/lib/payment-handoff";
+import {
   PublicStorageLocation,
   BookingQuoteResponse,
   BookingDetail,
-  CustodyPassResponse
+  CustodyPassResponse,
+  CheckoutCustomerDetails,
+  CheckoutStatusResponse
 } from "@luggage-storage/contracts";
 import {
   DEMO_LOCATIONS,
@@ -1103,12 +1115,52 @@ export function WebCheckoutSchedulePage() {
     return DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0];
   }, [liveLocation, locId]);
 
+  const initialNames = useMemo(() => {
+    const parts = (user?.displayName ?? "").trim().split(/\s+/).filter(Boolean);
+    if (parts.length > 0) {
+      return {
+        firstName: parts[0],
+        lastName: parts.slice(1).join(" ")
+      };
+    }
+    return isLiveLocation
+      ? { firstName: "", lastName: "" }
+      : { firstName: "Maya", lastName: "Perera" };
+  }, [user?.displayName, isLiveLocation]);
+
   const [dropOffDate, setDropOffDate] = useState("2026-11-10T09:00");
   const [pickUpDate, setPickUpDate] = useState("2026-11-10T17:00");
   const [bags, setBags] = useState({ SMALL: 1, MEDIUM: 1, LARGE: 0, OVERSIZED: 0 });
   const [promoCode, setPromoCode] = useState("SLWELCOME10");
-  const [travellerName, setTravellerName] = useState(user?.displayName || "Maya Perera");
-  const [travellerEmail, setTravellerEmail] = useState(user?.email || "maya.perera@example.com");
+  const [firstName, setFirstName] = useState(initialNames.firstName);
+  const [lastName, setLastName] = useState(initialNames.lastName);
+  const [travellerEmail, setTravellerEmail] = useState(
+    user?.email || (isLiveLocation ? "" : "maya.perera@example.com")
+  );
+  const [billingPhone, setBillingPhone] = useState("");
+  const [billingAddress, setBillingAddress] = useState("");
+  const [billingCity, setBillingCity] = useState("");
+  const [billingCountry, setBillingCountry] = useState("");
+  const submitInFlightRef = useRef(false);
+  const pendingBookingIdRef = useRef<string | null>(null);
+  const draftKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!firstName && initialNames.firstName) {
+      setFirstName(initialNames.firstName);
+    }
+    if (!lastName && initialNames.lastName) {
+      setLastName(initialNames.lastName);
+    }
+    if (!travellerEmail && user?.email) {
+      setTravellerEmail(user.email);
+    }
+  }, [initialNames.firstName, initialNames.lastName, user?.email, firstName, lastName, travellerEmail]);
+
+  useEffect(() => {
+    pendingBookingIdRef.current = null;
+    draftKeyRef.current = null;
+  }, [locId, dropOffDate, pickUpDate, bags.SMALL, bags.MEDIUM, bags.LARGE, bags.OVERSIZED]);
 
   useEffect(() => {
     if (!isLiveLocation || !locId) return;
@@ -1195,11 +1247,13 @@ export function WebCheckoutSchedulePage() {
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (totalBags === 0) return;
+    if (totalBags === 0 || submitting || submitInFlightRef.current) return;
+
+    const fullTravellerName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
 
     if (!isLiveLocation || !locId) {
       navigate(
-        `/booking/confirm?loc=${location.id}&total=${totalPayableLkr}&bags=${totalBags}&name=${encodeURIComponent(travellerName)}`
+        `/booking/confirm?loc=${location.id}&total=${totalPayableLkr}&bags=${totalBags}&name=${encodeURIComponent(fullTravellerName || "Traveller")}`
       );
       return;
     }
@@ -1215,6 +1269,7 @@ export function WebCheckoutSchedulePage() {
       return;
     }
 
+    submitInFlightRef.current = true;
     setSubmitting(true);
     setCheckoutError(null);
     try {
@@ -1230,19 +1285,53 @@ export function WebCheckoutSchedulePage() {
       const dropIso = dropOffDate.includes("+") ? dropOffDate : `${dropOffDate}:00+05:30`;
       const pickIso = pickUpDate.includes("+") ? pickUpDate : `${pickUpDate}:00+05:30`;
 
-      const created = await marketplaceApi.createBooking({
-        locationId: locId,
-        dropOffAt: new Date(dropIso).toISOString(),
-        collectionAt: new Date(pickIso).toISOString(),
-        items,
-        idempotencyKey: `web-chk-${locId}-${Date.now()}`
-      });
+      if (!draftKeyRef.current) {
+        draftKeyRef.current = `web-chk-${locId}-${Date.now()}`;
+      }
+
+      const created = pendingBookingIdRef.current
+        ? { id: pendingBookingIdRef.current, status: "PENDING_PAYMENT" as const }
+        : await marketplaceApi.createBooking({
+            locationId: locId,
+            dropOffAt: new Date(dropIso).toISOString(),
+            collectionAt: new Date(pickIso).toISOString(),
+            items,
+            idempotencyKey: draftKeyRef.current
+          });
 
       if (created.status === "PENDING_PAYMENT") {
+        pendingBookingIdRef.current = created.id;
+
+        const customerDetails: CheckoutCustomerDetails = {};
+        if (firstName.trim()) customerDetails.firstName = firstName.trim();
+        if (lastName.trim()) customerDetails.lastName = lastName.trim();
+        if (travellerEmail.trim()) customerDetails.email = travellerEmail.trim();
+        if (billingPhone.trim()) customerDetails.phone = billingPhone.trim();
+        if (billingAddress.trim()) customerDetails.address = billingAddress.trim();
+        if (billingCity.trim()) customerDetails.city = billingCity.trim();
+        if (billingCountry.trim()) customerDetails.country = billingCountry.trim();
+
         const intent = await marketplaceApi.createPaymentIntent({
           bookingId: created.id,
-          idempotencyKey: `web-pay-${created.id}`
+          idempotencyKey: `web-pay-${created.id}`,
+          ...(Object.keys(customerDetails).length > 0 ? { customerDetails } : {})
         });
+
+        if (
+          intent.nextAction === "REDIRECT_TO_PROVIDER" &&
+          isPayHerePostHandoff(intent.checkoutHandoff)
+        ) {
+          savePendingCheckoutContext({
+            bookingId: created.id,
+            intentId: intent.id,
+            orderId: intent.providerOrderId,
+            provider: "PAYHERE",
+            createdAt: new Date().toISOString()
+          });
+          submitPayHereCheckoutForm(intent.checkoutHandoff);
+          return;
+        }
+
         navigate(`/booking/confirm?bookingId=${created.id}&intentId=${intent.id}`);
       } else {
         navigate(`/booking/confirm?bookingId=${created.id}`);
@@ -1250,6 +1339,7 @@ export function WebCheckoutSchedulePage() {
     } catch (err: unknown) {
       setCheckoutError(err instanceof Error ? err.message : "Failed to create booking.");
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -1359,23 +1449,79 @@ export function WebCheckoutSchedulePage() {
             </div>
           </div>
 
-          {/* Step 3: Contact Info */}
+          {/* Step 3: Contact & Billing Info */}
           <div className="bg-white rounded-3xl border border-sand-200 p-6 space-y-4 shadow-sm">
-            <h2 className="text-lg font-bold text-navy-950">3. Traveller Custody Verification</h2>
+            <div>
+              <h2 className="text-lg font-bold text-navy-950">
+                3. Traveller Custody & Billing Details
+              </h2>
+              <p className="text-xs text-sand-600 mt-1">
+                Used for your digital custody pass and, when gateway checkout is active, PayHere
+                verification.
+              </p>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Full Name"
+                label="First Name"
+                name="firstName"
+                autoComplete="given-name"
                 required
-                value={travellerName}
-                onChange={(e) => setTravellerName(e.target.value)}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+              />
+              <Input
+                label="Last Name"
+                name="lastName"
+                autoComplete="family-name"
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
               />
               <Input
                 label="Email Address"
+                name="email"
                 type="email"
+                autoComplete="email"
                 required
                 value={travellerEmail}
                 onChange={(e) => setTravellerEmail(e.target.value)}
-                helperText="Digital pass and offline PIN sent here"
+                helperText="Digital pass and receipt sent here"
+              />
+              <Input
+                label="Phone Number"
+                name="phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder="+94 77 123 4567"
+                value={billingPhone}
+                onChange={(e) => setBillingPhone(e.target.value)}
+                helperText="Required for live PayHere checkout unless saved on profile"
+              />
+              <div className="sm:col-span-2">
+                <Input
+                  label="Street Address"
+                  name="address"
+                  autoComplete="street-address"
+                  placeholder="Street line & number"
+                  value={billingAddress}
+                  onChange={(e) => setBillingAddress(e.target.value)}
+                />
+              </div>
+              <Input
+                label="City"
+                name="city"
+                autoComplete="address-level2"
+                placeholder="e.g. Colombo"
+                value={billingCity}
+                onChange={(e) => setBillingCity(e.target.value)}
+              />
+              <Input
+                label="Country"
+                name="country"
+                autoComplete="country-name"
+                placeholder="e.g. Sri Lanka"
+                value={billingCountry}
+                onChange={(e) => setBillingCountry(e.target.value)}
               />
             </div>
           </div>
@@ -1468,13 +1614,13 @@ export function WebCheckoutSchedulePage() {
                 ? "Reserving Storage Capacity..."
                 : liveQuote?.bookingMode === "HOST_APPROVAL"
                   ? "Submit Host Approval Request"
-                  : "Confirm Reservation & View Custody Pass"}
+                  : "Proceed to Payment"}
             </Button>
           </div>
 
-          <Alert variant="info" title={isLiveLocation ? "Sandbox Payment Gateway Active" : "Demo & Prototype Mode"}>
+          <Alert variant="info" title={isLiveLocation ? "Server-Authoritative Checkout" : "Demo & Prototype Mode"}>
             {isLiveLocation
-              ? "Capacity hold is locked server-side in PostgreSQL. Payment collection uses the signed sandbox gateway adapter without charging a live bank card."
+              ? "Capacity hold is locked server-side in PostgreSQL. Depending on gateway configuration, checkout opens either PayHere hosted checkout or the sandbox simulator."
               : "Online checkout simulation active. Completing this step generates a verified digital custody pass without executing a live bank card debit."}
           </Alert>
         </div>
@@ -1488,62 +1634,171 @@ export function WebCheckoutSchedulePage() {
 // ============================================================================
 export function WebPaymentConfirmationPage() {
   const [searchParams] = useSearchParams();
-  const bookingIdParam = searchParams.get("bookingId");
-  const intentIdParam = searchParams.get("intentId");
+  const returnedHints = useMemo(
+    () => parseCheckoutReturnQuery(searchParams.toString()),
+    [searchParams]
+  );
+  const pendingContext = useMemo(() => loadPendingCheckoutContext(), []);
+  const bookingIdParam = returnedHints.bookingId || pendingContext?.bookingId || null;
+  const orderIdParam = returnedHints.orderId || pendingContext?.orderId || null;
+  const intentIdParam = searchParams.get("intentId") || pendingContext?.intentId || null;
   const locId = searchParams.get("loc") || DEMO_LOCATIONS[0].id;
   const totalLkr = Number(searchParams.get("total") || 2115);
   const bagsCount = Number(searchParams.get("bags") || 2);
   const location = DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0];
 
-  const isLiveBooking = isUuidId(bookingIdParam);
+  const isLiveBooking = isUuidId(bookingIdParam) || Boolean(orderIdParam);
   const [liveBooking, setLiveBooking] = useState<BookingDetail | null>(null);
+  const [checkoutStatus, setCheckoutStatus] = useState<CheckoutStatusResponse | null>(null);
   const [liveIntentId, setLiveIntentId] = useState<string | null>(intentIdParam);
   const [issuedPass, setIssuedPass] = useState<CustodyPassResponse | null>(null);
+  const [initialLoading, setInitialLoading] = useState(isLiveBooking);
+  const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [retryBillingOpen, setRetryBillingOpen] = useState(false);
+  const [retryFirstName, setRetryFirstName] = useState("");
+  const [retryLastName, setRetryLastName] = useState("");
+  const [retryEmail, setRetryEmail] = useState("");
+  const [retryPhone, setRetryPhone] = useState("");
+  const [retryAddress, setRetryAddress] = useState("");
+  const [retryCity, setRetryCity] = useState("");
+  const [retryCountry, setRetryCountry] = useState("");
+  const pollCountRef = useRef(0);
+  const actionInFlightRef = useRef(false);
+
+  const refreshLiveCheckoutState = useCallback(async () => {
+    if (!bookingIdParam && !orderIdParam) return null;
+
+    if (typeof marketplaceApi.getCheckoutStatus === "function") {
+      const status = await marketplaceApi.getCheckoutStatus({
+        ...(isUuidId(bookingIdParam) ? { bookingId: bookingIdParam } : {}),
+        ...(orderIdParam ? { orderId: orderIdParam } : {})
+      });
+      setCheckoutStatus(status);
+      if (status.paymentIntent?.id) {
+        setLiveIntentId(status.paymentIntent.id);
+      }
+      const detail = await marketplaceApi.getBookingDetail(status.bookingId);
+      setLiveBooking(detail);
+      if (
+        status.bookingStatus === "CONFIRMED" ||
+        status.bookingStatus === "IN_STORAGE" ||
+        status.bookingStatus === "COMPLETED" ||
+        status.bookingStatus.startsWith("CANCELLED") ||
+        status.bookingStatus === "REJECTED" ||
+        status.bookingStatus === "EXPIRED"
+      ) {
+        clearPendingCheckoutContext();
+      }
+      return { status, detail };
+    }
+
+    if (isUuidId(bookingIdParam)) {
+      const detail = await marketplaceApi.getBookingDetail(bookingIdParam);
+      setLiveBooking(detail);
+      if (detail.paymentSummary?.intentId) {
+        setLiveIntentId(detail.paymentSummary.intentId);
+      }
+      return { status: null, detail };
+    }
+
+    return null;
+  }, [bookingIdParam, orderIdParam]);
 
   useEffect(() => {
-    if (!isLiveBooking || !bookingIdParam) return;
+    if (!isLiveBooking) {
+      setInitialLoading(false);
+      return;
+    }
     let mounted = true;
-    marketplaceApi
-      .getBookingDetail(bookingIdParam)
-      .then((detail) => {
-        if (mounted) {
-          setLiveBooking(detail);
-          if (detail.paymentSummary?.intentId) {
-            setLiveIntentId(detail.paymentSummary.intentId);
-          }
-        }
-      })
+    setInitialLoading(true);
+    refreshLiveCheckoutState()
       .catch((err: unknown) => {
         if (mounted) {
-          setActionError(err instanceof Error ? err.message : "Unable to load booking detail.");
+          setActionError(err instanceof Error ? err.message : "Unable to load booking status.");
         }
+      })
+      .finally(() => {
+        if (mounted) setInitialLoading(false);
       });
     return () => {
       mounted = false;
     };
-  }, [isLiveBooking, bookingIdParam]);
+  }, [isLiveBooking, refreshLiveCheckoutState]);
+
+  useEffect(() => {
+    if (
+      !isLiveBooking ||
+      !liveBooking ||
+      liveBooking.status !== "PENDING_PAYMENT" ||
+      !checkoutStatus?.pollRecommended
+    ) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (pollCountRef.current >= 10) {
+        window.clearInterval(intervalId);
+        return;
+      }
+      pollCountRef.current += 1;
+      refreshLiveCheckoutState().catch(() => {});
+    }, 3000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isLiveBooking, liveBooking, checkoutStatus?.pollRecommended, refreshLiveCheckoutState]);
+
+  const handleManualRefresh = async () => {
+    if (refreshing || actionLoading) return;
+    setRefreshing(true);
+    setActionError(null);
+    try {
+      await refreshLiveCheckoutState();
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Could not refresh payment status.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const handleSandboxPayment = async (outcome: "SUCCEEDED" | "FAILED") => {
-    if (!bookingIdParam) return;
+    if (!liveBooking || actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     setActionLoading(true);
     setActionError(null);
     try {
       let targetIntentId = liveIntentId;
       if (!targetIntentId) {
         const intent = await marketplaceApi.createPaymentIntent({
-          bookingId: bookingIdParam,
-          idempotencyKey: `confirm-pay-${bookingIdParam}`
+          bookingId: liveBooking.id,
+          idempotencyKey: `confirm-pay-${liveBooking.id}`
         });
+        if (
+          intent.nextAction === "REDIRECT_TO_PROVIDER" &&
+          isPayHerePostHandoff(intent.checkoutHandoff)
+        ) {
+          savePendingCheckoutContext({
+            bookingId: liveBooking.id,
+            intentId: intent.id,
+            orderId: intent.providerOrderId,
+            provider: "PAYHERE",
+            createdAt: new Date().toISOString()
+          });
+          submitPayHereCheckoutForm(intent.checkoutHandoff);
+          return;
+        }
         targetIntentId = intent.id;
         setLiveIntentId(intent.id);
       }
       await marketplaceApi.simulateSandboxPayment(targetIntentId, { outcome });
-      const updated = await marketplaceApi.getBookingDetail(bookingIdParam);
+      const refreshed = await refreshLiveCheckoutState();
+      const updated = refreshed?.detail ?? (await marketplaceApi.getBookingDetail(liveBooking.id));
       setLiveBooking(updated);
       if (updated.status === "CONFIRMED") {
-        const pass = await marketplaceApi.issueCustodyPass(bookingIdParam, {
+        const pass = await marketplaceApi.issueCustodyPass(liveBooking.id, {
           operation: "CHECK_IN"
         });
         setIssuedPass(pass);
@@ -1551,16 +1806,87 @@ export function WebPaymentConfirmationPage() {
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : "Payment simulation failed.");
     } finally {
+      actionInFlightRef.current = false;
+      setActionLoading(false);
+    }
+  };
+
+  const handleContinueOrRetryPayHere = async () => {
+    if (!liveBooking || actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
+    setActionLoading(true);
+    setActionError(null);
+    try {
+      const currentIntent = checkoutStatus?.paymentIntent ?? null;
+      const isReusablePendingIntent = Boolean(
+        currentIntent &&
+          (currentIntent.status === "INITIATED" || currentIntent.status === "PENDING_GATEWAY") &&
+          new Date(currentIntent.expiresAt).getTime() > Date.now() &&
+          isPayHerePostHandoff(currentIntent.checkoutHandoff)
+      );
+
+      if (isReusablePendingIntent && currentIntent && isPayHerePostHandoff(currentIntent.checkoutHandoff)) {
+        savePendingCheckoutContext({
+          bookingId: liveBooking.id,
+          intentId: currentIntent.id,
+          orderId: currentIntent.providerOrderId,
+          provider: "PAYHERE",
+          createdAt: new Date().toISOString()
+        });
+        submitPayHereCheckoutForm(currentIntent.checkoutHandoff);
+        return;
+      }
+
+      const customerDetails: CheckoutCustomerDetails = {};
+      if (retryFirstName.trim()) customerDetails.firstName = retryFirstName.trim();
+      if (retryLastName.trim()) customerDetails.lastName = retryLastName.trim();
+      if (retryEmail.trim()) customerDetails.email = retryEmail.trim();
+      if (retryPhone.trim()) customerDetails.phone = retryPhone.trim();
+      if (retryAddress.trim()) customerDetails.address = retryAddress.trim();
+      if (retryCity.trim()) customerDetails.city = retryCity.trim();
+      if (retryCountry.trim()) customerDetails.country = retryCountry.trim();
+
+      const freshIntent = await marketplaceApi.createPaymentIntent({
+        bookingId: liveBooking.id,
+        idempotencyKey: `web-retry-${liveBooking.id}-${Date.now()}`,
+        ...(Object.keys(customerDetails).length > 0 ? { customerDetails } : {})
+      });
+      setLiveIntentId(freshIntent.id);
+
+      if (
+        freshIntent.nextAction === "REDIRECT_TO_PROVIDER" &&
+        isPayHerePostHandoff(freshIntent.checkoutHandoff)
+      ) {
+        savePendingCheckoutContext({
+          bookingId: liveBooking.id,
+          intentId: freshIntent.id,
+          orderId: freshIntent.providerOrderId,
+          provider: "PAYHERE",
+          createdAt: new Date().toISOString()
+        });
+        submitPayHereCheckoutForm(freshIntent.checkoutHandoff);
+        return;
+      }
+
+      await refreshLiveCheckoutState();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Could not initiate payment checkout.";
+      if (msg.toLowerCase().includes("billing")) {
+        setRetryBillingOpen(true);
+      }
+      setActionError(msg);
+    } finally {
+      actionInFlightRef.current = false;
       setActionLoading(false);
     }
   };
 
   const handleIssueLivePass = async (operation: "CHECK_IN" | "COLLECTION") => {
-    if (!bookingIdParam) return;
+    if (!liveBooking) return;
     setActionLoading(true);
     setActionError(null);
     try {
-      const pass = await marketplaceApi.issueCustodyPass(bookingIdParam, { operation });
+      const pass = await marketplaceApi.issueCustodyPass(liveBooking.id, { operation });
       setIssuedPass(pass);
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : "Could not issue custody pass.");
@@ -1573,11 +1899,59 @@ export function WebPaymentConfirmationPage() {
     window.print();
   };
 
+  if (isLiveBooking && initialLoading && !liveBooking) {
+    return (
+      <div className="max-w-3xl mx-auto py-12 space-y-4">
+        <Alert variant="info" title="Verifying Booking & Payment Status">
+          Fetching authoritative payment and custody status from the server...
+        </Alert>
+      </div>
+    );
+  }
+
+  if (isLiveBooking && !liveBooking) {
+    return (
+      <div className="max-w-3xl mx-auto py-12 space-y-4">
+        <Alert variant="danger" title="Unable to Verify Checkout Status">
+          {actionError || "Could not load your reservation status."}
+        </Alert>
+        <div className="flex gap-3">
+          <Button variant="primary" onClick={handleManualRefresh} disabled={refreshing}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            {refreshing ? "Checking..." : "Refresh Payment Status"}
+          </Button>
+          <Link to="/portal/bookings">
+            <Button variant="outline">View My Bookings</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (isLiveBooking && liveBooking) {
     const formattedPin = issuedPass
       ? `${issuedPass.verificationPin.slice(0, 3)} ${issuedPass.verificationPin.slice(3)}`
       : null;
     const isAddressUnlocked = liveBooking.location.addressDisclosed;
+    const effectiveIntent = checkoutStatus?.paymentIntent ?? null;
+    const isCustodyUnlocked =
+      (liveBooking.status === "CONFIRMED" || liveBooking.status === "IN_STORAGE") &&
+      (checkoutStatus ? checkoutStatus.custodyReady : true);
+    const isTerminalRejectedOrCancelled =
+      liveBooking.status === "EXPIRED" ||
+      liveBooking.status === "REJECTED" ||
+      liveBooking.status.startsWith("CANCELLED");
+    const isPayHereFlow =
+      effectiveIntent?.nextAction === "REDIRECT_TO_PROVIDER" ||
+      (!effectiveIntent &&
+        (pendingContext?.provider === "PAYHERE" || Boolean(returnedHints.orderId)));
+    const isSandboxFlow =
+      liveBooking.status === "PENDING_PAYMENT" &&
+      !isPayHereFlow &&
+      (effectiveIntent?.nextAction === "SANDBOX_SIMULATION" ||
+        (!checkoutStatus && typeof marketplaceApi.getCheckoutStatus !== "function"));
+    const needsInitialIntent =
+      liveBooking.status === "PENDING_PAYMENT" && !effectiveIntent && !isSandboxFlow;
 
     return (
       <div className="space-y-8 max-w-4xl mx-auto">
@@ -1587,20 +1961,38 @@ export function WebPaymentConfirmationPage() {
           </Alert>
         )}
 
+        {returnedHints.ignoredQueryPaymentClaim && !isCustodyUnlocked && (
+          <Alert variant="warning" title="Server Webhook Verification Required">
+            URL return parameters never unlock your booking or digital pass. Waiting for verified
+            server payment confirmation.
+          </Alert>
+        )}
+
+        {returnedHints.cancelledHint && liveBooking.status === "PENDING_PAYMENT" && (
+          <Alert variant="warning" title="Payment Checkout Cancelled">
+            Gateway checkout returned without completion. Your reservation remains pending until your
+            capacity hold expires, and you can retry PayHere checkout below.
+          </Alert>
+        )}
+
         {/* Live Status Banner */}
         <div
           className={`rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5 shadow-sm border ${
-            liveBooking.status === "CONFIRMED" || liveBooking.status === "IN_STORAGE"
+            isCustodyUnlocked
               ? "bg-emerald-50 border-emerald-200"
-              : "bg-amber-50 border-amber-200"
+              : isTerminalRejectedOrCancelled
+                ? "bg-rose-50 border-rose-200"
+                : "bg-amber-50 border-amber-200"
           }`}
         >
           <div className="flex items-start gap-4">
             <div
               className={`w-12 h-12 rounded-full text-white flex items-center justify-center flex-shrink-0 ${
-                liveBooking.status === "CONFIRMED" || liveBooking.status === "IN_STORAGE"
+                isCustodyUnlocked
                   ? "bg-emerald-600"
-                  : "bg-amber-600"
+                  : isTerminalRejectedOrCancelled
+                    ? "bg-rose-600"
+                    : "bg-amber-600"
               }`}
             >
               <CheckCircle2 className="h-7 w-7" />
@@ -1613,8 +2005,14 @@ export function WebPaymentConfirmationPage() {
                 {liveBooking.status === "PENDING_HOST_APPROVAL"
                   ? "Awaiting Host Approval"
                   : liveBooking.status === "PENDING_PAYMENT"
-                    ? "Complete Sandbox LKR Payment to Unlock Pass"
-                    : "Your Digital Custody Pass Is Ready"}
+                    ? isPayHereFlow
+                      ? "Awaiting PayHere Payment Confirmation"
+                      : isSandboxFlow
+                        ? "Complete Sandbox LKR Payment to Unlock Pass"
+                        : "Complete Payment to Unlock Pass"
+                    : isCustodyUnlocked
+                      ? "Your Digital Custody Pass Is Ready"
+                      : `Reservation ${liveBooking.status}`}
               </h1>
               <p className="text-xs text-navy-900 mt-1">
                 {isAddressUnlocked ? (
@@ -1627,34 +2025,125 @@ export function WebPaymentConfirmationPage() {
                 ) : (
                   <>
                     Approximate area: <strong>{liveBooking.location.approximateArea}</strong> (Exact
-                    street address unlocks immediately after payment confirmation).
+                    street address unlocks immediately after verified payment confirmation).
                   </>
                 )}
               </p>
+              {effectiveIntent?.failureReason && liveBooking.status === "PENDING_PAYMENT" && (
+                <p className="text-xs text-rose-700 font-semibold mt-1">
+                  Last attempt: {effectiveIntent.failureReason}
+                </p>
+              )}
             </div>
           </div>
 
           {liveBooking.status === "PENDING_PAYMENT" && (
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="primary"
-                disabled={actionLoading}
-                onClick={() => handleSandboxPayment("SUCCEEDED")}
-              >
-                {actionLoading ? "Processing..." : "Authorize Sandbox Payment"}
-              </Button>
-              <Button
-                variant="outline"
-                disabled={actionLoading}
-                onClick={() => handleSandboxPayment("FAILED")}
-              >
-                Simulate Failure
-              </Button>
+              {isSandboxFlow ? (
+                <>
+                  <Button
+                    variant="primary"
+                    disabled={actionLoading}
+                    onClick={() => handleSandboxPayment("SUCCEEDED")}
+                  >
+                    {actionLoading ? "Processing..." : "Authorize Sandbox Payment"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={actionLoading}
+                    onClick={() => handleSandboxPayment("FAILED")}
+                  >
+                    Simulate Failure
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="outline"
+                    disabled={refreshing || actionLoading}
+                    onClick={handleManualRefresh}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    {refreshing ? "Checking..." : "Refresh Payment Status"}
+                  </Button>
+                  {(checkoutStatus?.canRetryPayment ?? needsInitialIntent) && (
+                    <Button
+                      variant="primary"
+                      disabled={actionLoading}
+                      onClick={handleContinueOrRetryPayHere}
+                    >
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      {actionLoading
+                        ? "Preparing..."
+                        : needsInitialIntent
+                          ? "Continue to Payment"
+                          : "Retry PayHere Checkout"}
+                    </Button>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
 
-        {/* Live Printable Digital Custody Pass */}
+        {retryBillingOpen && liveBooking.status === "PENDING_PAYMENT" && (
+          <div className="bg-white rounded-3xl border border-sand-200 p-6 space-y-4 shadow-sm">
+            <h2 className="text-base font-bold text-navy-950">
+              Complete Billing Details for PayHere Checkout
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Billing First Name"
+                value={retryFirstName}
+                onChange={(e) => setRetryFirstName(e.target.value)}
+              />
+              <Input
+                label="Billing Last Name"
+                value={retryLastName}
+                onChange={(e) => setRetryLastName(e.target.value)}
+              />
+              <Input
+                label="Billing Email"
+                type="email"
+                value={retryEmail}
+                onChange={(e) => setRetryEmail(e.target.value)}
+              />
+              <Input
+                label="Billing Phone"
+                value={retryPhone}
+                onChange={(e) => setRetryPhone(e.target.value)}
+              />
+              <div className="sm:col-span-2">
+                <Input
+                  label="Billing Address"
+                  value={retryAddress}
+                  onChange={(e) => setRetryAddress(e.target.value)}
+                />
+              </div>
+              <Input
+                label="Billing City"
+                value={retryCity}
+                onChange={(e) => setRetryCity(e.target.value)}
+              />
+              <Input
+                label="Billing Country"
+                value={retryCountry}
+                onChange={(e) => setRetryCountry(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="primary"
+                disabled={actionLoading}
+                onClick={handleContinueOrRetryPayHere}
+              >
+                Submit & Open PayHere Checkout
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Booking Details & (When Confirmed) Printable Digital Custody Pass */}
         <div className="bg-white rounded-3xl border-2 border-navy-900 overflow-hidden shadow-xl">
           <div className="bg-navy-950 text-white p-6 flex flex-wrap items-center justify-between gap-4 border-b border-navy-800">
             <div className="flex items-center gap-3">
@@ -1663,7 +2152,9 @@ export function WebPaymentConfirmationPage() {
                 <span className="text-[10px] font-mono tracking-widest text-sand-400 uppercase">
                   Global Luggage Storage Marketplace
                 </span>
-                <h2 className="text-lg font-bold text-white">Digital Custody Pass</h2>
+                <h2 className="text-lg font-bold text-white">
+                  {isCustodyUnlocked ? "Digital Custody Pass" : "Reservation Summary"}
+                </h2>
               </div>
             </div>
             <div className="text-right">
@@ -1702,7 +2193,21 @@ export function WebPaymentConfirmationPage() {
               </div>
             </div>
 
-            {(liveBooking.status === "CONFIRMED" || liveBooking.status === "IN_STORAGE") && (
+            {!isCustodyUnlocked && (
+              <div className="p-5 rounded-2xl bg-sand-50 border border-sand-200 text-center space-y-2">
+                <Lock className="h-6 w-6 text-sand-500 mx-auto" />
+                <p className="text-sm font-bold text-navy-950">
+                  Custody QR & Offline PIN Remain Locked
+                </p>
+                <p className="text-xs text-sand-600 max-w-md mx-auto">
+                  {liveBooking.status === "PENDING_PAYMENT"
+                    ? "Your check-in pass and exact hub street address unlock immediately after server-verified payment confirmation."
+                    : `Custody pass issuance is not available while booking status is ${liveBooking.status}.`}
+                </p>
+              </div>
+            )}
+
+            {isCustodyUnlocked && (
               <div className="space-y-4">
                 {!issuedPass ? (
                   <div className="p-6 rounded-2xl bg-sand-50 border border-sand-200 text-center space-y-3">
@@ -1764,10 +2269,12 @@ export function WebPaymentConfirmationPage() {
 
           <div className="bg-sand-50 p-6 border-t border-sand-200 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Button variant="secondary" onClick={handlePrint}>
-                <Printer className="h-4 w-4 mr-2" />
-                <span>Print / Save Pass</span>
-              </Button>
+              {isCustodyUnlocked && (
+                <Button variant="secondary" onClick={handlePrint}>
+                  <Printer className="h-4 w-4 mr-2" />
+                  <span>Print / Save Pass</span>
+                </Button>
+              )}
               <Link to="/portal/bookings">
                 <Button variant="outline">
                   <span>View in My Bookings</span>

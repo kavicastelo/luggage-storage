@@ -24,14 +24,27 @@ export default function TravellerCustodyPassScreen() {
   const demoBooking: TravellerBookingItem =
     DEMO_BOOKINGS.find((b) => b.reference === params.ref) || DEMO_BOOKINGS[0];
 
+  const isLiveUuidBooking = Boolean(params.bookingId && PASS_UUID_REGEX.test(params.bookingId));
   const [liveBooking, setLiveBooking] = useState<BookingDetail | null>(null);
   const [issuedPass, setIssuedPass] = useState<CustodyPassResponse | null>(null);
+  const [loadingLiveBooking, setLoadingLiveBooking] = useState(isLiveUuidBooking);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [savedOffline, setSavedOffline] = useState(false);
 
   useEffect(() => {
     const targetId = params.bookingId;
-    if (!isAuthenticated || !targetId || !PASS_UUID_REGEX.test(targetId)) return;
+    if (!isLiveUuidBooking || !targetId) {
+      setLoadingLiveBooking(false);
+      return;
+    }
+    if (!isAuthenticated) {
+      setLoadingLiveBooking(false);
+      setLoadError("Sign in to verify and unlock your live digital custody pass.");
+      return;
+    }
     let mounted = true;
+    setLoadingLiveBooking(true);
+    setLoadError(null);
     marketplaceApi
       .getBookingDetail(targetId)
       .then(async (detail) => {
@@ -44,11 +57,26 @@ export default function TravellerCustodyPassScreen() {
           if (mounted) setIssuedPass(pass);
         }
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        if (mounted) {
+          setLoadError(
+            err instanceof Error ? err.message : "Could not load booking custody status."
+          );
+        }
+      })
+      .finally(() => {
+        if (mounted) setLoadingLiveBooking(false);
+      });
     return () => {
       mounted = false;
     };
-  }, [isAuthenticated, params.bookingId]);
+  }, [isAuthenticated, isLiveUuidBooking, params.bookingId]);
+
+  const isCustodyUnlocked =
+    !isLiveUuidBooking ||
+    Boolean(
+      liveBooking && (liveBooking.status === "CONFIRMED" || liveBooking.status === "IN_STORAGE")
+    );
 
   const booking: TravellerBookingItem = liveBooking
     ? {
@@ -67,6 +95,53 @@ export default function TravellerCustodyPassScreen() {
         landmark: liveBooking.location.approximateArea
       }
     : demoBooking;
+
+  if (isLiveUuidBooking && (!isCustodyUnlocked || loadingLiveBooking || !liveBooking)) {
+    return (
+      <View style={styles.screenWrapper}>
+        <View style={styles.topNav}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.replace("/(traveller)/bookings")}
+            accessibilityRole="button"
+            accessibilityLabel="Back to Bookings"
+          >
+            <MobileIcon name="chevron-left" size={20} color={mobileColors.white} />
+            <Text style={styles.backButtonText}>Bookings</Text>
+          </TouchableOpacity>
+          <Text style={styles.topNavTitle}>Custody Status</Text>
+          <View style={{ width: 44 }} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.container}>
+          <Card style={styles.ticketCard} variant="elevated">
+            <Text style={styles.pinLabel}>
+              {loadingLiveBooking
+                ? "VERIFYING RESERVATION STATUS"
+                : loadError
+                  ? "UNABLE TO VERIFY BOOKING"
+                  : `BOOKING STATUS: ${liveBooking?.status ?? "PENDING"}`}
+            </Text>
+            <Text style={styles.pinHelp}>
+              {loadingLiveBooking
+                ? "Fetching authoritative payment confirmation before unlocking your custody QR and PIN..."
+                : loadError
+                  ? loadError
+                  : "Digital custody QR credentials and exact hub street address remain locked until verified payment confirmation."}
+            </Text>
+            <View style={{ marginTop: 16 }}>
+              <Button
+                title="View Booking Status"
+                variant="primary"
+                size="md"
+                onPress={() => router.replace("/(traveller)/bookings")}
+              />
+            </View>
+          </Card>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screenWrapper}>

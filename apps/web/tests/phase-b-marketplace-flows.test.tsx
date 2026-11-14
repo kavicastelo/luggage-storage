@@ -243,7 +243,7 @@ describe("Phase B — Web Booking, Non-Escrow Settlement Ledger & Custody Integr
   });
 
   describe("3. UI Surface Honesty, Non-Escrow Terminology & Developer Code Suppression", () => {
-    it("renders live UUID checkout mode with Sandbox Payment Gateway notice and zero developer codes", () => {
+    it("renders live UUID checkout mode with Server-Authoritative Checkout notice and zero developer codes", () => {
       const uuidLocRoute = "/checkout/11111111-2222-4333-8444-555555555555";
       const html = renderToString(
         <MemoryRouter initialEntries={[uuidLocRoute]}>
@@ -253,7 +253,7 @@ describe("Phase B — Web Booking, Non-Escrow Settlement Ledger & Custody Integr
         </MemoryRouter>
       );
 
-      expect(html).toContain("Sandbox Payment Gateway Active");
+      expect(html).toContain("Server-Authoritative Checkout");
       expect(html).not.toMatch(FORBIDDEN_DEVELOPER_PATTERN);
     });
 
