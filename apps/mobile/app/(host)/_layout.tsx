@@ -1,107 +1,103 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { Tabs, useRouter } from "expo-router";
+import { View, Text, StyleSheet } from "react-native";
+import { Tabs, usePathname, useRouter } from "expo-router";
+import {
+  Button,
+  Card,
+  MascotIllustration,
+  MobileIcon,
+  SafeHeader,
+  ScreenContainer
+} from "../../src/components";
 import { useAuthStore } from "../../src/store/useAuthStore";
-import { useHostStore } from "../../src/store/useHostStore";
-import { MobileIcon } from "../../src/components/MobileIcon";
-import { mobileColors } from "../../src/lib/theme";
+import {
+  mobileColors,
+  mobileSpacing,
+  mobileStatusTokens,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
 
 export default function HostLayout() {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, isAuthenticated } = useAuthStore();
-  const { activeDemoRole, setActiveDemoRole } = useHostStore();
+
+  const isOnboardingRoute = pathname.endsWith("/onboarding");
+
+  if (!isAuthenticated) {
+    return (
+      <ScreenContainer
+        header={<SafeHeader title="Partner Counter" subtitle="Host Operations" />}
+        testID="host-auth-gate"
+      >
+        <Card variant="elevated" style={styles.gateCard}>
+          <MascotIllustration mascot="salute" size="md" />
+          <Text style={styles.gateTitle}>Sign in Required for Host Workspace</Text>
+          <Text style={styles.gateBody}>
+            Managing verified Sri Lanka storage hubs, custody handovers, and LKR payouts requires
+            an authenticated partner account.
+          </Text>
+          <Button
+            title="Sign In"
+            leftIcon={<MobileIcon name="lock" size={16} color={mobileColors.white} />}
+            onPress={() => router.push("/(auth)/login")}
+          />
+          <Button
+            title="Return to Traveller Mode"
+            variant="outline"
+            onPress={() => router.replace("/(traveller)")}
+          />
+        </Card>
+      </ScreenContainer>
+    );
+  }
 
   const isHostAuthorized =
     user?.roles?.includes("HOST_OWNER") ||
     user?.roles?.includes("HOST_STAFF") ||
     user?.roles?.includes("SUPERADMIN");
 
-  const isOwner = isAuthenticated
-    ? Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"))
-    : activeDemoRole === "HOST_OWNER";
+  const isOwner = Boolean(
+    user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN")
+  );
 
-  if (isAuthenticated && !isHostAuthorized) {
+  if (isAuthenticated && !isHostAuthorized && !isOnboardingRoute) {
     return (
-      <View style={styles.deniedContainer}>
-        <View style={styles.deniedCard}>
+      <ScreenContainer
+        header={<SafeHeader title="Partner Counter" subtitle="Access Control" />}
+        testID="host-rbac-forbidden"
+      >
+        <Card variant="outlined" style={styles.deniedCard}>
           <Text style={styles.deniedBadge}>RBAC Guard • 403 Forbidden</Text>
           <Text style={styles.deniedTitle}>Host Role Required</Text>
           <Text style={styles.deniedBody}>
-            Your authenticated account ({user?.email}) is assigned roles:{" "}
-            {(user?.roles || []).join(", ")}. Host Mobile screens require HOST_OWNER,
-            HOST_STAFF, or SUPERADMIN permissions.
+            Your authenticated account ({user?.email}) currently holds roles:{" "}
+            {(user?.roles || ["TRAVELLER"]).join(", ")}. Counter custody screens require
+            HOST_OWNER, HOST_STAFF, or SUPERADMIN permissions.
           </Text>
-          <TouchableOpacity
-            style={styles.returnBtn}
+          <Button
+            title="Start Host Onboarding"
+            leftIcon={<MobileIcon name="building" size={16} color={mobileColors.white} />}
+            onPress={() => router.push("/(host)/onboarding")}
+          />
+          <Button
+            title="Return to Traveller Mode"
+            variant="outline"
             onPress={() => router.replace("/(traveller)")}
-          >
-            <Text style={styles.returnBtnText}>Return to Traveller Mode</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+          />
+        </Card>
+      </ScreenContainer>
     );
   }
 
   return (
     <View style={styles.flexContainer}>
-      {!isAuthenticated && (
-        <View style={styles.demoBanner}>
-          <View style={styles.demoBannerTextCol}>
-            <Text style={styles.demoBannerText}>
-              Demo Mode: <Text style={styles.demoRoleStrong}>{activeDemoRole === "HOST_OWNER" ? "Host Owner" : "Host Staff"}</Text>
-            </Text>
-            <Text style={styles.demoRoleHint}>
-              {activeDemoRole === "HOST_OWNER"
-                ? "Full access to Earnings & Settings"
-                : "Operational access only (Earnings & Settings restricted)"}
-            </Text>
-          </View>
-          <View style={styles.demoBannerActions}>
-            <View style={styles.demoRoleToggleGroup}>
-              <TouchableOpacity
-                style={[
-                  styles.demoRoleToggleBtn,
-                  activeDemoRole === "HOST_OWNER" && styles.demoRoleToggleBtnActive
-                ]}
-                onPress={() => setActiveDemoRole("HOST_OWNER")}
-              >
-                <Text
-                  style={[
-                    styles.demoRoleToggleText,
-                    activeDemoRole === "HOST_OWNER" && styles.demoRoleToggleTextActive
-                  ]}
-                >
-                  Owner
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.demoRoleToggleBtn,
-                  activeDemoRole === "HOST_STAFF" && styles.demoRoleToggleBtnActive
-                ]}
-                onPress={() => setActiveDemoRole("HOST_STAFF")}
-              >
-                <Text
-                  style={[
-                    styles.demoRoleToggleText,
-                    activeDemoRole === "HOST_STAFF" && styles.demoRoleToggleTextActive
-                  ]}
-                >
-                  Staff
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <TouchableOpacity onPress={() => router.push("/(auth)/login")}>
-              <Text style={styles.demoSignInLink}>Sign In</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
       <Tabs
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: mobileColors.terracotta[500],
-          tabBarInactiveTintColor: mobileColors.sand[600],
+          tabBarInactiveTintColor: mobileColors.sand[400],
           tabBarStyle: {
             backgroundColor: mobileColors.navy[900],
             borderTopColor: mobileColors.navy[800],
@@ -124,7 +120,7 @@ export default function HostLayout() {
               <MobileIcon
                 name="clock"
                 size={20}
-                color={color ? String(color) : mobileColors.sand[600]}
+                color={color ? String(color) : mobileColors.sand[400]}
               />
             )
           }}
@@ -138,7 +134,7 @@ export default function HostLayout() {
               <MobileIcon
                 name="bell"
                 size={20}
-                color={color ? String(color) : mobileColors.sand[600]}
+                color={color ? String(color) : mobileColors.sand[400]}
               />
             )
           }}
@@ -152,7 +148,7 @@ export default function HostLayout() {
               <MobileIcon
                 name="layers"
                 size={20}
-                color={color ? String(color) : mobileColors.sand[600]}
+                color={color ? String(color) : mobileColors.sand[400]}
               />
             )
           }}
@@ -167,7 +163,7 @@ export default function HostLayout() {
               <MobileIcon
                 name="wallet"
                 size={20}
-                color={color ? String(color) : mobileColors.sand[600]}
+                color={color ? String(color) : mobileColors.sand[400]}
               />
             )
           }}
@@ -182,13 +178,12 @@ export default function HostLayout() {
               <MobileIcon
                 name="user"
                 size={20}
-                color={color ? String(color) : mobileColors.sand[600]}
+                color={color ? String(color) : mobileColors.sand[400]}
               />
             )
           }}
         />
 
-        {/* Workflow sub-routes hidden from bottom tab bar */}
         <Tabs.Screen
           name="scanner"
           options={{
@@ -200,7 +195,28 @@ export default function HostLayout() {
           name="intake"
           options={{
             href: null,
-            title: "Guided Intake"
+            title: "Bag Intake"
+          }}
+        />
+        <Tabs.Screen
+          name="onboarding"
+          options={{
+            href: null,
+            title: "Partner Onboarding"
+          }}
+        />
+        <Tabs.Screen
+          name="locations"
+          options={{
+            href: null,
+            title: "Storage Hubs"
+          }}
+        />
+        <Tabs.Screen
+          name="location-editor"
+          options={{
+            href: null,
+            title: "Hub Configuration"
           }}
         />
       </Tabs>
@@ -210,127 +226,42 @@ export default function HostLayout() {
 
 const styles = StyleSheet.create({
   flexContainer: {
-    flex: 1
-  },
-  demoBanner: {
-    backgroundColor: "#fffbeb",
-    borderBottomWidth: 1,
-    borderBottomColor: "#fde68a",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8
-  },
-  demoBannerTextCol: {
     flex: 1,
-    minWidth: 180
+    backgroundColor: mobileColors.canvas
   },
-  demoBannerText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#92400e"
-  },
-  demoRoleStrong: {
-    fontWeight: "700",
-    color: "#78350f"
-  },
-  demoRoleHint: {
-    fontSize: 10,
-    color: "#a16207",
-    marginTop: 1
-  },
-  demoBannerActions: {
-    flexDirection: "row",
+  gateCard: {
     alignItems: "center",
-    gap: 8
+    gap: mobileSpacing[4],
+    marginTop: mobileSpacing[4]
   },
-  demoRoleToggleGroup: {
-    flexDirection: "row",
-    backgroundColor: "#fef3c7",
-    borderRadius: 6,
-    padding: 2,
-    borderWidth: 1,
-    borderColor: "#fde68a"
+  gateTitle: {
+    ...mobileTypography.headingMd,
+    color: mobileTextColors.primary,
+    textAlign: "center"
   },
-  demoRoleToggleBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4
-  },
-  demoRoleToggleBtnActive: {
-    backgroundColor: "#ffffff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1
-  },
-  demoRoleToggleText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#78350f"
-  },
-  demoRoleToggleTextActive: {
-    color: "#92400e",
-    fontWeight: "700"
-  },
-  demoSignInLink: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#2563eb",
-    paddingHorizontal: 4
-  },
-  deniedContainer: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24
+  gateBody: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.secondary,
+    textAlign: "center"
   },
   deniedCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 24,
-    width: "100%",
-    maxWidth: 380,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    alignItems: "center"
+    gap: mobileSpacing[3],
+    marginTop: mobileSpacing[4],
+    borderColor: mobileStatusTokens.dangerBorder,
+    backgroundColor: mobileStatusTokens.dangerBg
   },
   deniedBadge: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
-    color: "#dc2626",
-    textTransform: "uppercase",
-    marginBottom: 8
+    color: mobileStatusTokens.danger,
+    textTransform: "uppercase"
   },
   deniedTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#0f172a",
-    marginBottom: 8
+    ...mobileTypography.headingMd,
+    color: mobileColors.navy[900]
   },
   deniedBody: {
-    fontSize: 13,
-    color: "#475569",
-    textAlign: "center",
-    lineHeight: 19,
-    marginBottom: 20
-  },
-  returnBtn: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    width: "100%",
-    alignItems: "center"
-  },
-  returnBtnText: {
-    color: "#ffffff",
-    fontWeight: "600",
-    fontSize: 14
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.secondary
   }
 });

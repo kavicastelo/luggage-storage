@@ -54,17 +54,16 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(content).toContain("RBAC Guard • 403 Forbidden");
     });
 
-    it("restricts Earnings and Settings tabs for Host Staff role and provides role toggle", () => {
+    it("restricts Earnings and Settings tabs for Host Staff role and removes demo role overrides", () => {
       const layoutPath = path.resolve(__dirname, "../app/(host)/_layout.tsx");
       const content = fs.readFileSync(layoutPath, "utf-8");
 
-      // Verifies conditional tab availability
+      // Verifies conditional tab availability and real auth enforcement
       expect(content).toContain('href: isOwner ? "/(host)/earnings" : null');
       expect(content).toContain('href: isOwner ? "/(host)/settings" : null');
-
-      // Verifies role toggle controls
-      expect(content).toContain('setActiveDemoRole("HOST_OWNER")');
-      expect(content).toContain('setActiveDemoRole("HOST_STAFF")');
+      expect(content).toContain("useAuthStore");
+      expect(content).not.toContain("useHostStore");
+      expect(content).not.toContain("setActiveDemoRole");
     });
 
     it("enforces direct route guards on earnings.tsx and settings.tsx for non-owners", () => {
@@ -112,7 +111,7 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
   });
 
   describe("Task TSK-2C-022: Scanner & PIN Fallback (scanner.tsx)", () => {
-    it("provides camera viewfinder, torch control, and quick pass simulator mapped from fixtures", () => {
+    it("provides camera viewfinder, torch control, manual token entry, and live verification mutation", () => {
       const scannerPath = path.resolve(__dirname, "../app/(host)/scanner.tsx");
       expect(fs.existsSync(scannerPath)).toBe(true);
       const content = fs.readFileSync(scannerPath, "utf-8");
@@ -122,8 +121,9 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(content).toContain("useCameraPermissions");
       expect(content).toContain("CameraView");
       expect(content).toContain("enableTorch");
-      expect(content).toContain("DEMO_SCANNER_FIXTURES");
-      expect(content).toContain("Quick Pass Simulator");
+      expect(content).toContain("useVerifyCustodyPassMutation");
+      expect(content).toContain("Manual QR Token Entry");
+      expect(content).not.toContain("DEMO_SCANNER_FIXTURES");
     });
 
     it("resolves EVERY booking in DEMO_SCANNER_FIXTURES by PIN and QR code", () => {
@@ -174,11 +174,11 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(empty).toBeNull();
     });
 
-    it("strictly labels pass matches as Demo booking lookup matched under DEC-005 Pending Sign-Off", () => {
+    it("handles server pass verification and rate-limit responses without claiming client cryptography", () => {
       const scannerPath = path.resolve(__dirname, "../app/(host)/scanner.tsx");
       const content = fs.readFileSync(scannerPath, "utf-8");
-      expect(content).toContain("Demo booking lookup matched (DEC-005 Pending Sign-Off)");
-      expect(content).toContain("Pass Verification Scope (DEC-005)");
+      expect(content).toContain("useVerifyCustodyPassMutation");
+      expect(content).toContain("retryAfterSeconds");
       expect(content).not.toContain("Server-Verified Booking");
       expect(content).not.toContain("Cryptographically Verified");
       expect(content).not.toContain("DEC-005 Verified");
@@ -186,28 +186,25 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
   });
 
   describe("Task TSK-2C-023: Guided Counter Intake & Seal Tagging Wizard (intake.tsx)", () => {
-    it("guides host staff through 4 sequential intake stages", () => {
+    it("wires dynamic bag check-in, security seal serials, zone selection, and mismatch justification", () => {
       const intakePath = path.resolve(__dirname, "../app/(host)/intake.tsx");
       expect(fs.existsSync(intakePath)).toBe(true);
       const content = fs.readFileSync(intakePath, "utf-8");
 
-      expect(content).toContain("1. Bags");
-      expect(content).toContain("2. Seal");
-      expect(content).toContain("3. Photo");
-      expect(content).toContain("4. Confirm");
-      expect(content).toContain("Step 1: Bag Count Reconciliation");
-      expect(content).toContain("Step 2: Security Seal Serialization");
-      expect(content).toContain("Step 3: Pre-existing Condition Photo");
-      expect(content).toContain("Step 4: Zone Allocation & Confirmation");
+      expect(content).toContain("useCompleteCheckInMutation");
+      expect(content).toContain("BAG_CATEGORIES");
+      expect(content).toContain("securitySealNumber");
+      expect(content).toContain("bagCountExceptionReason");
+      expect(content).toContain("1. Handover Credential");
+      expect(content).toContain("2. Physical Bag Tags & Seals");
     });
 
-    it("validates tamper seal serial format #SEAL-LK-XXXXX and marks generated seals as demo placeholders (DEC-007)", () => {
+    it("supports optional counter visual photo capture without false pristine assertions", () => {
       const intakePath = path.resolve(__dirname, "../app/(host)/intake.tsx");
       const content = fs.readFileSync(intakePath, "utf-8");
 
-      expect(content).toContain("/^SEAL-LK-\\d{5}$/");
-      expect(content).toContain("Generate Demo Placeholder Tag (Local Simulation Only)");
-      expect(content).toContain("Security Tagging Policy (DEC-007)");
+      expect(content).toContain("3. Optional Counter Visual Reference Photo");
+      expect(content).toContain("submitInFlightRef");
     });
 
     it("integrates expo-image-picker and manages local photo evidence state", () => {
@@ -217,17 +214,14 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       expect(content).toContain("expo-image-picker");
       expect(content).toContain("launchCameraAsync");
       expect(content).toContain("launchImageLibraryAsync");
-      expect(content).toContain("SAMPLE_EVIDENCE_PHOTO_URI");
-      expect(content).toContain("photoUri");
-      expect(content).toContain("photoEvidenceStatus");
+      expect(content).toContain("localPhotoUri");
     });
 
-    it("offers prominent 1-tap photo bypass adhering to invariant DEC-001 without falsely claiming pristine condition", () => {
+    it("offers prominent 1-tap photo skip without falsely claiming pristine condition", () => {
       const intakePath = path.resolve(__dirname, "../app/(host)/intake.tsx");
       const content = fs.readFileSync(intakePath, "utf-8");
 
-      expect(content).toContain("Skip Photo Evidence (DEC-001 Prototype Option)");
-      expect(content).toContain("Photo Policy Invariant (DEC-001)");
+      expect(content).toContain("Skip Counter Photo");
       expect(content).toContain("does NOT verify pristine condition");
     });
 
@@ -303,29 +297,27 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
   });
 
   describe("Task TSK-2C-024: Active Vault Monitor & Overdue Alerts (vault.tsx)", () => {
-    it("displays physical vault capacity and lists active storage items", () => {
+    it("displays live custody vault inventory, seal details, and release controls", () => {
       const vaultPath = path.resolve(__dirname, "../app/(host)/vault.tsx");
       expect(fs.existsSync(vaultPath)).toBe(true);
       const content = fs.readFileSync(vaultPath, "utf-8");
 
       expect(content).toContain("Vault Luggage Inventory");
       expect(content).toContain("Current Stored Luggage");
-      expect(content).toContain("Rack Zone A");
-      expect(content).toContain("Locker Zone B");
-      expect(content).toContain("Floor Zone C");
+      expect(content).toContain("useCustodyDetailQuery");
+      expect(content).toContain("useCompleteCollectionMutation");
       expect(content).toContain("Active Vault");
       expect(content).toContain("Overdue");
       expect(content).toContain("Released");
     });
 
-    it("identifies overdue baggage and adheres strictly to invariant DEC-002 without false settlement claims", () => {
+    it("identifies overdue baggage and enforces unconditional no-lien release policy", () => {
       const vaultPath = path.resolve(__dirname, "../app/(host)/vault.tsx");
       const content = fs.readFileSync(vaultPath, "utf-8");
 
       expect(content).toContain("Baggage Overdue");
-      expect(content).toContain("DEC-002 Pending Sign-Off");
-      expect(content).toContain("Overdue fee handling is illustrative only");
-      expect(content).toContain("No payment is collected in this prototype");
+      expect(content).toContain("Unconditional Release & No-Lien Policy");
+      expect(content).toContain("Luggage return is never delayed or withheld over overdue fees");
       expect(content).not.toContain("will be processed automatically to guest's payment method");
       expect(content).not.toContain("Baggage release is never withheld for fee settlement");
     });
@@ -362,18 +354,17 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
   });
 
   describe("Task TSK-2C-025: Mobile Earnings & Settlement Ledger (earnings.tsx)", () => {
-    it("calculates 85% net host payout vs 15% platform fee split (DEC-006)", () => {
+    it("renders live LKR host finance summary and masked bank payout details", () => {
       const earningsPath = path.resolve(__dirname, "../app/(host)/earnings.tsx");
       expect(fs.existsSync(earningsPath)).toBe(true);
       const content = fs.readFileSync(earningsPath, "utf-8");
 
       expect(content).toContain("Host Earnings & Settlements");
-      expect(content).toContain("Net Host Earnings (85%)");
-      expect(content).toContain("Gross Paid Guest Volume (100%)");
-      expect(content).toContain("Platform Service Fee (15%)");
-      expect(content).toContain("Policy Note (DEC-006)");
-      expect(content).toContain("Demonstration Financial Surface");
-      expect(content).toContain("Illustrative Payout Schedule — Not Connected");
+      expect(content).toContain("ELIGIBLE HOST PAYABLES");
+      expect(content).toContain("useHostFinanceSummaryQuery");
+      expect(content).toContain("useBusinessPayoutDetailsQuery");
+      expect(content).toContain("formatCurrencyMinorUnits");
+      expect(content).toContain("Net Host Payable:");
       expect(content).toContain("Transaction History");
     });
 
@@ -389,19 +380,20 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
   });
 
   describe("Host Settings & Partner Profile (settings.tsx)", () => {
-    it("renders facility specs, team directory, and DEC-010 compliance notice", () => {
+    it("renders live partner profile links, honest staff access notice, and sign-out controls", () => {
       const settingsPath = path.resolve(__dirname, "../app/(host)/settings.tsx");
       expect(fs.existsSync(settingsPath)).toBe(true);
       const content = fs.readFileSync(settingsPath, "utf-8");
 
       expect(content).toContain("Storage Partner Profile");
-      expect(content).toContain("Physical Facility Details");
-      expect(content).toContain("Counter Staff Directory");
-      expect(content).toContain("Roshan Fernando");
-      expect(content).toContain("Priyantha Wickramasinghe");
-      expect(content).toContain("Simulated Compliance Records");
-      expect(content).toContain("Compliance Invariant (DEC-010)");
-      expect(content).toContain("Reset Demo State to Initial Defaults");
+      expect(content).toContain("useOwnedBusinessesQuery");
+      expect(content).toContain("useOwnedLocationsQuery");
+      expect(content).toContain("Counter Staff Access");
+      expect(content).toContain("/(host)/onboarding");
+      expect(content).toContain("/(host)/locations");
+      expect(content).toContain("Switch to Traveller Mode");
+      expect(content).not.toContain("Roshan Fernando");
+      expect(content).not.toContain("Priyantha Wickramasinghe");
     });
 
     it("resets store state when handleReset is triggered", () => {
@@ -456,9 +448,13 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       }
     });
 
-    it("verifies honest prototype disclosure on every screen", () => {
+    it("verifies zero mock host store or static demo fixture imports across all host screens", () => {
       const screens = [
+        "_layout.tsx",
         "index.tsx",
+        "onboarding.tsx",
+        "locations.tsx",
+        "location-editor.tsx",
         "requests.tsx",
         "vault.tsx",
         "earnings.tsx",
@@ -469,10 +465,8 @@ describe("Phase 2C.5 — Host Mobile Application Journeys & Verification Tests (
       for (const screen of screens) {
         const content = fs.readFileSync(path.join(hostDir, screen), "utf-8");
         expect(
-          content.includes("prototypeNotice") ||
-            content.includes("Prototype") ||
-            content.includes("Simulation"),
-          `Screen ${screen} must contain honest prototype disclosure.`
+          !content.includes("useHostStore") && !content.includes("mock-host-"),
+          `Screen ${screen} must use live API hooks without mock host stores.`
         ).toBe(true);
       }
     });
