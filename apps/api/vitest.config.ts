@@ -5,6 +5,9 @@ export default defineConfig({
     globalSetup: ["./tests/setup/global-setup.ts"],
     fileParallelism: false,
     testTimeout: 30000,
-    hookTimeout: 30000
+    hookTimeout: 30000,
+    env: {
+      PAYMENT_PROVIDER: "sandbox"
+    }
   }
 });
