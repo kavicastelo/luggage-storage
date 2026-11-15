@@ -1,12 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { PayHereCheckoutHandoff } from "@luggage-storage/contracts";
+import type { PayHereNativeSdkPayload, PayHereWebCheckoutHandoff } from "@luggage-storage/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { launchPayHereNativeCheckout } from "../src/lib/payhere-native";
 import {
-  ALLOWED_PAYHERE_HANDOFF_PATH_REGEX,
-  isPayHerePostHandoff,
-  openExternalPayHereHandoff,
-  resolveMobileHandoffUrl
+  ALLOWED_PAYHERE_CHECKOUT_URLS,
+  assertSafeWebReferrerPolicy,
+  buildPayHereWebCheckoutForm,
+  isPayHereWebPostHandoff,
+  submitPayHereWebCheckoutForm
 } from "../src/lib/payment-handoff";
 import { mobileQueryClient } from "../src/lib/query-client";
 import {
@@ -36,7 +38,6 @@ function collectSourceFiles(dir: string): string[] {
 
 describe("Phase C — Mobile Payment, Custody & Auth Security Invariants", () => {
   const mobileRoot = path.resolve(__dirname, "..");
-  const validSignedPath = "/payments/handoff/eyJpbnRlbnRJZCI6IjExMTExMTExIn0.c2lnbmF0dXJlMTIzNDU2";
 
   beforeEach(async () => {
     vi.restoreAllMocks();
@@ -51,17 +52,17 @@ describe("Phase C — Mobile Payment, Custody & Auth Security Invariants", () =>
     vi.unstubAllGlobals();
   });
 
-  it("1. routes PayHere POST checkout through an approved external browser URL and never embeds WebView", async () => {
-    const handoff: PayHereCheckoutHandoff = {
+  it("1. routes Expo Web PayHere checkout via direct browser POST form and never uses WebView or API HTML handoff bridge", () => {
+    const handoff: PayHereWebCheckoutHandoff = {
       mode: "PAYHERE_SANDBOX_REDIRECT",
       provider: "PAYHERE",
       method: "POST_FORM",
       actionUrl: "https://sandbox.payhere.lk/pay/checkout",
       fields: {
         merchant_id: "1220001",
-        return_url: "https://api.example.com/return",
-        cancel_url: "https://api.example.com/cancel",
-        notify_url: "https://api.example.com/notify",
+        return_url: "https://web.luggagestorage.lk/booking/confirm",
+        cancel_url: "https://web.luggagestorage.lk/booking/confirm?cancelled=1",
+        notify_url: "https://api.luggagestorage.lk/api/v1/payments/webhooks/payhere",
         order_id: "LGS-ORDER-1",
         items: "Luggage Storage",
         currency: "LKR",
@@ -73,23 +74,40 @@ describe("Phase C — Mobile Payment, Custody & Auth Security Invariants", () =>
         address: "Fort Railway Station",
         city: "Colombo",
         country: "Sri Lanka",
-        hash: "DEADBEEF1234567890"
-      },
-      mobileHandoffPath: validSignedPath
+        hash: "0123456789ABCDEF0123456789ABCDEF"
+      }
     };
 
-    expect(isPayHerePostHandoff(handoff)).toBe(true);
-    const resolved = resolveMobileHandoffUrl(
-      "https://api.luggage.example.com/api/v1",
-      handoff.mobileHandoffPath
-    );
-    expect(resolved).toBe(
-      `https://api.luggage.example.com/api/v1${validSignedPath}`
-    );
+    expect(isPayHereWebPostHandoff(handoff)).toBe(true);
+    const appended: unknown[] = [];
+    const mockDoc = {
+      querySelectorAll: vi.fn(() => []),
+      createElement: vi.fn((tag: string) => {
+        if (tag === "form") {
+          const form = {
+            method: "",
+            action: "",
+            style: { display: "" },
+            attributes: {} as Record<string, string>,
+            children: [] as unknown[],
+            setAttribute: (k: string, v: string) => {
+              form.attributes[k] = v;
+            },
+            appendChild: (c: unknown) => form.children.push(c),
+            submit: vi.fn()
+          };
+          return form;
+        }
+        return { type: "", name: "", value: "" };
+      }),
+      body: {
+        appendChild: (f: unknown) => appended.push(f)
+      }
+    } as unknown as Document;
 
-    const openSpy = vi.fn().mockResolvedValue(undefined);
-    await openExternalPayHereHandoff(resolved, openSpy);
-    expect(openSpy).toHaveBeenCalledWith(resolved);
+    const submitted = submitPayHereWebCheckoutForm(handoff, mockDoc);
+    expect(appended).toHaveLength(1);
+    expect(submitted.action).toBe("https://sandbox.payhere.lk/pay/checkout");
 
     const files = [
       ...collectSourceFiles(path.join(mobileRoot, "app")),
@@ -99,28 +117,85 @@ describe("Phase C — Mobile Payment, Custody & Auth Security Invariants", () =>
       const src = fs.readFileSync(file, "utf8");
       expect(src).not.toContain("react-native-webview");
       expect(src).not.toContain("<WebView");
+      expect(src).not.toContain("/payments/handoff/");
     }
   });
 
-  it("2. rejects unapproved handoff paths or cross-origin redirects", () => {
-    expect(ALLOWED_PAYHERE_HANDOFF_PATH_REGEX.test(validSignedPath)).toBe(true);
+  it("2. rejects unapproved PayHere checkout URLs, no-referrer suppression, and extra secret/hash keys in native SDK payload", async () => {
+    expect(ALLOWED_PAYHERE_CHECKOUT_URLS.has("https://sandbox.payhere.lk/pay/checkout")).toBe(true);
+    expect(ALLOWED_PAYHERE_CHECKOUT_URLS.has("https://www.payhere.lk/pay/checkout")).toBe(true);
+
+    const mockDoc = {
+      querySelectorAll: vi.fn(() => [{ getAttribute: () => "no-referrer" }]),
+      createElement: vi.fn(),
+      body: { appendChild: vi.fn() }
+    } as unknown as Document;
+
+    expect(() => assertSafeWebReferrerPolicy(mockDoc)).toThrow(/Unsafe document referrer policy/i);
     expect(() =>
-      resolveMobileHandoffUrl(
-        "https://api.luggage.example.com/api/v1",
-        "https://evil.attacker.example/pay"
+      buildPayHereWebCheckoutForm(
+        {
+          mode: "PAYHERE_SANDBOX_REDIRECT",
+          provider: "PAYHERE",
+          method: "POST_FORM",
+          actionUrl: "https://evil.attacker.example/pay" as unknown as PayHereWebCheckoutHandoff["actionUrl"],
+          fields: {
+            merchant_id: "1220001",
+            return_url: "https://web.luggagestorage.lk/booking/confirm",
+            cancel_url: "https://web.luggagestorage.lk/booking/confirm?cancelled=1",
+            notify_url: "https://api.luggagestorage.lk/api/v1/payments/webhooks/payhere",
+            order_id: "LGS-ORDER-1",
+            items: "Luggage Storage",
+            currency: "LKR",
+            amount: "2500.00",
+            first_name: "Kasun",
+            last_name: "Perera",
+            email: "kasun@example.com",
+            phone: "+94771234567",
+            address: "Fort Station",
+            city: "Colombo",
+            country: "Sri Lanka",
+            hash: "0123456789ABCDEF0123456789ABCDEF"
+          }
+        },
+        mockDoc
       )
-    ).toThrow(/Invalid mobile PayHere handoff path/i);
-    expect(() =>
-      resolveMobileHandoffUrl(
-        "https://api.luggage.example.com/api/v1",
-        "/payments/admin/override"
-      )
-    ).toThrow(/Invalid mobile PayHere handoff path/i);
+    ).toThrow(/Untrusted PayHere actionUrl/i);
+
+    const pollutedPayload = {
+      sandbox: true,
+      merchant_id: "1220001",
+      notify_url: "https://api.luggagestorage.lk/api/v1/payments/webhooks/payhere",
+      order_id: "LGS-ORDER-1",
+      items: "Luggage Storage",
+      amount: "2500.00",
+      currency: "LKR",
+      first_name: "Kasun",
+      last_name: "Perera",
+      email: "kasun@example.com",
+      phone: "+94771234567",
+      address: "Fort Station",
+      city: "Colombo",
+      country: "Sri Lanka",
+      hash: "FORGED_CLIENT_HASH"
+    } as unknown as PayHereNativeSdkPayload;
+
+    const nativeErr = await launchPayHereNativeCheckout(pollutedPayload, {
+      platformOs: "android",
+      hasNativeBridge: true,
+      sdkModule: { startPayment: vi.fn() }
+    });
+    expect(nativeErr.status).toBe("ERROR");
+    if (nativeErr.status === "ERROR") {
+      expect(nativeErr.message).toMatch(/contract validation/i);
+    }
   });
 
   it("3. contains zero server or gateway secrets anywhere in mobile app/ or src/", () => {
     const forbiddenSecrets = [
       "PAYHERE_MERCHANT_SECRET",
+      "PAYHERE_WEB_MERCHANT_SECRET",
+      "PAYHERE_MOBILE_MERCHANT_SECRET",
       "JWT_SECRET",
       "DATABASE_IDENTITY_SECRET",
       "COOKIE_SECRET",
@@ -161,18 +236,32 @@ describe("Phase C — Mobile Payment, Custody & Auth Security Invariants", () =>
                 bookingId: "22222222-2222-4222-8222-222222222222",
                 travellerUserId: "33333333-3333-4333-8333-333333333333",
                 provider: "PAYHERE",
+                checkoutChannel: "MOBILE_APP",
                 providerOrderId: "LGS-ORDER-1",
                 amountMinor: 250000,
                 currency: "LKR",
                 status: "PENDING_GATEWAY",
-                nextAction: "SUBMIT_FORM",
+                nextAction: "LAUNCH_NATIVE_SDK",
                 checkoutHandoff: {
-                  mode: "PAYHERE_SANDBOX_REDIRECT",
+                  mode: "PAYHERE_NATIVE_SANDBOX",
                   provider: "PAYHERE",
-                  method: "POST_FORM",
-                  actionUrl: "https://sandbox.payhere.lk/pay/checkout",
-                  fields: {},
-                  mobileHandoffPath: validSignedPath
+                  method: "NATIVE_SDK",
+                  sdkPayload: {
+                    sandbox: true,
+                    merchant_id: "1220001",
+                    notify_url: "https://api.example.com/notify",
+                    order_id: "LGS-ORDER-1",
+                    items: "Luggage Storage",
+                    amount: "2500.00",
+                    currency: "LKR",
+                    first_name: "Kasun",
+                    last_name: "Perera",
+                    email: "kasun@example.com",
+                    phone: "+94771234567",
+                    address: "Fort Station",
+                    city: "Colombo",
+                    country: "Sri Lanka"
+                  }
                 },
                 checkoutPayload: {},
                 expiresAt: "2026-11-15T01:15:00.000Z",

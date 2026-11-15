@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildQrMatrixPath } from "../src/components/ui/QrCodeMatrix";
-import { isPayHerePostHandoff, resolveMobileHandoffUrl } from "../src/lib/payment-handoff";
+import { launchPayHereNativeCheckout } from "../src/lib/payhere-native";
+import { isPayHereNativeSdkHandoff } from "../src/lib/payment-handoff";
 import { mobileQueryClient } from "../src/lib/query-client";
 import { clearAccessToken } from "../src/services/api-client";
 import { marketplaceApi } from "../src/services/marketplace-api";
@@ -15,7 +16,6 @@ describe("Phase C — Traveller End-to-End Integration Journey (Mocked API Bound
   const bookingId = "b0000001-0000-4000-8000-000000000001";
   const secondBookingId = "b0000002-0000-4000-8000-000000000002";
   const intentId = "p0000001-0000-4000-8000-000000000001";
-  const handoffPath = "/payments/handoff/eyJpbnRlbnQiOiJwMDAwMDAwMSJ9.c2lnbmF0dXJlMTIz";
   const qrToken = "LGS-QR-COLOMBO-" + "A".repeat(49);
 
   beforeEach(async () => {
@@ -38,16 +38,13 @@ describe("Phase C — Traveller End-to-End Integration Journey (Mocked API Bound
     const seenRequests: Array<{ url: string; method: string; body: string | null }> = [];
 
     const mockCheckoutHandoff = {
-      mode: "PAYHERE_SANDBOX_REDIRECT",
+      mode: "PAYHERE_NATIVE_SANDBOX",
       provider: "PAYHERE",
-      method: "POST_FORM",
-      actionUrl: "https://sandbox.payhere.lk/pay/checkout",
-      fields: {
+      method: "NATIVE_SDK",
+      sdkPayload: {
         sandbox: true,
         merchant_id: "1220001",
-        return_url: "https://api.example.com/return",
-        cancel_url: "https://api.example.com/cancel",
-        notify_url: "https://api.example.com/notify",
+        notify_url: "https://api.example.com/api/v1/payments/webhooks/payhere",
         order_id: "BGBX-PAY-1001",
         items: "Fort Station Express Vault Storage",
         currency: "LKR",
@@ -59,9 +56,9 @@ describe("Phase C — Traveller End-to-End Integration Journey (Mocked API Bound
         address: "Colombo Fort",
         city: "Colombo",
         country: "Sri Lanka",
-        hash: "HASH1234567890"
-      },
-      mobileHandoffPath: handoffPath
+        custom_1: intentId,
+        custom_2: "BGBX-LK-1001"
+      }
     };
 
     const mockPaymentIntent = {
@@ -69,11 +66,12 @@ describe("Phase C — Traveller End-to-End Integration Journey (Mocked API Bound
       bookingId,
       travellerUserId: userId,
       provider: "PAYHERE",
+      checkoutChannel: "MOBILE_APP",
       providerOrderId: "BGBX-PAY-1001",
       amountMinor: 264000,
       currency: "LKR",
       status: "PENDING_GATEWAY",
-      nextAction: "SUBMIT_FORM",
+      nextAction: "LAUNCH_NATIVE_SDK",
       checkoutHandoff: mockCheckoutHandoff,
       checkoutPayload: {},
       expiresAt: "2026-11-15T01:30:00.000Z",
@@ -351,18 +349,23 @@ describe("Phase C — Traveller End-to-End Integration Journey (Mocked API Bound
     const createCall = seenRequests.find((r) => r.url.endsWith("/bookings") && r.method === "POST");
     expect(JSON.parse(createCall?.body ?? "{}")).toMatchObject({ idempotencyKey });
 
-    // 6. Initiate Payment Intent -> Resolve External PayHere Handoff URL
+    // 6. Initiate Payment Intent -> Launch PayHere Native SDK (untrusted callback triggers poll)
     const intent = await marketplaceApi.createPaymentIntent({
       bookingId: booking.id,
+      channel: "MOBILE_APP",
       idempotencyKey: "pay-intent-key-001"
     });
-    expect(isPayHerePostHandoff(intent.checkoutHandoff)).toBe(true);
-    if (isPayHerePostHandoff(intent.checkoutHandoff)) {
-      const url = resolveMobileHandoffUrl(
-        "https://api.example.com/api/v1",
-        intent.checkoutHandoff.mobileHandoffPath
-      );
-      expect(url).toBe(`https://api.example.com/api/v1${handoffPath}`);
+    expect(intent.checkoutChannel).toBe("MOBILE_APP");
+    expect(isPayHereNativeSdkHandoff(intent.checkoutHandoff)).toBe(true);
+    if (isPayHereNativeSdkHandoff(intent.checkoutHandoff)) {
+      const outcome = await launchPayHereNativeCheckout(intent.checkoutHandoff.sdkPayload, {
+        platformOs: "android",
+        hasNativeBridge: true,
+        sdkModule: {
+          startPayment: (_payload, onCompleted) => onCompleted("PH-ANDROID-9001")
+        }
+      });
+      expect(outcome).toEqual({ status: "COMPLETED", paymentId: "PH-ANDROID-9001" });
     }
 
     // 7. Checkout Status Poll: PENDING -> PAID/CONFIRMED

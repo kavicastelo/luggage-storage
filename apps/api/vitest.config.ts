@@ -7,7 +7,8 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     env: {
-      PAYMENT_PROVIDER: "sandbox"
+      PAYMENT_PROVIDER: "sandbox",
+      PAYHERE_MERCHANT_SECRET: ""
     }
   }
 });

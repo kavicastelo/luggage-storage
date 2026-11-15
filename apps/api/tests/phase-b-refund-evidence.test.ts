@@ -17,7 +17,8 @@ import {
 const { Pool } = pg;
 
 const TEST_PAYHERE_MERCHANT_ID = "1218888";
-const TEST_PAYHERE_MERCHANT_SECRET = "payhere_refund_b9_test_secret_key_32_chars!";
+const TEST_PAYHERE_WEB_MERCHANT_SECRET = "payhere_refund_b9_web_test_secret_32_chars!";
+const TEST_PAYHERE_MOBILE_MERCHANT_SECRET = "payhere_refund_b9_mob_test_secret_32_chars!";
 
 describe("Phase B9 — Refund Transaction Evidence Integrity & Settlement Auditability", () => {
   let app: FastifyInstance;
@@ -44,7 +45,9 @@ describe("Phase B9 — Refund Transaction Evidence Integrity & Settlement Audita
   async function withPayHereEnv<T>(fn: () => Promise<T>): Promise<T> {
     const prevProvider = env.PAYMENT_PROVIDER;
     const prevMerchantId = env.PAYHERE_MERCHANT_ID;
-    const prevMerchantSecret = env.PAYHERE_MERCHANT_SECRET;
+    const prevWebSecret = env.PAYHERE_WEB_MERCHANT_SECRET;
+    const prevMobileSecret = env.PAYHERE_MOBILE_MERCHANT_SECRET;
+    const prevAndroidPkg = env.PAYHERE_ANDROID_PACKAGE_NAME;
     const prevSandboxMode = env.PAYHERE_SANDBOX_MODE;
     const prevNotifyUrl = env.PAYHERE_NOTIFY_URL;
     const prevReturnUrl = env.PAYHERE_RETURN_URL;
@@ -52,7 +55,9 @@ describe("Phase B9 — Refund Transaction Evidence Integrity & Settlement Audita
 
     env.PAYMENT_PROVIDER = "payhere";
     env.PAYHERE_MERCHANT_ID = TEST_PAYHERE_MERCHANT_ID;
-    env.PAYHERE_MERCHANT_SECRET = TEST_PAYHERE_MERCHANT_SECRET;
+    env.PAYHERE_WEB_MERCHANT_SECRET = TEST_PAYHERE_WEB_MERCHANT_SECRET;
+    env.PAYHERE_MOBILE_MERCHANT_SECRET = TEST_PAYHERE_MOBILE_MERCHANT_SECRET;
+    env.PAYHERE_ANDROID_PACKAGE_NAME = "com.luggagestorage.app";
     env.PAYHERE_SANDBOX_MODE = true;
     env.PAYHERE_NOTIFY_URL = "https://api.luggagevault.lk/api/v1/payments/webhooks/payhere";
     env.PAYHERE_RETURN_URL = "https://app.luggagevault.lk/booking/confirm";
@@ -63,7 +68,9 @@ describe("Phase B9 — Refund Transaction Evidence Integrity & Settlement Audita
     } finally {
       env.PAYMENT_PROVIDER = prevProvider;
       env.PAYHERE_MERCHANT_ID = prevMerchantId;
-      env.PAYHERE_MERCHANT_SECRET = prevMerchantSecret;
+      env.PAYHERE_WEB_MERCHANT_SECRET = prevWebSecret;
+      env.PAYHERE_MOBILE_MERCHANT_SECRET = prevMobileSecret;
+      env.PAYHERE_ANDROID_PACKAGE_NAME = prevAndroidPkg;
       env.PAYHERE_SANDBOX_MODE = prevSandboxMode;
       env.PAYHERE_NOTIFY_URL = prevNotifyUrl;
       env.PAYHERE_RETURN_URL = prevReturnUrl;
@@ -281,7 +288,7 @@ describe("Phase B9 — Refund Transaction Evidence Integrity & Settlement Audita
       payhereAmount: "1500.00",
       payhereCurrency: "LKR",
       statusCode: "2",
-      merchantSecret: TEST_PAYHERE_MERCHANT_SECRET
+      merchantSecret: TEST_PAYHERE_WEB_MERCHANT_SECRET
     });
     const notifyBody = new URLSearchParams({
       merchant_id: TEST_PAYHERE_MERCHANT_ID,
@@ -1108,7 +1115,7 @@ describe("Phase B9 — Refund Transaction Evidence Integrity & Settlement Audita
       payhereAmount: "1500.00",
       payhereCurrency: "LKR",
       statusCode: "-2",
-      merchantSecret: TEST_PAYHERE_MERCHANT_SECRET
+      merchantSecret: TEST_PAYHERE_WEB_MERCHANT_SECRET
     });
     const staleFailBody = new URLSearchParams({
       merchant_id: TEST_PAYHERE_MERCHANT_ID,

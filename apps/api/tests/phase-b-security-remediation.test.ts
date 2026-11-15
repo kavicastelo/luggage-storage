@@ -27,7 +27,8 @@ import { ledgerService, type JournalPostingLine } from "../src/modules/finance/l
 const { Pool } = pg;
 
 const TEST_PAYHERE_MERCHANT_ID = "1219999";
-const TEST_PAYHERE_MERCHANT_SECRET = "payhere_test_merchant_secret_key_32_chars!";
+const TEST_PAYHERE_WEB_MERCHANT_SECRET = "payhere_test_web_secret_key_32_chars!";
+const TEST_PAYHERE_MOBILE_MERCHANT_SECRET = "payhere_test_mob_secret_key_32_chars!";
 
 interface PgErrorShape {
   code?: string;
@@ -66,7 +67,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
   async function withPayHereEnv<T>(fn: () => Promise<T>): Promise<T> {
     const prevProvider = env.PAYMENT_PROVIDER;
     const prevMerchantId = env.PAYHERE_MERCHANT_ID;
-    const prevMerchantSecret = env.PAYHERE_MERCHANT_SECRET;
+    const prevWebSecret = env.PAYHERE_WEB_MERCHANT_SECRET;
+    const prevMobileSecret = env.PAYHERE_MOBILE_MERCHANT_SECRET;
+    const prevAndroidPkg = env.PAYHERE_ANDROID_PACKAGE_NAME;
     const prevSandboxMode = env.PAYHERE_SANDBOX_MODE;
     const prevNotifyUrl = env.PAYHERE_NOTIFY_URL;
     const prevReturnUrl = env.PAYHERE_RETURN_URL;
@@ -74,7 +77,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
 
     env.PAYMENT_PROVIDER = "payhere";
     env.PAYHERE_MERCHANT_ID = TEST_PAYHERE_MERCHANT_ID;
-    env.PAYHERE_MERCHANT_SECRET = TEST_PAYHERE_MERCHANT_SECRET;
+    env.PAYHERE_WEB_MERCHANT_SECRET = TEST_PAYHERE_WEB_MERCHANT_SECRET;
+    env.PAYHERE_MOBILE_MERCHANT_SECRET = TEST_PAYHERE_MOBILE_MERCHANT_SECRET;
+    env.PAYHERE_ANDROID_PACKAGE_NAME = "com.luggagestorage.app";
     env.PAYHERE_SANDBOX_MODE = true;
     env.PAYHERE_NOTIFY_URL = "https://api.luggage.example/api/v1/payments/webhooks/payhere";
     env.PAYHERE_RETURN_URL = "https://web.luggage.example/booking/confirm";
@@ -85,7 +90,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
     } finally {
       env.PAYMENT_PROVIDER = prevProvider;
       env.PAYHERE_MERCHANT_ID = prevMerchantId;
-      env.PAYHERE_MERCHANT_SECRET = prevMerchantSecret;
+      env.PAYHERE_WEB_MERCHANT_SECRET = prevWebSecret;
+      env.PAYHERE_MOBILE_MERCHANT_SECRET = prevMobileSecret;
+      env.PAYHERE_ANDROID_PACKAGE_NAME = prevAndroidPkg;
       env.PAYHERE_SANDBOX_MODE = prevSandboxMode;
       env.PAYHERE_NOTIFY_URL = prevNotifyUrl;
       env.PAYHERE_RETURN_URL = prevReturnUrl;
@@ -108,7 +115,7 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
     md5sigOverride?: string | null;
   }): string {
     const merchantId = params.merchantId ?? TEST_PAYHERE_MERCHANT_ID;
-    const merchantSecret = params.merchantSecret ?? TEST_PAYHERE_MERCHANT_SECRET;
+    const merchantSecret = params.merchantSecret ?? TEST_PAYHERE_WEB_MERCHANT_SECRET;
     const md5sig =
       params.md5sigOverride === undefined
         ? PayHereGatewayAdapter.computeNotifyMd5Sig({
@@ -462,7 +469,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
         RATE_LIMIT_HASH_SECRET: "prod_ratelimit_unique_entropy_32_chars_long_006!",
         PAYMENT_PROVIDER: "payhere",
         PAYHERE_MERCHANT_ID: "2219999",
-        PAYHERE_MERCHANT_SECRET: "live_merchant_secret_9876543210",
+        PAYHERE_WEB_MERCHANT_SECRET: "live_web_merchant_secret_9876543210",
+        PAYHERE_MOBILE_MERCHANT_SECRET: "live_mob_merchant_secret_1234567890",
+        PAYHERE_ANDROID_PACKAGE_NAME: "com.luggagestorage.app",
         PAYHERE_SANDBOX_MODE: "false",
         PAYHERE_NOTIFY_URL: "https://api.luggagestorage.lk/api/v1/payments/webhooks/payhere",
         PAYHERE_RETURN_URL: "https://app.luggagestorage.lk/booking/confirm",
@@ -842,8 +851,11 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
          FROM security_audit_events
          WHERE metadata::text LIKE '%' || $1 || '%'
             OR metadata::text LIKE '%' || $2 || '%'
-            OR metadata::text LIKE '%000007%';`,
-        [pass2.qrToken, collPass.qrToken]
+            OR (
+              (metadata->>'bookingId' = $3 OR user_id = $4 OR user_id = $5)
+              AND (metadata - 'correlationId' - 'bookingId')::text LIKE '%000007%'
+            );`,
+        [pass2.qrToken, collPass.qrToken, booking.id, traveller.userId, owner.userId]
       );
       expect(auditLeakRes.rows[0].cnt).toBe(0);
     });
@@ -1146,8 +1158,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
 
       const phAdapter = new PayHereGatewayAdapter(
         TEST_PAYHERE_MERCHANT_ID,
-        TEST_PAYHERE_MERCHANT_SECRET,
+        TEST_PAYHERE_WEB_MERCHANT_SECRET,
         true,
+        "WEB",
         testNotifyUrl,
         testReturnUrl,
         testCancelUrl
@@ -1168,7 +1181,7 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
 
       const hashedSecret = crypto
         .createHash("md5")
-        .update(TEST_PAYHERE_MERCHANT_SECRET, "utf8")
+        .update(TEST_PAYHERE_WEB_MERCHANT_SECRET, "utf8")
         .digest("hex")
         .toUpperCase();
       const expectedCheckoutHash = crypto
@@ -1185,8 +1198,9 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
 
       const liveAdapter = new PayHereGatewayAdapter(
         TEST_PAYHERE_MERCHANT_ID,
-        TEST_PAYHERE_MERCHANT_SECRET,
+        TEST_PAYHERE_WEB_MERCHANT_SECRET,
         false,
+        "WEB",
         testNotifyUrl,
         testReturnUrl,
         testCancelUrl
@@ -1366,7 +1380,7 @@ describe("Phase B Security, Payment Integrity & PostgreSQL Concurrency Remediati
           payhereAmount: "1000.00",
           payhereCurrency: "LKR",
           statusCode: "2",
-          merchantSecret: TEST_PAYHERE_MERCHANT_SECRET
+          merchantSecret: TEST_PAYHERE_WEB_MERCHANT_SECRET
         });
         const jsonRes = await app.inject({
           method: "POST",

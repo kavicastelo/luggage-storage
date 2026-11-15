@@ -149,7 +149,25 @@ export const EnvSchema = z
     ),
     PAYHERE_MERCHANT_SECRET: z.preprocess(
       (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
-      z.string().min(16, "PAYHERE_MERCHANT_SECRET must be at least 16 characters").optional()
+      z.string().optional()
+    ),
+    PAYHERE_WEB_MERCHANT_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().min(16, "PAYHERE_WEB_MERCHANT_SECRET must be at least 16 characters").optional()
+    ),
+    PAYHERE_MOBILE_MERCHANT_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().min(16, "PAYHERE_MOBILE_MERCHANT_SECRET must be at least 16 characters").optional()
+    ),
+    PAYHERE_ANDROID_PACKAGE_NAME: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z
+        .string()
+        .regex(
+          /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/i,
+          "PAYHERE_ANDROID_PACKAGE_NAME must be a valid reverse-domain Android applicationId"
+        )
+        .optional()
     ),
     PAYHERE_SANDBOX_MODE: booleanFlagSchema(true),
     PAYHERE_NOTIFY_URL: z.preprocess(
@@ -203,6 +221,26 @@ export const EnvSchema = z
         code: z.ZodIssueCode.custom,
         message: "DB_IDENTITY_RETIRING_KEY_ID and DB_IDENTITY_RETIRING_SECRET must both be set when rotating keys",
         path: ["DB_IDENTITY_RETIRING_KEY_ID"]
+      });
+    }
+    if (data.PAYHERE_MERCHANT_SECRET) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Legacy shared PAYHERE_MERCHANT_SECRET is deprecated and prohibited; configure separate PAYHERE_WEB_MERCHANT_SECRET and PAYHERE_MOBILE_MERCHANT_SECRET per PayHere channel",
+        path: ["PAYHERE_MERCHANT_SECRET"]
+      });
+    }
+    if (
+      data.PAYHERE_WEB_MERCHANT_SECRET &&
+      data.PAYHERE_MOBILE_MERCHANT_SECRET &&
+      data.PAYHERE_WEB_MERCHANT_SECRET === data.PAYHERE_MOBILE_MERCHANT_SECRET
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "PAYHERE_WEB_MERCHANT_SECRET and PAYHERE_MOBILE_MERCHANT_SECRET must be distinct (PayHere binds separate secrets to registered Domains vs Android Apps)",
+        path: ["PAYHERE_MOBILE_MERCHANT_SECRET"]
       });
     }
     if (data.DB_IDENTITY_RETIRING_KEY_ID && data.DB_IDENTITY_RETIRING_KEY_ID === data.DB_IDENTITY_KEY_ID) {
@@ -438,18 +476,35 @@ export const EnvSchema = z
     }
 
     if (data.PAYMENT_PROVIDER === "payhere") {
-      if (!data.PAYHERE_MERCHANT_ID) {
+      if (!data.PAYHERE_MERCHANT_ID || data.PAYHERE_MERCHANT_ID.includes("REPLACE_WITH")) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "PAYHERE_MERCHANT_ID is required when PAYMENT_PROVIDER is 'payhere'",
           path: ["PAYHERE_MERCHANT_ID"]
         });
       }
-      if (!data.PAYHERE_MERCHANT_SECRET) {
+      if (!data.PAYHERE_WEB_MERCHANT_SECRET || data.PAYHERE_WEB_MERCHANT_SECRET.includes("REPLACE_WITH")) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "PAYHERE_MERCHANT_SECRET is required when PAYMENT_PROVIDER is 'payhere'",
-          path: ["PAYHERE_MERCHANT_SECRET"]
+          message: "PAYHERE_WEB_MERCHANT_SECRET is required when PAYMENT_PROVIDER is 'payhere'",
+          path: ["PAYHERE_WEB_MERCHANT_SECRET"]
+        });
+      }
+      if (
+        !data.PAYHERE_MOBILE_MERCHANT_SECRET ||
+        data.PAYHERE_MOBILE_MERCHANT_SECRET.includes("REPLACE_WITH")
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYHERE_MOBILE_MERCHANT_SECRET is required when PAYMENT_PROVIDER is 'payhere'",
+          path: ["PAYHERE_MOBILE_MERCHANT_SECRET"]
+        });
+      }
+      if (!data.PAYHERE_ANDROID_PACKAGE_NAME) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYHERE_ANDROID_PACKAGE_NAME is required when PAYMENT_PROVIDER is 'payhere'",
+          path: ["PAYHERE_ANDROID_PACKAGE_NAME"]
         });
       }
       if (data.NODE_ENV === "production" && data.PAYHERE_SANDBOX_MODE) {

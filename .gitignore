@@ -49,6 +49,8 @@ Thumbs.db
 # Mobile & Expo
 .expo/
 web-build/
+/apps/mobile/android/
+/apps/mobile/ios/
 *.tsbuildinfo
 
 .agents

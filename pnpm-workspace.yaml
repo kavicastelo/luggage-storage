@@ -14,3 +14,5 @@ overrides:
   postcss: ^8.5.3
   image-size: ^1.2.1
   decode-uri-component: ^0.5.1
+patchedDependencies:
+  '@payhere/payhere-mobilesdk-reactnative@4.1.0': patches/@payhere__payhere-mobilesdk-reactnative@4.1.0.patch

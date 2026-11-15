@@ -1,8 +1,10 @@
 import crypto from "node:crypto";
 import {
+  PaymentCheckoutChannel,
   PayHereCheckoutCustomerResolved,
   PayHereCheckoutCustomerResolvedSchema,
   PayHereCheckoutFormFieldsSchema,
+  PayHereNativeSdkPayloadSchema,
   SandboxWebhookPayload,
   SandboxWebhookPayloadSchema
 } from "@luggage-storage/contracts";
@@ -21,6 +23,7 @@ export interface CreateGatewayCheckoutParams {
   providerOrderId: string;
   amountMinor: number;
   currency: string;
+  channel?: PaymentCheckoutChannel;
   customerEmail: string;
   customerName: string;
   customerDetails?: Partial<PayHereCheckoutCustomerResolved>;
@@ -255,6 +258,76 @@ export class SandboxSignedGatewayAdapter implements PaymentGatewayPort {
   }
 }
 
+export function parsePayHereNotificationFields(
+  input: RawWebhookNotificationInput
+): Record<string, string> {
+  assertWebhookBodySize(input.rawBody);
+
+  const mediaType = (input.contentType ?? "application/x-www-form-urlencoded")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+
+  const fields: Record<string, string> = Object.create(null);
+
+  if (mediaType === "application/json") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(input.rawBody);
+    } catch {
+      throw AppError.badRequest("Malformed JSON in PayHere webhook payload");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw AppError.badRequest("PayHere JSON notification must be a flat key-value object");
+    }
+    for (const [key, val] of Object.entries(parsed)) {
+      if (FORBIDDEN_OBJECT_KEYS.has(key)) {
+        throw AppError.badRequest("Forbidden key in PayHere notification payload");
+      }
+      if (typeof val === "string") {
+        fields[key] = val;
+      } else if (typeof val === "number" && Number.isSafeInteger(val) && key === "status_code") {
+        fields[key] = String(val);
+      } else {
+        throw AppError.badRequest(`Unsupported non-string field type for PayHere field "${key}"`);
+      }
+    }
+    return fields;
+  }
+
+  if (mediaType !== "application/x-www-form-urlencoded") {
+    throw AppError.badRequest("Unsupported PayHere webhook Content-Type");
+  }
+
+  const pairs = input.rawBody.split("&");
+  for (const pair of pairs) {
+    if (pair.length === 0) {
+      continue;
+    }
+    const eqIdx = pair.indexOf("=");
+    const rawKey = eqIdx >= 0 ? pair.slice(0, eqIdx) : pair;
+    const rawValue = eqIdx >= 0 ? pair.slice(eqIdx + 1) : "";
+    let decodedKey: string;
+    let decodedValue: string;
+    try {
+      decodedKey = decodeURIComponent(rawKey.replace(/\+/g, " "));
+      decodedValue = decodeURIComponent(rawValue.replace(/\+/g, " "));
+    } catch {
+      throw AppError.badRequest("Malformed URL-encoded sequence in PayHere webhook payload");
+    }
+
+    if (!decodedKey || FORBIDDEN_OBJECT_KEYS.has(decodedKey)) {
+      throw AppError.badRequest("Invalid or forbidden form key in PayHere webhook payload");
+    }
+    if (Object.prototype.hasOwnProperty.call(fields, decodedKey)) {
+      throw AppError.badRequest(`Duplicate parameter "${decodedKey}" rejected in PayHere webhook`);
+    }
+    fields[decodedKey] = decodedValue;
+  }
+
+  return fields;
+}
+
 /**
  * PayHere Gateway Adapter (ADR-008 / OQ-003).
  * Isolates all legacy MD5 computations strictly inside private helper methods (`payHereMd5Upper`)
@@ -268,9 +341,11 @@ export class PayHereGatewayAdapter implements PaymentGatewayPort {
     private readonly merchantId: string,
     private readonly merchantSecret: string,
     private readonly sandboxMode: boolean,
+    private readonly channel: PaymentCheckoutChannel = "WEB",
     private readonly notifyUrl?: string,
     private readonly returnUrl?: string,
-    private readonly cancelUrl?: string
+    private readonly cancelUrl?: string,
+    private readonly androidPackageName?: string
   ) {}
 
   private payHereMd5Upper(value: string): string {
@@ -300,19 +375,33 @@ export class PayHereGatewayAdapter implements PaymentGatewayPort {
       .toUpperCase();
   }
 
+  static extractUntrustedWebhookLookup(input: RawWebhookNotificationInput): NotificationIdentifiers {
+    const fields = parsePayHereNotificationFields(input);
+    const rawOrderId = typeof fields.order_id === "string" ? fields.order_id.trim() : "";
+    const providerOrderId =
+      rawOrderId.length > 0 && rawOrderId.length <= 128 ? rawOrderId : undefined;
+    const custom1 = typeof fields.custom_1 === "string" ? fields.custom_1.trim() : "";
+    const paymentIntentId = UUID_REGEX.test(custom1) ? custom1 : undefined;
+    return {
+      providerOrderId,
+      paymentIntentId
+    };
+  }
+
   buildCheckoutPayload(params: CreateGatewayCheckoutParams): Record<string, unknown> {
-    if (!this.notifyUrl || !this.returnUrl || !this.cancelUrl) {
+    const effectiveChannel = params.channel ?? this.channel;
+    if (effectiveChannel !== this.channel) {
       throw AppError.internal(
-        "PayHere callback URLs (PAYHERE_NOTIFY_URL, PAYHERE_RETURN_URL, PAYHERE_CANCEL_URL) are not configured"
+        `PayHere gateway adapter channel mismatch: expected ${this.channel}, got ${effectiveChannel}`
       );
+    }
+
+    if (!this.notifyUrl) {
+      throw AppError.internal("PayHere notification URL (PAYHERE_NOTIFY_URL) is not configured");
     }
 
     const formattedAmount = formatMinorAmountTwoDecimals(params.amountMinor);
     const normalizedCurrency = normalizeIsoCurrency(params.currency);
-    const hashedSecret = this.payHereMd5Upper(this.merchantSecret);
-    const checkoutHash = this.payHereMd5Upper(
-      `${this.merchantId}${params.providerOrderId}${formattedAmount}${normalizedCurrency}${hashedSecret}`
-    );
 
     const nameParts = params.customerName.trim().split(/\s+/).filter(Boolean);
     const mergedFirstName = params.customerDetails?.firstName?.trim() || nameParts[0] || "";
@@ -341,6 +430,51 @@ export class PayHereGatewayAdapter implements PaymentGatewayPort {
       );
     }
 
+    if (this.channel === "MOBILE_APP") {
+      if (!this.androidPackageName) {
+        throw AppError.internal(
+          "PayHere Android application package (PAYHERE_ANDROID_PACKAGE_NAME) is not configured"
+        );
+      }
+
+      const sdkPayload = PayHereNativeSdkPayloadSchema.parse({
+        sandbox: this.sandboxMode,
+        merchant_id: this.merchantId,
+        notify_url: this.notifyUrl,
+        order_id: params.providerOrderId,
+        items: `Luggage Storage Booking ${params.referenceCode}`,
+        amount: formattedAmount,
+        currency: normalizedCurrency,
+        first_name: parsedCustomer.data.firstName,
+        last_name: parsedCustomer.data.lastName,
+        email: parsedCustomer.data.email,
+        phone: parsedCustomer.data.phone,
+        address: parsedCustomer.data.address,
+        city: parsedCustomer.data.city,
+        country: parsedCustomer.data.country,
+        custom_1: params.intentId,
+        custom_2: params.referenceCode
+      });
+
+      return {
+        mode: this.sandboxMode ? "PAYHERE_NATIVE_SANDBOX" : "PAYHERE_NATIVE_LIVE",
+        channel: "MOBILE_APP",
+        androidPackageName: this.androidPackageName,
+        sdkPayload
+      };
+    }
+
+    if (!this.returnUrl || !this.cancelUrl) {
+      throw AppError.internal(
+        "PayHere callback URLs (PAYHERE_NOTIFY_URL, PAYHERE_RETURN_URL, PAYHERE_CANCEL_URL) are not configured"
+      );
+    }
+
+    const hashedSecret = this.payHereMd5Upper(this.merchantSecret);
+    const checkoutHash = this.payHereMd5Upper(
+      `${this.merchantId}${params.providerOrderId}${formattedAmount}${normalizedCurrency}${hashedSecret}`
+    );
+
     const actionUrl = this.sandboxMode
       ? ("https://sandbox.payhere.lk/pay/checkout" as const)
       : ("https://www.payhere.lk/pay/checkout" as const);
@@ -368,77 +502,14 @@ export class PayHereGatewayAdapter implements PaymentGatewayPort {
 
     return {
       mode: this.sandboxMode ? "PAYHERE_SANDBOX_REDIRECT" : "PAYHERE_LIVE_REDIRECT",
+      channel: "WEB",
       actionUrl,
       ...fields
     };
   }
 
   private parseNotificationFields(input: RawWebhookNotificationInput): Record<string, string> {
-    assertWebhookBodySize(input.rawBody);
-
-    const mediaType = (input.contentType ?? "application/x-www-form-urlencoded")
-      .split(";")[0]
-      .trim()
-      .toLowerCase();
-
-    const fields: Record<string, string> = Object.create(null);
-
-    if (mediaType === "application/json") {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(input.rawBody);
-      } catch {
-        throw AppError.badRequest("Malformed JSON in PayHere webhook payload");
-      }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw AppError.badRequest("PayHere JSON notification must be a flat key-value object");
-      }
-      for (const [key, val] of Object.entries(parsed)) {
-        if (FORBIDDEN_OBJECT_KEYS.has(key)) {
-          throw AppError.badRequest("Forbidden key in PayHere notification payload");
-        }
-        if (typeof val === "string") {
-          fields[key] = val;
-        } else if (typeof val === "number" && Number.isSafeInteger(val) && key === "status_code") {
-          fields[key] = String(val);
-        } else {
-          throw AppError.badRequest(`Unsupported non-string field type for PayHere field "${key}"`);
-        }
-      }
-      return fields;
-    }
-
-    if (mediaType !== "application/x-www-form-urlencoded") {
-      throw AppError.badRequest("Unsupported PayHere webhook Content-Type");
-    }
-
-    const pairs = input.rawBody.split("&");
-    for (const pair of pairs) {
-      if (pair.length === 0) {
-        continue;
-      }
-      const eqIdx = pair.indexOf("=");
-      const rawKey = eqIdx >= 0 ? pair.slice(0, eqIdx) : pair;
-      const rawValue = eqIdx >= 0 ? pair.slice(eqIdx + 1) : "";
-      let decodedKey: string;
-      let decodedValue: string;
-      try {
-        decodedKey = decodeURIComponent(rawKey.replace(/\+/g, " "));
-        decodedValue = decodeURIComponent(rawValue.replace(/\+/g, " "));
-      } catch {
-        throw AppError.badRequest("Malformed URL-encoded sequence in PayHere webhook payload");
-      }
-
-      if (!decodedKey || FORBIDDEN_OBJECT_KEYS.has(decodedKey)) {
-        throw AppError.badRequest("Invalid or forbidden form key in PayHere webhook payload");
-      }
-      if (Object.prototype.hasOwnProperty.call(fields, decodedKey)) {
-        throw AppError.badRequest(`Duplicate parameter "${decodedKey}" rejected in PayHere webhook`);
-      }
-      fields[decodedKey] = decodedValue;
-    }
-
-    return fields;
+    return parsePayHereNotificationFields(input);
   }
 
   private verifyFieldsAndComputeStatus(fields: Record<string, string>): {
@@ -612,31 +683,73 @@ export function resolveSandboxGatewayAdapter(): SandboxSignedGatewayAdapter {
   return new SandboxSignedGatewayAdapter(env.PAYMENT_WEBHOOK_SECRET, env.NODE_ENV);
 }
 
-export function resolvePayHereGatewayAdapter(): PayHereGatewayAdapter {
-  if (
-    !env.PAYHERE_MERCHANT_ID ||
-    !env.PAYHERE_MERCHANT_SECRET ||
-    !env.PAYHERE_NOTIFY_URL ||
-    !env.PAYHERE_RETURN_URL ||
-    !env.PAYHERE_CANCEL_URL
-  ) {
+export function resolvePayHereGatewayAdapter(
+  channel: PaymentCheckoutChannel = "WEB"
+): PayHereGatewayAdapter {
+  if (env.PAYHERE_MERCHANT_SECRET) {
     throw AppError.internal(
-      "PayHere gateway credentials or callback URLs (PAYHERE_NOTIFY_URL, PAYHERE_RETURN_URL, PAYHERE_CANCEL_URL) are not configured"
+      "Legacy shared PAYHERE_MERCHANT_SECRET is prohibited; configure distinct PAYHERE_WEB_MERCHANT_SECRET and PAYHERE_MOBILE_MERCHANT_SECRET"
     );
   }
+
+  if (
+    !env.PAYHERE_MERCHANT_ID ||
+    !env.PAYHERE_WEB_MERCHANT_SECRET ||
+    !env.PAYHERE_MOBILE_MERCHANT_SECRET ||
+    !env.PAYHERE_NOTIFY_URL
+  ) {
+    throw AppError.internal(
+      "PayHere merchant credentials or PAYHERE_NOTIFY_URL are not configured"
+    );
+  }
+
+  if (env.PAYHERE_WEB_MERCHANT_SECRET === env.PAYHERE_MOBILE_MERCHANT_SECRET) {
+    throw AppError.internal(
+      "PAYHERE_WEB_MERCHANT_SECRET and PAYHERE_MOBILE_MERCHANT_SECRET must be distinct"
+    );
+  }
+
+  if (channel === "MOBILE_APP") {
+    if (!env.PAYHERE_ANDROID_PACKAGE_NAME) {
+      throw AppError.internal(
+        "PAYHERE_ANDROID_PACKAGE_NAME is required for PayHere mobile app checkout"
+      );
+    }
+    return new PayHereGatewayAdapter(
+      env.PAYHERE_MERCHANT_ID,
+      env.PAYHERE_MOBILE_MERCHANT_SECRET,
+      env.PAYHERE_SANDBOX_MODE,
+      "MOBILE_APP",
+      env.PAYHERE_NOTIFY_URL,
+      env.PAYHERE_RETURN_URL,
+      env.PAYHERE_CANCEL_URL,
+      env.PAYHERE_ANDROID_PACKAGE_NAME
+    );
+  }
+
+  if (!env.PAYHERE_RETURN_URL || !env.PAYHERE_CANCEL_URL) {
+    throw AppError.internal(
+      "PayHere web callback URLs (PAYHERE_RETURN_URL, PAYHERE_CANCEL_URL) are not configured"
+    );
+  }
+
   return new PayHereGatewayAdapter(
     env.PAYHERE_MERCHANT_ID,
-    env.PAYHERE_MERCHANT_SECRET,
+    env.PAYHERE_WEB_MERCHANT_SECRET,
     env.PAYHERE_SANDBOX_MODE,
+    "WEB",
     env.PAYHERE_NOTIFY_URL,
     env.PAYHERE_RETURN_URL,
-    env.PAYHERE_CANCEL_URL
+    env.PAYHERE_CANCEL_URL,
+    env.PAYHERE_ANDROID_PACKAGE_NAME
   );
 }
 
-export function resolvePaymentGatewayAdapter(): PaymentGatewayPort {
+export function resolvePaymentGatewayAdapter(
+  channel: PaymentCheckoutChannel = "WEB"
+): PaymentGatewayPort {
   if (env.PAYMENT_PROVIDER === "payhere") {
-    return resolvePayHereGatewayAdapter();
+    return resolvePayHereGatewayAdapter(channel);
   }
   return resolveSandboxGatewayAdapter();
 }

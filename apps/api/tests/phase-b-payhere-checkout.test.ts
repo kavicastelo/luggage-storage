@@ -10,7 +10,9 @@ import { PayHereGatewayAdapter } from "../src/modules/payments/payment-gateway.p
 const { Pool } = pg;
 
 const TEST_PAYHERE_MERCHANT_ID = "1219999";
-const TEST_PAYHERE_MERCHANT_SECRET = "payhere_checkout_b7_test_secret_key_32_chars!";
+const TEST_PAYHERE_WEB_MERCHANT_SECRET = "payhere_checkout_b7_web_secret_32_chars!";
+const TEST_PAYHERE_MOBILE_MERCHANT_SECRET = "payhere_checkout_b7_mobile_secret_32_ch!";
+const TEST_PAYHERE_ANDROID_PACKAGE = "com.luggagestorage.app";
 
 function buildProdEnvFixture(overrides?: Record<string, string | undefined>): Record<string, string | undefined> {
   const base: Record<string, string | undefined> = {
@@ -47,7 +49,10 @@ function buildProdEnvFixture(overrides?: Record<string, string | undefined>): Re
     PAYMENT_PROVIDER: "payhere",
     PAYHERE_SANDBOX_MODE: "false",
     PAYHERE_MERCHANT_ID: "2218888",
-    PAYHERE_MERCHANT_SECRET: "prod_payhere_merchant_secret_key_distinct_h8",
+    PAYHERE_MERCHANT_SECRET: "",
+    PAYHERE_WEB_MERCHANT_SECRET: "prod_payhere_web_merchant_secret_distinct_h8",
+    PAYHERE_MOBILE_MERCHANT_SECRET: "prod_payhere_mobile_merchant_secret_distinct_h9",
+    PAYHERE_ANDROID_PACKAGE_NAME: "com.luggagestorage.app",
     PAYHERE_NOTIFY_URL: "https://api.luggagevault.lk/api/v1/payments/webhooks/payhere",
     PAYHERE_RETURN_URL: "https://app.luggagevault.lk/booking/confirm",
     PAYHERE_CANCEL_URL: "https://app.luggagevault.lk/booking/confirm?cancelled=1"
@@ -93,6 +98,9 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
     const prevProvider = env.PAYMENT_PROVIDER;
     const prevMerchantId = env.PAYHERE_MERCHANT_ID;
     const prevMerchantSecret = env.PAYHERE_MERCHANT_SECRET;
+    const prevWebSecret = env.PAYHERE_WEB_MERCHANT_SECRET;
+    const prevMobileSecret = env.PAYHERE_MOBILE_MERCHANT_SECRET;
+    const prevAndroidPackage = env.PAYHERE_ANDROID_PACKAGE_NAME;
     const prevSandboxMode = env.PAYHERE_SANDBOX_MODE;
     const prevNotifyUrl = env.PAYHERE_NOTIFY_URL;
     const prevReturnUrl = env.PAYHERE_RETURN_URL;
@@ -100,7 +108,10 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
 
     env.PAYMENT_PROVIDER = "payhere";
     env.PAYHERE_MERCHANT_ID = TEST_PAYHERE_MERCHANT_ID;
-    env.PAYHERE_MERCHANT_SECRET = TEST_PAYHERE_MERCHANT_SECRET;
+    env.PAYHERE_MERCHANT_SECRET = undefined;
+    env.PAYHERE_WEB_MERCHANT_SECRET = TEST_PAYHERE_WEB_MERCHANT_SECRET;
+    env.PAYHERE_MOBILE_MERCHANT_SECRET = TEST_PAYHERE_MOBILE_MERCHANT_SECRET;
+    env.PAYHERE_ANDROID_PACKAGE_NAME = TEST_PAYHERE_ANDROID_PACKAGE;
     env.PAYHERE_SANDBOX_MODE = options.sandboxMode ?? true;
     env.PAYHERE_NOTIFY_URL = "https://api.luggagevault.lk/api/v1/payments/webhooks/payhere";
     env.PAYHERE_RETURN_URL = "https://app.luggagevault.lk/booking/confirm";
@@ -112,6 +123,9 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
       env.PAYMENT_PROVIDER = prevProvider;
       env.PAYHERE_MERCHANT_ID = prevMerchantId;
       env.PAYHERE_MERCHANT_SECRET = prevMerchantSecret;
+      env.PAYHERE_WEB_MERCHANT_SECRET = prevWebSecret;
+      env.PAYHERE_MOBILE_MERCHANT_SECRET = prevMobileSecret;
+      env.PAYHERE_ANDROID_PACKAGE_NAME = prevAndroidPackage;
       env.PAYHERE_SANDBOX_MODE = prevSandboxMode;
       env.PAYHERE_NOTIFY_URL = prevNotifyUrl;
       env.PAYHERE_RETURN_URL = prevReturnUrl;
@@ -315,16 +329,16 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
         }
       });
       expect(intentRes.statusCode).toBe(201);
-      expect(intentRes.body).not.toContain(TEST_PAYHERE_MERCHANT_SECRET);
+      expect(intentRes.body).not.toContain(TEST_PAYHERE_WEB_MERCHANT_SECRET);
+      expect(intentRes.body).not.toContain(TEST_PAYHERE_MOBILE_MERCHANT_SECRET);
 
       const intent = JSON.parse(intentRes.body).data;
+      expect(intent.checkoutChannel).toBe("WEB");
       expect(intent.nextAction).toBe("REDIRECT_TO_PROVIDER");
       expect(intent.checkoutHandoff.mode).toBe("PAYHERE_SANDBOX_REDIRECT");
       expect(intent.checkoutHandoff.method).toBe("POST_FORM");
       expect(intent.checkoutHandoff.actionUrl).toBe("https://sandbox.payhere.lk/pay/checkout");
-      expect(intent.checkoutHandoff.mobileHandoffPath).toMatch(
-        /^\/payments\/handoff\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
-      );
+      expect(intent.checkoutHandoff.mobileHandoffPath).toBeUndefined();
 
       const f = intent.checkoutHandoff.fields;
       const requiredKeys = [
@@ -361,7 +375,7 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
 
       const hashedSecret = crypto
         .createHash("md5")
-        .update(TEST_PAYHERE_MERCHANT_SECRET, "utf8")
+        .update(TEST_PAYHERE_WEB_MERCHANT_SECRET, "utf8")
         .digest("hex")
         .toUpperCase();
       const expectedHash = crypto
@@ -493,7 +507,7 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
     }
   });
 
-  it("8-10. serves CSP-hardened handoff bridge, isolates sandbox simulation, and enforces authoritative checkout-status polling", async () => {
+  it("8-10. retires legacy handoff endpoint (410), isolates sandbox simulation, and enforces authoritative checkout-status polling", async () => {
     const { locationId } = await createActiveLocation();
     const traveller = await createTestUser("TRAVELLER", "Dinesh Mendis");
     const otherTraveller = await createTestUser("TRAVELLER", "Other Intruder");
@@ -502,7 +516,6 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
     let payHereOrderId = "";
     let payHereIntentId = "";
     let payHereBookingId = "";
-    let payHereHandoffPath = "";
 
     await withPayHereEnv({ sandboxMode: true }, async () => {
       const booking = await createBooking(traveller.accessToken, locationId, 12);
@@ -514,6 +527,7 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
         headers: { authorization: `Bearer ${traveller.accessToken}` },
         payload: {
           bookingId: booking.id,
+          channel: "WEB",
           customerDetails: {
             firstName: "Dinesh",
             lastName: "Mendis",
@@ -529,30 +543,20 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
       const intent = JSON.parse(intentRes.body).data;
       payHereOrderId = intent.providerOrderId;
       payHereIntentId = intent.id;
-      payHereHandoffPath = intent.checkoutHandoff.mobileHandoffPath;
+      expect(intent.checkoutChannel).toBe("WEB");
+      expect(intent.checkoutHandoff.mobileHandoffPath).toBeUndefined();
 
-      // 8a. Valid handoff HTML response with CSP & cache headers and zero secrets
+      // 8a. Legacy HTML handoff endpoint is permanently retired (410) and never serves a PayHere HTML form
       const handoffRes = await app.inject({
         method: "GET",
-        url: `/api/v1${payHereHandoffPath}`
+        url: "/api/v1/payments/handoff/eyJpbnRlbnRJZCI6IjEyMyJ9.abcdef"
       });
-      expect(handoffRes.statusCode).toBe(200);
-      expect(handoffRes.headers["content-type"]).toContain("text/html");
-      expect(handoffRes.headers["cache-control"]).toContain("no-store");
-      expect(handoffRes.headers["x-frame-options"]).toBe("DENY");
-      const csp = String(handoffRes.headers["content-security-policy"] || "");
-      expect(csp).toContain("form-action https://sandbox.payhere.lk https://www.payhere.lk");
-      expect(csp).toContain("script-src 'nonce-");
-      expect(handoffRes.body).toContain('action="https://sandbox.payhere.lk/pay/checkout"');
-      expect(handoffRes.body).toContain(payHereOrderId);
-      expect(handoffRes.body).not.toContain(TEST_PAYHERE_MERCHANT_SECRET);
-
-      // 8b. Tampered handoff token rejected
-      const tamperedTokenRes = await app.inject({
-        method: "GET",
-        url: `/api/v1${payHereHandoffPath.slice(0, -4)}XXXX`
-      });
-      expect(tamperedTokenRes.statusCode).toBe(401);
+      expect(handoffRes.statusCode).toBe(410);
+      expect(handoffRes.headers["content-type"]).toContain("application/json");
+      expect(handoffRes.body).not.toContain("<form");
+      expect(handoffRes.body).not.toContain("sandbox.payhere.lk/pay/checkout");
+      const retiredBody = JSON.parse(handoffRes.body);
+      expect(retiredBody.error?.code).toBe("HANDOFF_ENDPOINT_RETIRED");
 
       // 9a. Sandbox simulation blocked when PAYHERE provider active or on PAYHERE intents (403)
       const simBlocked = await app.inject({
@@ -592,7 +596,7 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
         payhereAmount: "1200.00",
         payhereCurrency: "LKR",
         statusCode: "2",
-        merchantSecret: TEST_PAYHERE_MERCHANT_SECRET
+        merchantSecret: TEST_PAYHERE_WEB_MERCHANT_SECRET
       });
       const notifyBody = new URLSearchParams({
         merchant_id: TEST_PAYHERE_MERCHANT_ID,
@@ -625,12 +629,12 @@ describe("Phase B7 — Complete PayHere Checkout Contract, Handoff Endpoint & St
       expect(confirmedStatus.canRetryPayment).toBe(false);
       expect(confirmedStatus.pollRecommended).toBe(false);
 
-      // 8c. Settled intent handoff link now refuses launching PayHere form (409)
+      // 8c. Legacy retired handoff remains 410 Gone after settlement too
       const closedHandoffRes = await app.inject({
         method: "GET",
-        url: `/api/v1${payHereHandoffPath}`
+        url: "/api/v1/payments/handoff/eyJpbnRlbnRJZCI6IjEyMyJ9.abcdef"
       });
-      expect(closedHandoffRes.statusCode).toBe(409);
+      expect(closedHandoffRes.statusCode).toBe(410);
     });
 
     // 9b. Even when active env provider is sandbox, sandbox-simulate rejects PAYHERE intents (403)

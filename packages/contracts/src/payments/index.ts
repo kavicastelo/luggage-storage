@@ -41,7 +41,15 @@ export const REFUND_REASON_CATEGORIES = [
 export type RefundReasonCategory = (typeof REFUND_REASON_CATEGORIES)[number];
 export const RefundReasonCategorySchema = z.enum(REFUND_REASON_CATEGORIES);
 
-export const PAYMENT_NEXT_ACTIONS = ["SANDBOX_SIMULATION", "REDIRECT_TO_PROVIDER"] as const;
+export const PAYMENT_CHECKOUT_CHANNELS = ["WEB", "MOBILE_APP"] as const;
+export type PaymentCheckoutChannel = (typeof PAYMENT_CHECKOUT_CHANNELS)[number];
+export const PaymentCheckoutChannelSchema = z.enum(PAYMENT_CHECKOUT_CHANNELS);
+
+export const PAYMENT_NEXT_ACTIONS = [
+  "SANDBOX_SIMULATION",
+  "REDIRECT_TO_PROVIDER",
+  "LAUNCH_NATIVE_SDK"
+] as const;
 export type PaymentNextAction = (typeof PAYMENT_NEXT_ACTIONS)[number];
 export const PaymentNextActionSchema = z.enum(PAYMENT_NEXT_ACTIONS);
 
@@ -94,6 +102,7 @@ export type PayHereCheckoutCustomerResolved = z.infer<
 export const CreatePaymentIntentRequestSchema = z
   .object({
     bookingId: z.string().uuid(),
+    channel: PaymentCheckoutChannelSchema.optional(),
     idempotencyKey: z.string().trim().min(8).max(128).optional(),
     customerDetails: CheckoutCustomerDetailsSchema.optional()
   })
@@ -135,7 +144,7 @@ export const SandboxCheckoutHandoffSchema = z.object({
 });
 export type SandboxCheckoutHandoff = z.infer<typeof SandboxCheckoutHandoffSchema>;
 
-export const PayHereCheckoutHandoffSchema = z.object({
+export const PayHereWebCheckoutHandoffSchema = z.object({
   mode: z.enum(["PAYHERE_SANDBOX_REDIRECT", "PAYHERE_LIVE_REDIRECT"]),
   provider: z.literal("PAYHERE"),
   method: z.literal("POST_FORM"),
@@ -143,14 +152,56 @@ export const PayHereCheckoutHandoffSchema = z.object({
     "https://sandbox.payhere.lk/pay/checkout",
     "https://www.payhere.lk/pay/checkout"
   ]),
-  fields: PayHereCheckoutFormFieldsSchema,
-  mobileHandoffPath: z.string().min(1)
+  fields: PayHereCheckoutFormFieldsSchema
 });
+export type PayHereWebCheckoutHandoff = z.infer<typeof PayHereWebCheckoutHandoffSchema>;
+
+export const PayHereCheckoutHandoffSchema = PayHereWebCheckoutHandoffSchema;
+
+export const PayHereNativeSdkPayloadSchema = z
+  .object({
+    sandbox: z.boolean(),
+    merchant_id: z.string().min(1),
+    notify_url: z.string().url(),
+    order_id: z.string().min(1),
+    items: z.string().min(1),
+    amount: z.string().regex(/^\d+\.\d{2}$/),
+    currency: z.string().length(3),
+    first_name: z.string().min(1),
+    last_name: z.string().min(1),
+    email: z.string().email(),
+    phone: z.string().min(3),
+    address: z.string().min(1),
+    city: z.string().min(1),
+    country: z.string().min(1),
+    custom_1: z.string().min(1).optional(),
+    custom_2: z.string().min(1).optional()
+  })
+  .strict();
+export type PayHereNativeSdkPayload = z.infer<typeof PayHereNativeSdkPayloadSchema>;
+
+export const PayHereNativeCheckoutHandoffSchema = z.object({
+  mode: z.enum(["PAYHERE_NATIVE_SANDBOX", "PAYHERE_NATIVE_LIVE"]),
+  provider: z.literal("PAYHERE"),
+  method: z.literal("NATIVE_SDK"),
+  sdkPayload: PayHereNativeSdkPayloadSchema
+});
+export type PayHereNativeCheckoutHandoff = z.infer<typeof PayHereNativeCheckoutHandoffSchema>;
+
+export const LegacyExpiredCheckoutHandoffSchema = z.object({
+  mode: z.literal("LEGACY_EXPIRED"),
+  provider: PaymentProviderSchema,
+  method: z.literal("EXPIRED"),
+  reason: z.string().min(1)
+});
+export type LegacyExpiredCheckoutHandoff = z.infer<typeof LegacyExpiredCheckoutHandoffSchema>;
 export type PayHereCheckoutHandoff = z.infer<typeof PayHereCheckoutHandoffSchema>;
 
 export const PaymentCheckoutHandoffSchema = z.discriminatedUnion("method", [
   SandboxCheckoutHandoffSchema,
-  PayHereCheckoutHandoffSchema
+  PayHereWebCheckoutHandoffSchema,
+  PayHereNativeCheckoutHandoffSchema,
+  LegacyExpiredCheckoutHandoffSchema
 ]);
 export type PaymentCheckoutHandoff = z.infer<typeof PaymentCheckoutHandoffSchema>;
 
@@ -159,6 +210,7 @@ export const PaymentIntentSchema = z.object({
   bookingId: z.string().uuid(),
   travellerUserId: z.string().uuid(),
   provider: PaymentProviderSchema,
+  checkoutChannel: PaymentCheckoutChannelSchema,
   providerOrderId: z.string(),
   amountMinor: z.number().int().positive(),
   currency: z.string().length(3),

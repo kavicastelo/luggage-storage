@@ -12,6 +12,7 @@ export interface PendingCheckoutContext {
   intentId: string;
   orderId: string;
   provider: "PAYHERE" | "SANDBOX_GATEWAY";
+  channel?: "WEB" | "MOBILE_APP";
   createdAt: string;
 }
 
@@ -74,6 +75,9 @@ export function loadPendingCheckoutContext(
         intentId: typeof parsed.intentId === "string" ? parsed.intentId : "",
         orderId: parsed.orderId,
         provider: parsed.provider === "PAYHERE" ? "PAYHERE" : "SANDBOX_GATEWAY",
+        ...(parsed.channel === "WEB" || parsed.channel === "MOBILE_APP"
+          ? { channel: parsed.channel }
+          : {}),
         createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : ""
       };
     }
@@ -99,6 +103,21 @@ export function isPayHerePostHandoff(
   return Boolean(handoff && handoff.method === "POST_FORM" && handoff.provider === "PAYHERE");
 }
 
+const RESTRICTED_REFERRER_POLICIES = new Set(["no-referrer", "never", "same-origin"]);
+
+export function assertSafeDocumentReferrerPolicy(doc: Document = document): void {
+  const metaTags = doc.querySelectorAll?.('meta[name="referrer"]');
+  if (!metaTags) return;
+  for (const tag of Array.from(metaTags)) {
+    const content = tag.getAttribute("content")?.trim().toLowerCase();
+    if (content && RESTRICTED_REFERRER_POLICIES.has(content)) {
+      throw new Error(
+        `Unsafe document referrer policy "${content}" prevents PayHere domain verification`
+      );
+    }
+  }
+}
+
 /**
  * Creates a hidden HTML form with POST method targeting the verified PayHere action URL
  * and strictly copies server-generated PayHere checkout fields verbatim without mutation.
@@ -110,11 +129,17 @@ export function buildPayHereCheckoutForm(
   if (!ALLOWED_PAYHERE_CHECKOUT_URLS.has(handoff.actionUrl)) {
     throw new Error(`Untrusted PayHere actionUrl: ${handoff.actionUrl}`);
   }
+  assertSafeDocumentReferrerPolicy(doc);
 
   const form = doc.createElement("form");
   form.method = "POST";
   form.action = handoff.actionUrl;
   form.style.display = "none";
+  form.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+  if ("referrerPolicy" in form) {
+    (form as HTMLFormElement & { referrerPolicy?: string }).referrerPolicy =
+      "strict-origin-when-cross-origin";
+  }
   form.setAttribute("data-testid", "payhere-post-form");
 
   for (const [name, value] of Object.entries(handoff.fields)) {

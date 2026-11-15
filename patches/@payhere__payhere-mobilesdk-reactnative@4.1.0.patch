@@ -1,0 +1,70 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index fd1e440caf7e826226ed55a66184d2a832f09d20..a259b291cd9796e63f3128f09560d466b9b08e14 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -20,7 +20,6 @@ def safeExtGet(prop, fallback) {
+ }
+ 
+ apply plugin: 'com.android.library'
+-apply plugin: 'maven-publish'
+ 
+ buildscript {
+     // The Android Gradle plugin is only required when opening the android folder stand-alone.
+@@ -41,10 +40,10 @@ buildscript {
+     }
+ }
+ 
+-apply plugin: 'com.android.library'
+ // apply plugin: 'maven'
+ 
+ android {
++    namespace "lk.payhere"
+     compileSdkVersion safeExtGet('compileSdkVersion', DEFAULT_COMPILE_SDK_VERSION)
+     buildToolsVersion safeExtGet('buildToolsVersion', DEFAULT_BUILD_TOOLS_VERSION)
+     defaultConfig {
+@@ -146,34 +145,3 @@ def configureReactNativePom(def pom) {
+ //         archives androidJavadocJar
+ //     }
+ // }
+-
+-afterEvaluate { project ->
+-    tasks.register('androidJavadoc', Javadoc) {
+-        source = android.sourceSets.main.java.srcDirs
+-        classpath += files(android.bootClasspath)
+-        include '**/*.java'
+-    }
+-    tasks.register('androidJavadocJar', Jar) {
+-        dependsOn 'androidJavadoc'
+-        archiveClassifier.set('javadoc') // Changed from classifier to archiveClassifier
+-        from tasks.named('androidJavadoc').get().destinationDir
+-    }
+-    tasks.register('androidSourcesJar', Jar) {
+-        archiveClassifier.set('sources') // Changed from classifier to archiveClassifier
+-        from android.sourceSets.main.java.srcDirs
+-        include '**/*.java'
+-    }
+-    android.libraryVariants.all { variant ->
+-        def name = variant.name.capitalize()
+-        def javaCompileTask = variant.javaCompileProvider
+-        tasks.register("jar${name}", Jar) {
+-            dependsOn javaCompileTask
+-            archiveClassifier.set(name.toLowerCase()) // Assuming you want to use the variant name as classifier
+-            from javaCompileTask.get().destinationDir
+-        }
+-    }
+-    artifacts {
+-        archives tasks.named('androidSourcesJar')
+-        archives tasks.named('androidJavadocJar')
+-    }
+-}
+\ No newline at end of file
+diff --git a/android/src/main/AndroidManifest.xml b/android/src/main/AndroidManifest.xml
+index a0bd905c69d6b9f96c89c3105330fab4fd1e8439..0a0938ae37e5da80351f4f988163f59d1eacf6fc 100644
+--- a/android/src/main/AndroidManifest.xml
++++ b/android/src/main/AndroidManifest.xml
+@@ -1,4 +1,3 @@
+-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+-          package="lk.payhere">
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ 
+ </manifest>
