@@ -208,10 +208,20 @@ export function HostDashboardLayout() {
   ];
 
   const allNavItems = [...operationalNavItems, ...locationConfigNavItems, ...businessNavItems];
+  const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
   const activeNavItem = allNavItems.find(
-    (item) => location.pathname === item.to || location.pathname.startsWith(item.to + "/")
+    (item) => normalizedPath === item.to || normalizedPath.startsWith(item.to + "/")
   );
-  const isBlockedByStaffRole = effectiveHostRole === "HOST_STAFF" && activeNavItem?.ownerOnly;
+  const HOST_STAFF_ALLOWED_PATHS = new Set([
+    "/host",
+    "/host/dashboard",
+    "/host/operations",
+    "/host/bookings",
+    "/host/locations",
+    "/host/reviews"
+  ]);
+  const isBlockedByStaffRole =
+    effectiveHostRole === "HOST_STAFF" && !HOST_STAFF_ALLOWED_PATHS.has(normalizedPath);
 
   const contextValue: HostContextType = {
     currentLocation,
@@ -527,7 +537,7 @@ export function HostDashboardLayout() {
 // HD-001: Host Overview Dashboard (/host/dashboard)
 // ============================================================================
 export function HostOverviewDashboardPage() {
-  const { currentLocation } = useHostVenue();
+  const { currentLocation, effectiveHostRole } = useHostVenue();
 
   // Operational metrics
   const activeBagsInVault = 28;
@@ -629,17 +639,19 @@ export function HostOverviewDashboardPage() {
         </div>
 
         {/* Card 4: Net Host Balance */}
-        <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-navy-500">
-            <span>Net Cleared Earnings</span>
-            <Wallet className="h-4 w-4 text-emerald-600" />
+        {effectiveHostRole !== "HOST_STAFF" && (
+          <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-navy-500">
+              <span>Net Cleared Earnings</span>
+              <Wallet className="h-4 w-4 text-emerald-600" />
+            </div>
+            <p className="text-2xl font-extrabold text-navy-950">{formatLkr(netEarningsLkr)}</p>
+            <div className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold">
+              <span>85% net host share</span>
+            </div>
+            <p className="text-[11px] text-navy-500">Next batch payout: Friday (CEFT)</p>
           </div>
-          <p className="text-2xl font-extrabold text-navy-950">{formatLkr(netEarningsLkr)}</p>
-          <div className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold">
-            <span>85% net host share</span>
-          </div>
-          <p className="text-[11px] text-navy-500">Next batch payout: Friday (CEFT)</p>
-        </div>
+        )}
       </div>
 
       {/* Overdue Bag Urgent Alert Banner */}
@@ -799,12 +811,14 @@ export function HostOverviewDashboardPage() {
                 <h3 className="text-sm font-bold text-navy-950">Physical Zone Capacity</h3>
                 <p className="text-xs text-navy-600">Real-time rack and compartment occupancy</p>
               </div>
-              <Link
-                to={`/host/locations/${currentLocation.id}/capacity`}
-                className="text-xs font-bold text-terracotta-600 hover:text-terracotta-700"
-              >
-                Manage Zones →
-              </Link>
+              {effectiveHostRole !== "HOST_STAFF" && (
+                <Link
+                  to={`/host/locations/${currentLocation.id}/capacity`}
+                  className="text-xs font-bold text-terracotta-600 hover:text-terracotta-700"
+                >
+                  Manage Zones →
+                </Link>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
@@ -911,6 +925,7 @@ export function HostOverviewDashboardPage() {
 // HD-002: Storage Location Directory (/host/locations)
 // ============================================================================
 export function HostLocationManagementPage() {
+  const { effectiveHostRole } = useHostVenue();
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [serverLocations, setServerLocations] = useState<StorageLocation[]>([]);
@@ -1017,14 +1032,16 @@ export function HostLocationManagementPage() {
               Manage multi-hub capacity, operating schedules, and LKR rates across Sri Lankan transit hubs.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Register New Storage Hub</span>
-          </button>
+          {effectiveHostRole !== "HOST_STAFF" && (
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Register New Storage Hub</span>
+            </button>
+          )}
         </div>
 
         {/* Search Bar */}
@@ -1103,32 +1120,34 @@ export function HostLocationManagementPage() {
                 </span>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <Link
-                  to={`/host/locations/${loc.id}`}
-                  className="px-3 py-1.5 rounded-lg border border-sand-300 text-xs font-bold text-navy-800 hover:bg-sand-50 transition"
-                >
-                  Edit Profile
-                </Link>
-                <Link
-                  to={`/host/locations/${loc.id}/schedule`}
-                  className="px-3 py-1.5 rounded-lg border border-sand-300 text-xs font-bold text-navy-800 hover:bg-sand-50 transition"
-                >
-                  Hours &amp; Calendar
-                </Link>
-                <Link
-                  to={`/host/locations/${loc.id}/capacity`}
-                  className="px-3 py-1.5 rounded-lg border border-sand-300 text-xs font-bold text-navy-800 hover:bg-sand-50 transition"
-                >
-                  Capacity &amp; Zones
-                </Link>
-                <Link
-                  to={`/host/locations/${loc.id}/pricing`}
-                  className="px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition shadow-xs"
-                >
-                  Pricing Rules
-                </Link>
-              </div>
+              {effectiveHostRole !== "HOST_STAFF" && (
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    to={`/host/locations/${loc.id}`}
+                    className="px-3 py-1.5 rounded-lg border border-sand-300 text-xs font-bold text-navy-800 hover:bg-sand-50 transition"
+                  >
+                    Edit Profile
+                  </Link>
+                  <Link
+                    to={`/host/locations/${loc.id}/schedule`}
+                    className="px-3 py-1.5 rounded-lg border border-sand-300 text-xs font-bold text-navy-800 hover:bg-sand-50 transition"
+                  >
+                    Hours &amp; Calendar
+                  </Link>
+                  <Link
+                    to={`/host/locations/${loc.id}/capacity`}
+                    className="px-3 py-1.5 rounded-lg border border-sand-300 text-xs font-bold text-navy-800 hover:bg-sand-50 transition"
+                  >
+                    Capacity &amp; Zones
+                  </Link>
+                  <Link
+                    to={`/host/locations/${loc.id}/pricing`}
+                    className="px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition shadow-xs"
+                  >
+                    Pricing Rules
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         ))}

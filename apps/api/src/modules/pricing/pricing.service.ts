@@ -9,6 +9,7 @@ import {
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { auditService } from "../audit/audit.service.js";
+import { assertHostLocationAccess } from "../bookings/host-access.helper.js";
 
 export interface PricingContext {
   userId: string;
@@ -28,7 +29,7 @@ export class PricingService {
     locationId: string,
     context: PricingContext
   ): Promise<PricingPolicy> {
-    await this.verifyLocationAccess(locationId, context);
+    await this.verifyLocationReadAccess(locationId, context);
 
     const [policy] = await db
       .select()
@@ -78,7 +79,7 @@ export class PricingService {
     request: ConfigurePricingPolicyRequest,
     context: PricingContext
   ): Promise<PricingPolicy> {
-    await this.verifyLocationAccess(locationId, context);
+    await this.verifyLocationWriteAccess(locationId, context);
 
     const result = await db.transaction(async (tx) => {
       // 1. Serialize concurrent configuration calls for this location via row lock
@@ -199,7 +200,29 @@ export class PricingService {
     };
   }
 
-  private async verifyLocationAccess(locationId: string, context: PricingContext): Promise<void> {
+  private async verifyLocationReadAccess(
+    locationId: string,
+    context: PricingContext
+  ): Promise<void> {
+    if (context.roles.includes("SUPERADMIN") || context.roles.includes("SUPPORT")) {
+      const [loc] = await db
+        .select({ id: schema.storageLocations.id })
+        .from(schema.storageLocations)
+        .where(eq(schema.storageLocations.id, locationId))
+        .limit(1);
+      if (!loc) {
+        throw AppError.notFound("Storage location not found");
+      }
+      return;
+    }
+
+    await assertHostLocationAccess(db, context.userId, context.roles, locationId);
+  }
+
+  private async verifyLocationWriteAccess(
+    locationId: string,
+    context: PricingContext
+  ): Promise<void> {
     const [loc] = await db
       .select({
         id: schema.storageLocations.id,
@@ -220,6 +243,16 @@ export class PricingService {
 
     const isSuperadmin = context.roles.includes("SUPERADMIN");
     if (loc.ownerUserId !== context.userId && !isSuperadmin) {
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_ACCESS_DENIED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        metadata: {
+          locationId,
+          action: "PRICING_WRITE_DENIED",
+          roles: context.roles
+        }
+      });
       throw AppError.forbidden("Access denied: You do not have permission to manage pricing for this location");
     }
 

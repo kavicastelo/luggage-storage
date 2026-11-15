@@ -1220,8 +1220,6 @@ export class BookingsService {
       let actorRoleLabel: string;
       if (actorRoles.includes("SUPERADMIN")) {
         actorRoleLabel = "SUPERADMIN";
-      } else if (actorRoles.includes("SUPPORT")) {
-        actorRoleLabel = "SUPPORT";
       } else if (bookingRow.traveller_user_id === actorUserId) {
         actorRoleLabel = "TRAVELLER";
       } else {

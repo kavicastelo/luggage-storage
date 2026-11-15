@@ -202,6 +202,33 @@ export class UploadsService {
       throw AppError.forbidden("Access denied: This upload intent belongs to another user");
     }
 
+    // Re-verify live target resource ownership (guards against role changes or revoked staff/transfer)
+    if (!isSuperadmin && intent.resourceId) {
+      if (intent.purpose === "HOST_VERIFICATION") {
+        const [biz] = await db
+          .select({ ownerUserId: schema.hostBusinesses.ownerUserId })
+          .from(schema.hostBusinesses)
+          .where(eq(schema.hostBusinesses.id, intent.resourceId))
+          .limit(1);
+        if (!biz || biz.ownerUserId !== context.userId) {
+          throw AppError.forbidden("Access denied: You no longer own the target host business for this upload");
+        }
+      } else if (intent.purpose === "LOCATION_IMAGE") {
+        const [loc] = await db
+          .select({ ownerUserId: schema.hostBusinesses.ownerUserId })
+          .from(schema.storageLocations)
+          .innerJoin(
+            schema.hostBusinesses,
+            eq(schema.storageLocations.businessId, schema.hostBusinesses.id)
+          )
+          .where(eq(schema.storageLocations.id, intent.resourceId))
+          .limit(1);
+        if (!loc || loc.ownerUserId !== context.userId) {
+          throw AppError.forbidden("Access denied: You no longer own the target storage location for this upload");
+        }
+      }
+    }
+
     // 3. Verify key and resource alignment
     if (intent.fileKey !== request.fileKey) {
       throw AppError.badRequest("Supplied fileKey does not match the server-generated key for this upload intent");

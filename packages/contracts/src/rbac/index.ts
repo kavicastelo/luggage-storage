@@ -68,7 +68,25 @@ export const SYSTEM_PERMISSIONS = {
   ADMIN_LOCATION_MODERATE: "admin.location.moderate",
 
   // Upload domain
-  UPLOAD_INITIATE: "upload.initiate"
+  UPLOAD_INITIATE: "upload.initiate",
+
+  // Traveller bookings domain (Phase B)
+  BOOKINGS_CREATE: "bookings.create",
+  BOOKINGS_READ_OWN: "bookings.read_own",
+  BOOKINGS_CANCEL_OWN: "bookings.cancel_own",
+
+  // Host booking, custody & finance domain (Phase B)
+  HOSTS_BOOKINGS_READ_OWN: "hosts.bookings.read_own",
+  HOSTS_BOOKINGS_MANAGE_OWN: "hosts.bookings.manage_own",
+  HOSTS_CUSTODY_OPERATE: "hosts.custody.operate",
+  HOSTS_FINANCE_READ_OWN: "hosts.finance.read_own",
+
+  // Admin booking, payment & refund domain (Phase B)
+  ADMIN_BOOKING_READ: "admin.booking.read",
+  ADMIN_BOOKING_MANAGE: "admin.booking.manage",
+  ADMIN_PAYMENT_READ: "admin.payment.read",
+  ADMIN_REFUND_READ: "admin.refund.read",
+  ADMIN_REFUND_MANAGE: "admin.refund.manage"
 } as const;
 
 export type PermissionCode =

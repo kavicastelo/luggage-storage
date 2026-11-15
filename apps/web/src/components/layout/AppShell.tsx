@@ -19,10 +19,26 @@ export function AppShell() {
     navigate("/", { replace: true });
   };
 
+  const hasHostAccess =
+    isAuthenticated &&
+    Boolean(
+      user?.roles?.some((role) =>
+        ["HOST_OWNER", "HOST_STAFF", "SUPERADMIN"].includes(role)
+      )
+    );
+
   const hasAdminAccess =
-    hasAnyPermission(["admin.user.read", "admin.role.read", "admin.audit.read"]) ||
+    hasAnyPermission([
+      "admin.user.read",
+      "admin.role.read",
+      "admin.audit.read",
+      "admin.booking.read",
+      "admin.host.read"
+    ]) ||
     user?.roles?.includes("SUPERADMIN") ||
     user?.roles?.includes("SUPPORT");
+
+  const adminEntryRoute = user?.roles?.includes("SUPERADMIN") ? "/admin" : "/admin/bookings";
 
   return (
     <div className="min-h-screen flex flex-col bg-sand-50 text-navy-950 font-sans">
@@ -86,13 +102,22 @@ export function AppShell() {
 
           {/* Controls & Auth Section */}
           <div className="flex items-center gap-3">
-            {/* Direct Link to Host Hub if user is host */}
-            <Link
-              to="/host/dashboard"
-              className="hidden sm:inline-flex text-xs font-semibold px-3 py-1.5 rounded-lg border border-sand-200 text-navy-900 hover:bg-sand-100 transition-colors"
-            >
-              Host Portal
-            </Link>
+            {/* Role-aware Host CTA */}
+            {hasHostAccess ? (
+              <Link
+                to="/host/dashboard"
+                className="hidden sm:inline-flex text-xs font-semibold px-3 py-1.5 rounded-lg border border-sand-200 text-navy-900 hover:bg-sand-100 transition-colors"
+              >
+                Host Portal
+              </Link>
+            ) : (
+              <Link
+                to="/become-a-host"
+                className="hidden sm:inline-flex text-xs font-semibold px-3 py-1.5 rounded-lg border border-sand-200 text-navy-900 hover:bg-sand-100 transition-colors"
+              >
+                Become a Host
+              </Link>
+            )}
 
             {/* Authentication Navigation */}
             {!isInitializing && (
@@ -101,7 +126,7 @@ export function AppShell() {
                   <div className="flex items-center gap-2">
                     {hasAdminAccess && (
                       <Link
-                        to="/admin"
+                        to={adminEntryRoute}
                         className="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-navy-50 text-navy-800 text-xs font-semibold border border-navy-200 hover:bg-navy-100 transition"
                       >
                         <Shield className="h-3 w-3 text-navy-600" />

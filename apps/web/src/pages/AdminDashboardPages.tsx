@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useParams } from "react-router-dom";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { Link, Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 import {
   Shield,
   Users,
@@ -52,10 +52,43 @@ import {
 // ============================================================================
 // Superadmin Dashboard Layout (Enforces SUPERADMIN vs SUPPORT RBAC Boundaries)
 // ============================================================================
+type EffectiveAdminRole = "SUPERADMIN" | "SUPPORT";
+
+const AdminRoleContext = createContext<EffectiveAdminRole | null>(null);
+
+export function useAdminRole(): EffectiveAdminRole {
+  const ctx = useContext(AdminRoleContext);
+  const user = useAuthStore((s) => s.user);
+  if (ctx) {
+    return ctx;
+  }
+  return user?.roles?.includes("SUPPORT") && !user?.roles?.includes("SUPERADMIN")
+    ? "SUPPORT"
+    : "SUPERADMIN";
+}
+
+const SUPPORT_ALLOWED_EXACT_PATHS = new Set([
+  "/admin/hosts/review",
+  "/admin/hosts",
+  "/admin/locations",
+  "/admin/bookings",
+  "/admin/payments",
+  "/admin/refunds",
+  "/admin/support",
+  "/admin/incidents"
+]);
+
+function isSupportAllowedAdminPath(normalizedPath: string): boolean {
+  if (SUPPORT_ALLOWED_EXACT_PATHS.has(normalizedPath)) {
+    return true;
+  }
+  return /^\/admin\/support\/[^/]+$/.test(normalizedPath);
+}
+
 export function AdminDashboardLayout() {
   const location = useLocation();
   const { isAuthenticated, user } = useAuthStore();
-  const [adminRoleMode, setAdminRoleMode] = useState<"SUPERADMIN" | "SUPPORT">("SUPERADMIN");
+  const [adminRoleMode, setAdminRoleMode] = useState<EffectiveAdminRole>("SUPERADMIN");
 
   const isDemoActive = isDemoPreviewActive({
     allowDemoPreview: true,
@@ -67,7 +100,7 @@ export function AdminDashboardLayout() {
   const canActAsSuperadmin =
     !isAuthenticated || Boolean(user?.roles?.includes("SUPERADMIN"));
 
-  const effectiveAdminRole: "SUPERADMIN" | "SUPPORT" = isAuthenticated
+  const effectiveAdminRole: EffectiveAdminRole = isAuthenticated
     ? canActAsSuperadmin
       ? adminRoleMode
       : "SUPPORT"
@@ -75,18 +108,18 @@ export function AdminDashboardLayout() {
 
   const navItems = [
     { id: "AD-001", label: "Command Dashboard", to: "/admin", icon: Shield, superadminOnly: true },
-    { id: "AD-002", label: "Host KYC Queue", to: "/admin/hosts/review", icon: Building2, superadminOnly: true },
+    { id: "AD-002", label: "Host KYC Queue", to: "/admin/hosts/review", icon: Building2, superadminOnly: false },
     { id: "AD-003", label: "Host Directory", to: "/admin/hosts", icon: Users, superadminOnly: false },
-    { id: "AD-004", label: "Location Moderation", to: "/admin/locations", icon: MapPin, superadminOnly: true },
+    { id: "AD-004", label: "Location Moderation", to: "/admin/locations", icon: MapPin, superadminOnly: false },
     { id: "AD-005", label: "Global Bookings", to: "/admin/bookings", icon: Briefcase, superadminOnly: false },
-    { id: "AD-006", label: "Payment Log", to: "/admin/payments", icon: CreditCard, superadminOnly: true },
-    { id: "AD-007", label: "Refund Queue", to: "/admin/refunds", icon: RotateCcw, superadminOnly: true },
+    { id: "AD-006", label: "Payment Log", to: "/admin/payments", icon: CreditCard, superadminOnly: false },
+    { id: "AD-007", label: "Refund Queue", to: "/admin/refunds", icon: RotateCcw, superadminOnly: false },
     { id: "AD-008", label: "Payout Batches", to: "/admin/payouts/batches", icon: Layers, superadminOnly: true },
     { id: "AD-009", label: "Manual Disbursement", to: "/admin/payouts/disburse", icon: Send, superadminOnly: true },
     { id: "AD-010", label: "Double-Entry Ledger", to: "/admin/finance/ledger", icon: BookOpen, superadminOnly: true },
     { id: "AD-011", label: "Support Triage", to: "/admin/support", icon: LifeBuoy, superadminOnly: false },
     { id: "AD-012", label: "Ticket Resolution", to: "/admin/support/TKT-9042", icon: MessageSquare, superadminOnly: false },
-    { id: "AD-013", label: "Incident & Disputes", to: "/admin/incidents", icon: AlertOctagon, superadminOnly: true },
+    { id: "AD-013", label: "Incident & Disputes", to: "/admin/incidents", icon: AlertOctagon, superadminOnly: false },
     { id: "AD-014", label: "Review Moderation", to: "/admin/reviews", icon: Star, superadminOnly: true },
     { id: "AD-015", label: "Promotions Engine", to: "/admin/promotions", icon: Sparkles, superadminOnly: true },
     { id: "AD-016", label: "System Settings", to: "/admin/settings", icon: Settings, superadminOnly: true },
@@ -94,8 +127,18 @@ export function AdminDashboardLayout() {
     { id: "AD-018", label: "Admin Staff & RBAC", to: "/admin/staff", icon: KeyRound, superadminOnly: true }
   ];
 
-  const activeNav = navItems.find((item) => location.pathname === item.to);
-  const blockedForSupport = effectiveAdminRole === "SUPPORT" && activeNav?.superadminOnly;
+  const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
+  const activeNav = navItems.find(
+    (item) =>
+      normalizedPath === item.to ||
+      (item.id === "AD-012" && /^\/admin\/support\/[^/]+$/.test(normalizedPath))
+  );
+  const blockedForSupport =
+    effectiveAdminRole === "SUPPORT" && !isSupportAllowedAdminPath(normalizedPath);
+
+  if (isAuthenticated && !canActAsSuperadmin && normalizedPath === "/admin") {
+    return <Navigate to={`/admin/bookings${querySuffix}`} replace />;
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -179,9 +222,9 @@ export function AdminDashboardLayout() {
               mascot="key"
               size="lg"
               badgeText="RBAC Guard Active: SUPERADMIN Required"
-              caption={`Screen ${activeNav?.id} (${activeNav?.label}) is restricted to SUPERADMIN governance (OQ-016). SUPPORT agents are scoped to AD-003, AD-005, AD-011, and AD-012.`}
+              caption={`Screen ${activeNav?.id ?? "Restricted"} (${activeNav?.label ?? normalizedPath}) is restricted to SUPERADMIN governance (OQ-016). SUPPORT agents are scoped to AD-002, AD-003, AD-004, AD-005, AD-006, AD-007, AD-011, AD-012, and AD-013.`}
             />
-            <div className="flex justify-center gap-3">
+            <div className="flex flex-wrap justify-center gap-3">
               {canActAsSuperadmin && (
                 <PermissionGate requiredRoles={["SUPERADMIN"]} fallback={
                   !isAuthenticated ? (
@@ -202,6 +245,12 @@ export function AdminDashboardLayout() {
                 </PermissionGate>
               )}
               <Link
+                to={`/admin/bookings${querySuffix}`}
+                className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold"
+              >
+                Go to Global Bookings (AD-005)
+              </Link>
+              <Link
                 to={`/admin/support${querySuffix}`}
                 className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-bold"
               >
@@ -210,7 +259,9 @@ export function AdminDashboardLayout() {
             </div>
           </div>
         ) : (
-          <Outlet />
+          <AdminRoleContext.Provider value={effectiveAdminRole}>
+            <Outlet />
+          </AdminRoleContext.Provider>
         )}
       </div>
     </div>
@@ -282,6 +333,7 @@ export function AdminCommandDashboardPage() {
 // AD-002: Host Verification Queue (/admin/hosts/review)
 // ============================================================================
 export function AdminHostVerificationQueuePage() {
+  const effectiveAdminRole = useAdminRole();
   const [items, setItems] = useState<HostVerificationQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -406,29 +458,35 @@ export function AdminHostVerificationQueuePage() {
                     Status: {verif.status} • Submitted: {new Date(verif.submittedAt).toLocaleDateString()} • {verif.documentCount} Document(s) Attached
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    disabled={actionLoading === verif.verificationId}
-                    onClick={() => handleReview(verif.verificationId, "APPROVE")}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50 transition"
-                  >
-                    {actionLoading === verif.verificationId ? "Processing..." : "Approve & Activate"}
-                  </button>
-                  <button
-                    disabled={actionLoading === verif.verificationId}
-                    onClick={() => handleReview(verif.verificationId, "REQUEST_INFO")}
-                    className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold disabled:opacity-50 transition"
-                  >
-                    Request Info
-                  </button>
-                  <button
-                    disabled={actionLoading === verif.verificationId}
-                    onClick={() => handleReview(verif.verificationId, "REJECT")}
-                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold disabled:opacity-50 transition"
-                  >
-                    Reject
-                  </button>
-                </div>
+                {effectiveAdminRole === "SUPPORT" ? (
+                  <span className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold">
+                    Read-Only Support View
+                  </span>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      disabled={actionLoading === verif.verificationId}
+                      onClick={() => handleReview(verif.verificationId, "APPROVE")}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50 transition"
+                    >
+                      {actionLoading === verif.verificationId ? "Processing..." : "Approve & Activate"}
+                    </button>
+                    <button
+                      disabled={actionLoading === verif.verificationId}
+                      onClick={() => handleReview(verif.verificationId, "REQUEST_INFO")}
+                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold disabled:opacity-50 transition"
+                    >
+                      Request Info
+                    </button>
+                    <button
+                      disabled={actionLoading === verif.verificationId}
+                      onClick={() => handleReview(verif.verificationId, "REJECT")}
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold disabled:opacity-50 transition"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -480,6 +538,7 @@ export function AdminHostDirectoryManagementPage() {
 // AD-004: Storage Location Moderation (/admin/locations)
 // ============================================================================
 export function AdminStorageLocationModerationPage() {
+  const effectiveAdminRole = useAdminRole();
   const [locations, setLocations] = useState<LocationModerationQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -596,22 +655,28 @@ export function AdminStorageLocationModerationPage() {
                     Images: {loc.imageCount} attached • Submitted: {new Date(loc.submittedAt).toLocaleDateString()}
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    disabled={actionLoading === loc.locationId}
-                    onClick={() => handleReview(loc.locationId, "APPROVE")}
-                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition disabled:opacity-50"
-                  >
-                    {actionLoading === loc.locationId ? "Processing..." : "Approve Listing"}
-                  </button>
-                  <button
-                    disabled={actionLoading === loc.locationId}
-                    onClick={() => handleReview(loc.locationId, "REJECT")}
-                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                </div>
+                {effectiveAdminRole === "SUPPORT" ? (
+                  <span className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold">
+                    Read-Only Support View
+                  </span>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      disabled={actionLoading === loc.locationId}
+                      onClick={() => handleReview(loc.locationId, "APPROVE")}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition disabled:opacity-50"
+                    >
+                      {actionLoading === loc.locationId ? "Processing..." : "Approve Listing"}
+                    </button>
+                    <button
+                      disabled={actionLoading === loc.locationId}
+                      onClick={() => handleReview(loc.locationId, "REJECT")}
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold transition disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -625,6 +690,7 @@ export function AdminStorageLocationModerationPage() {
 // AD-005: Global Bookings Ledger (/admin/bookings)
 // ============================================================================
 export function AdminGlobalBookingsLedgerPage() {
+  const effectiveAdminRole = useAdminRole();
   const { isAuthenticated, user } = useAuthStore();
   const canReadBookings = Boolean(
     isAuthenticated &&
@@ -719,17 +785,23 @@ export function AdminGlobalBookingsLedgerPage() {
                   >
                     Custody Trail
                   </button>
-                  {(b.status === "CONFIRMED" ||
-                    b.status === "PENDING_PAYMENT" ||
-                    b.status === "PENDING_HOST_APPROVAL") && (
-                    <button
-                      type="button"
-                      onClick={() => handleAdminCancel(b.id)}
-                      className="px-2.5 py-1 rounded bg-rose-600 text-white font-bold"
-                    >
-                      Admin Cancel
-                    </button>
+                  {effectiveAdminRole === "SUPPORT" && (
+                    <span className="px-2.5 py-1 rounded bg-slate-100 border border-slate-200 text-slate-600 font-bold">
+                      Read-Only Support View
+                    </span>
                   )}
+                  {effectiveAdminRole !== "SUPPORT" &&
+                    (b.status === "CONFIRMED" ||
+                      b.status === "PENDING_PAYMENT" ||
+                      b.status === "PENDING_HOST_APPROVAL") && (
+                      <button
+                        type="button"
+                        onClick={() => handleAdminCancel(b.id)}
+                        className="px-2.5 py-1 rounded bg-rose-600 text-white font-bold"
+                      >
+                        Admin Cancel
+                      </button>
+                    )}
                 </div>
               </div>
             ))
@@ -788,11 +860,14 @@ export function AdminGlobalBookingsLedgerPage() {
 // ============================================================================
 export function AdminPaymentTransactionsLogPage() {
   const { isAuthenticated, user } = useAuthStore();
-  const isSuperadmin = Boolean(isAuthenticated && user?.roles?.includes("SUPERADMIN"));
+  const canReadPayments = Boolean(
+    isAuthenticated &&
+      (user?.roles?.includes("SUPERADMIN") || user?.roles?.includes("SUPPORT"))
+  );
   const [transactions, setTransactions] = useState<PaymentTransactionRecord[]>([]);
 
   useEffect(() => {
-    if (!isSuperadmin) return;
+    if (!canReadPayments) return;
     let active = true;
     marketplaceApi
       .getAdminPaymentTransactions()
@@ -803,7 +878,7 @@ export function AdminPaymentTransactionsLogPage() {
     return () => {
       active = false;
     };
-  }, [isSuperadmin]);
+  }, [canReadPayments]);
 
   return (
     <div className="space-y-6" data-screen-id="AD-006">
@@ -812,7 +887,7 @@ export function AdminPaymentTransactionsLogPage() {
         title="Payment Gateway Transactions & Signed Webhook Log"
         subtitle="Inspect verified HMAC webhook signatures, provider order IDs, and LKR payment captures."
         workflows={["WF-019", "WF-020"]}
-        roleScope="Superadmin"
+        roleScope="Superadmin / Support (Read-Only)"
         backendStatus="LIVE_PHASE_1B"
         rightSlot={<MascotIllustration mascot="phone" size="sm" caption="Gateway Webhooks" />}
       />
@@ -869,7 +944,12 @@ export function AdminRefundManagementQueuePage() {
     isAuthenticated &&
       (user?.roles?.includes("SUPERADMIN") || user?.roles?.includes("SUPPORT"))
   );
-  const canExecuteRefunds = Boolean(isAuthenticated && user?.roles?.includes("SUPERADMIN"));
+  const effectiveAdminRole = useAdminRole();
+  const canExecuteRefunds = Boolean(
+    isAuthenticated &&
+      user?.roles?.includes("SUPERADMIN") &&
+      effectiveAdminRole !== "SUPPORT"
+  );
   const [refunds, setRefunds] = useState<RefundRecord[]>([]);
   const [refundNotice, setRefundNotice] = useState<string | null>(null);
   const [refundError, setRefundError] = useState<string | null>(null);
@@ -1017,7 +1097,7 @@ export function AdminRefundManagementQueuePage() {
         </div>
       )}
 
-      {activeTransition && (
+      {activeTransition && canExecuteRefunds && (
         <form
           onSubmit={handleSubmitTransition}
           className="bg-white rounded-2xl border-2 border-purple-200 p-6 space-y-4 text-xs"
@@ -1168,7 +1248,7 @@ export function AdminRefundManagementQueuePage() {
                     {item.manualReference ? ` • ManualRef: ${item.manualReference}` : ""}
                   </p>
                 </div>
-                {canExecuteRefunds && next && (
+                {canExecuteRefunds && next ? (
                   <button
                     type="button"
                     onClick={() => openTransitionPanel(item, next)}
@@ -1176,7 +1256,11 @@ export function AdminRefundManagementQueuePage() {
                   >
                     Advance to {next}
                   </button>
-                )}
+                ) : effectiveAdminRole === "SUPPORT" && next ? (
+                  <span className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 font-bold">
+                    Read-Only Support View
+                  </span>
+                ) : null}
               </div>
             );
           })}
@@ -1410,6 +1494,7 @@ export function AdminSupportTicketResolutionViewPage() {
 // AD-013: Incident & Dispute Investigation (/admin/incidents)
 // ============================================================================
 export function AdminIncidentDisputeInvestigationPage() {
+  const effectiveAdminRole = useAdminRole();
   return (
     <div className="space-y-6" data-screen-id="AD-013">
       <ScreenHeaderBadge
@@ -1417,9 +1502,14 @@ export function AdminIncidentDisputeInvestigationPage() {
         title="Custody Incident, Overdue Dispute & Seal Investigation"
         subtitle="Adjudicate decoupled Mandatory Release (OQ-015 / BR-035) handovers, audited PIN fallbacks, and seal or bag-count exceptions."
         workflows={["WF-027", "WF-041", "WF-042"]}
-        roleScope="Superadmin"
+        roleScope="Superadmin / Support (Read-Only)"
         rightSlot={<MascotIllustration mascot="shrug" size="sm" caption="OQ-015 / BR-035 Enforcement" />}
       />
+      {effectiveAdminRole === "SUPPORT" && (
+        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold">
+          Read-Only Support View
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
         <p className="font-bold text-slate-900">

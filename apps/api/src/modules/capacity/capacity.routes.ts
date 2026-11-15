@@ -2,7 +2,8 @@ import { FastifyInstance } from "fastify";
 import {
   CreateCapacityPoolRequestSchema,
   UpdateCapacityPoolRequestSchema,
-  createSuccessResponse
+  createSuccessResponse,
+  SYSTEM_PERMISSIONS
 } from "@luggage-storage/contracts";
 import { capacityService } from "./capacity.service.js";
 
@@ -11,7 +12,13 @@ export async function capacityRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { locationId: string } }>(
     "/locations/:locationId/capacity-pools",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requireAnyPermission([
+          SYSTEM_PERMISSIONS.HOSTS_LOCATION_READ_OWN,
+          SYSTEM_PERMISSIONS.ADMIN_LOCATION_READ
+        ])
+      ],
       schema: {
         description: "Retrieve all capacity pools configured for a storage location",
         tags: ["Capacity"],
@@ -44,7 +51,10 @@ export async function capacityRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { locationId: string } }>(
     "/locations/:locationId/capacity-pools",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CONFIGURE)
+      ],
       schema: {
         description: "Create a new capacity pool for a storage location",
         tags: ["Capacity"],
@@ -78,7 +88,10 @@ export async function capacityRoutes(app: FastifyInstance): Promise<void> {
   app.patch<{ Params: { poolId: string } }>(
     "/capacity-pools/:poolId",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CONFIGURE)
+      ],
       schema: {
         description: "Update quota units or settings of a capacity pool",
         tags: ["Capacity"],

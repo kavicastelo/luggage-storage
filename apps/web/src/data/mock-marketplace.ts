@@ -299,7 +299,7 @@ export const WEB_ADMIN_SCREENS: RegisteredScreenSpec[] = [
     surface: "AD",
     name: "Host Verification Queue",
     route: "/admin/hosts/review",
-    actorScope: "Superadmin",
+    actorScope: "Superadmin / Support (Read-Only)",
     workflows: ["WF-005"],
     mascot: "selfie",
     backendDependency: "UI_SIMULATION"
@@ -319,7 +319,7 @@ export const WEB_ADMIN_SCREENS: RegisteredScreenSpec[] = [
     surface: "AD",
     name: "Storage Location Moderation",
     route: "/admin/locations",
-    actorScope: "Superadmin",
+    actorScope: "Superadmin / Support (Read-Only)",
     workflows: ["WF-010", "WF-013"],
     mascot: "map",
     backendDependency: "UI_SIMULATION"
@@ -339,7 +339,7 @@ export const WEB_ADMIN_SCREENS: RegisteredScreenSpec[] = [
     surface: "AD",
     name: "Payment Transactions Log",
     route: "/admin/payments",
-    actorScope: "Superadmin",
+    actorScope: "Superadmin / Support (Read-Only)",
     workflows: ["WF-019", "WF-020"],
     mascot: "phone",
     backendDependency: "UI_SIMULATION"
@@ -349,7 +349,7 @@ export const WEB_ADMIN_SCREENS: RegisteredScreenSpec[] = [
     surface: "AD",
     name: "Refund Management Queue",
     route: "/admin/refunds",
-    actorScope: "Superadmin",
+    actorScope: "Superadmin / Support (Read-Only)",
     workflows: ["WF-030", "WF-031", "WF-032"],
     mascot: "sitting-suitcase",
     backendDependency: "UI_SIMULATION"
@@ -409,7 +409,7 @@ export const WEB_ADMIN_SCREENS: RegisteredScreenSpec[] = [
     surface: "AD",
     name: "Incident & Dispute Investigation",
     route: "/admin/incidents",
-    actorScope: "Superadmin",
+    actorScope: "Superadmin / Support (Read-Only)",
     workflows: ["WF-027", "WF-041", "WF-042"],
     mascot: "shrug",
     backendDependency: "UI_SIMULATION"
