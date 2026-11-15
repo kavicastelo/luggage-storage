@@ -37,6 +37,8 @@ export interface StoragePort {
   getObjectMetadata(fileKey: string): Promise<ObjectMetadata>;
   getPublicUrl?(fileKey: string): string | undefined;
   simulateUpload?(fileKey: string, data: { mimeType?: string; size?: number }): void;
+  putObjectBuffer?(fileKey: string, data: { buffer: Buffer; mimeType: string }): void;
+  getObjectBuffer?(fileKey: string): { buffer: Buffer; mimeType: string; size: number } | undefined;
 }
 
 export class CloudflareR2StorageAdapter implements StoragePort {
@@ -126,7 +128,10 @@ export class CloudflareR2StorageAdapter implements StoragePort {
 
 export class InMemoryStorageAdapter implements StoragePort {
   readonly isLiveR2 = false;
-  private readonly storedObjects = new Map<string, { mimeType: string; size: number; createdAt: Date }>();
+  private readonly storedObjects = new Map<
+    string,
+    { mimeType: string; size: number; createdAt: Date; buffer?: Buffer }
+  >();
   private readonly baseUrl: string;
 
   constructor(baseUrl: string = "http://localhost:3000") {
@@ -145,6 +150,27 @@ export class InMemoryStorageAdapter implements StoragePort {
       size: data.size !== undefined ? data.size : 0,
       createdAt: new Date()
     });
+  }
+
+  putObjectBuffer(fileKey: string, data: { buffer: Buffer; mimeType: string }): void {
+    this.storedObjects.set(fileKey, {
+      mimeType: data.mimeType || "application/octet-stream",
+      size: data.buffer.byteLength,
+      createdAt: new Date(),
+      buffer: data.buffer
+    });
+  }
+
+  getObjectBuffer(fileKey: string): { buffer: Buffer; mimeType: string; size: number } | undefined {
+    const obj = this.storedObjects.get(fileKey);
+    if (!obj) {
+      return undefined;
+    }
+    return {
+      buffer: obj.buffer ?? Buffer.alloc(0),
+      mimeType: obj.mimeType || "application/octet-stream",
+      size: obj.size
+    };
   }
 
   async generatePresignedDownloadUrl(params: PresignedDownloadParams): Promise<string> {

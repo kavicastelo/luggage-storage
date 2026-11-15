@@ -35,7 +35,10 @@ export class PricingService {
       .select()
       .from(schema.pricingPolicies)
       .where(
-        eq(schema.pricingPolicies.locationId, locationId)
+        and(
+          eq(schema.pricingPolicies.locationId, locationId),
+          eq(schema.pricingPolicies.status, "ACTIVE")
+        )
       )
       .orderBy(desc(schema.pricingPolicies.createdAt))
       .limit(1);

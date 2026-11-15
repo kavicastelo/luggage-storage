@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   CreateCapacityPoolRequest,
   UpdateCapacityPoolRequest,
@@ -58,13 +58,26 @@ export class CapacityService {
   ): Promise<StorageCapacityPool> {
     await this.verifyLocationWriteAccess(locationId, context);
 
+    if (request.poolType === "DEDICATED" && !request.dedicatedBagCategory) {
+      throw AppError.badRequest("Dedicated capacity pools require a dedicatedBagCategory");
+    }
+
+    if (request.poolType === "SHARED" && request.dedicatedBagCategory) {
+      throw AppError.badRequest("Shared capacity pools cannot specify a dedicatedBagCategory");
+    }
+
+    if (request.zoneId) {
+      await this.assertZoneBelongsToLocation(request.zoneId, locationId);
+    }
+
     const [pool] = await db
       .insert(schema.storageCapacityPools)
       .values({
         locationId,
         zoneId: request.zoneId || null,
         poolType: request.poolType,
-        dedicatedBagCategory: request.dedicatedBagCategory || null,
+        dedicatedBagCategory:
+          request.poolType === "DEDICATED" ? request.dedicatedBagCategory || null : null,
         totalUnits: request.totalUnits,
         isActive: request.isActive ?? true
       })
@@ -129,11 +142,31 @@ export class CapacityService {
       throw AppError.forbidden("Access denied: You do not own this capacity pool");
     }
 
+    const nextPoolType = request.poolType ?? existing.pool.poolType;
+    const nextCategory =
+      request.dedicatedBagCategory !== undefined
+        ? request.dedicatedBagCategory
+        : existing.pool.dedicatedBagCategory;
+
+    if (nextPoolType === "DEDICATED" && !nextCategory) {
+      throw AppError.badRequest("Dedicated capacity pools require a dedicatedBagCategory");
+    }
+
+    if (request.zoneId) {
+      await this.assertZoneBelongsToLocation(request.zoneId, existing.pool.locationId);
+    }
+
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (request.zoneId !== undefined) updateData.zoneId = request.zoneId;
-    if (request.poolType !== undefined) updateData.poolType = request.poolType;
-    if (request.dedicatedBagCategory !== undefined)
+    if (request.poolType !== undefined) {
+      updateData.poolType = request.poolType;
+      if (request.poolType === "SHARED") {
+        updateData.dedicatedBagCategory = null;
+      }
+    }
+    if (request.dedicatedBagCategory !== undefined && nextPoolType === "DEDICATED") {
       updateData.dedicatedBagCategory = request.dedicatedBagCategory;
+    }
     if (request.totalUnits !== undefined) updateData.totalUnits = request.totalUnits;
     if (request.isActive !== undefined) updateData.isActive = request.isActive;
 
@@ -165,6 +198,69 @@ export class CapacityService {
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString()
     };
+  }
+
+  /**
+   * Deletes an existing capacity pool.
+   */
+  async deleteCapacityPool(poolId: string, context: CapacityContext): Promise<void> {
+    const [existing] = await db
+      .select({
+        pool: schema.storageCapacityPools,
+        ownerUserId: schema.hostBusinesses.ownerUserId
+      })
+      .from(schema.storageCapacityPools)
+      .innerJoin(
+        schema.storageLocations,
+        eq(schema.storageCapacityPools.locationId, schema.storageLocations.id)
+      )
+      .innerJoin(
+        schema.hostBusinesses,
+        eq(schema.storageLocations.businessId, schema.hostBusinesses.id)
+      )
+      .where(eq(schema.storageCapacityPools.id, poolId))
+      .limit(1);
+
+    if (!existing) {
+      throw AppError.notFound("Capacity pool not found");
+    }
+
+    const isSuperadmin = context.roles.includes("SUPERADMIN");
+    if (existing.ownerUserId !== context.userId && !isSuperadmin) {
+      throw AppError.forbidden("Access denied: You do not own this capacity pool");
+    }
+
+    await db
+      .delete(schema.storageCapacityPools)
+      .where(eq(schema.storageCapacityPools.id, poolId));
+
+    await auditService.recordEvent({
+      eventType: SecurityEventType.STORAGE_LOCATION_CONFIG_UPDATED,
+      userId: context.userId,
+      clientInfo: context.clientInfo,
+      metadata: {
+        locationId: existing.pool.locationId,
+        poolId,
+        configType: "CAPACITY_POOL_DELETED"
+      }
+    });
+  }
+
+  private async assertZoneBelongsToLocation(zoneId: string, locationId: string): Promise<void> {
+    const [zone] = await db
+      .select({ id: schema.storageZones.id })
+      .from(schema.storageZones)
+      .where(
+        and(
+          eq(schema.storageZones.id, zoneId),
+          eq(schema.storageZones.locationId, locationId)
+        )
+      )
+      .limit(1);
+
+    if (!zone) {
+      throw AppError.badRequest("Selected storage zone does not belong to this location");
+    }
   }
 
   private async verifyLocationReadAccess(

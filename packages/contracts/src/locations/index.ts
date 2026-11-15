@@ -211,13 +211,29 @@ export const SetOpeningHoursRequestSchema = z.object({
 });
 export type SetOpeningHoursRequest = z.infer<typeof SetOpeningHoursRequestSchema>;
 
-export const CreateOpeningHoursExceptionRequestSchema = z.object({
-  exceptionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format YYYY-MM-DD"),
-  exceptionType: z.enum(OPENING_HOURS_EXCEPTION_TYPES).default("CLOSURE"),
-  openTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/).optional().nullable(),
-  closeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/).optional().nullable(),
-  reason: z.string().trim().max(255).optional().nullable()
-});
+export const CreateOpeningHoursExceptionRequestSchema = z
+  .object({
+    exceptionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format YYYY-MM-DD"),
+    exceptionType: z.enum(OPENING_HOURS_EXCEPTION_TYPES).default("CLOSURE"),
+    openTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/).optional().nullable(),
+    closeTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/).optional().nullable(),
+    reason: z.string().trim().max(255).optional().nullable()
+  })
+  .refine(
+    (data) => {
+      if (data.exceptionType === "SPECIAL_HOURS") {
+        if (!data.openTime || !data.closeTime) {
+          return false;
+        }
+        return data.openTime < data.closeTime;
+      }
+      return true;
+    },
+    {
+      message: "SPECIAL_HOURS exceptions require valid openTime and closeTime with openTime before closeTime",
+      path: ["openTime"]
+    }
+  );
 export type CreateOpeningHoursExceptionRequest = z.infer<typeof CreateOpeningHoursExceptionRequestSchema>;
 
 export const CreateStorageZoneRequestSchema = z.object({
@@ -228,6 +244,9 @@ export const CreateStorageZoneRequestSchema = z.object({
 });
 export type CreateStorageZoneRequest = z.infer<typeof CreateStorageZoneRequestSchema>;
 
+export const UpdateStorageZoneRequestSchema = CreateStorageZoneRequestSchema.partial();
+export type UpdateStorageZoneRequest = z.infer<typeof UpdateStorageZoneRequestSchema>;
+
 export const AddLocationMediaRequestSchema = z.object({
   fileKey: z.string().min(1),
   url: z.string().url(),
@@ -236,6 +255,13 @@ export const AddLocationMediaRequestSchema = z.object({
   sortOrder: z.number().int().default(0)
 });
 export type AddLocationMediaRequest = z.infer<typeof AddLocationMediaRequestSchema>;
+
+export const UpdateLocationMediaRequestSchema = z.object({
+  caption: z.string().trim().max(255).nullable().optional(),
+  isPrimary: z.boolean().optional(),
+  sortOrder: z.number().int().nonnegative().optional()
+});
+export type UpdateLocationMediaRequest = z.infer<typeof UpdateLocationMediaRequestSchema>;
 
 export const ReviewLocationRequestSchema = z.object({
   decision: z.enum(["APPROVE", "REJECT"]),

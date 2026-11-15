@@ -113,6 +113,13 @@
       "when": 1794600000000,
       "tag": "0015_payhere_channel_aware_intents",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794700000000,
+      "tag": "0016_initiative_3_host_staff_rbac",
+      "breakpoints": true
     }
   ]
 }

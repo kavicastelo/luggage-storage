@@ -4,7 +4,9 @@ import { env } from "../../config/env.js";
 export type DatabaseIdentityAction =
   | "ASSIGN_ROLE"
   | "REVOKE_ROLE"
-  | "SELF_ASSIGN_HOST_OWNER";
+  | "SELF_ASSIGN_HOST_OWNER"
+  | "ASSIGN_HOST_STAFF_ROLE"
+  | "REVOKE_HOST_STAFF_ROLE";
 
 export const DB_IDENTITY_KEY_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 export const DB_IDENTITY_SIGNATURE_HEX_PATTERN = /^[0-9a-f]{64}$/i;

@@ -96,7 +96,14 @@ const ALLOWED_METADATA_KEYS = new Set([
   "amountMinor",
   "currency",
   "refundPercentage",
-  "handoverCondition"
+  "handoverCondition",
+  "membershipId",
+  "staffRole",
+  "mediaId",
+  "exceptionId",
+  "isActive",
+  "assignedLocationIds",
+  "staffUserId"
 ]);
 
 const FORBIDDEN_KEY_PATTERN = /(?:password|passwd|pwd|hash|salt|secret|token|bearer|authorization|cookie|credential)/i;

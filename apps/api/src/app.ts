@@ -88,6 +88,7 @@ export function buildApp(): FastifyInstance {
         cb(null, false);
       }
     },
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
     credentials: true
   });
   app.register(sensible);
