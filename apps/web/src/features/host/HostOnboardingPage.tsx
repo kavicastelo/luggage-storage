@@ -52,7 +52,12 @@ export function HostOnboardingPage() {
   const setSelectedBusinessId = useHostContextStore((state) => state.setSelectedBusinessId);
   const setSelectedLocationId = useHostContextStore((state) => state.setSelectedLocationId);
 
-  const businessesQuery = useOwnedBusinessesQuery({ enabled: isAuthenticated });
+  const isHostOwnerOrAdmin = Boolean(
+    user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN")
+  );
+  const businessesQuery = useOwnedBusinessesQuery({
+    enabled: isAuthenticated && isHostOwnerOrAdmin
+  });
   const businesses = businessesQuery.data ?? [];
 
   const activeBusiness = useMemo(() => {

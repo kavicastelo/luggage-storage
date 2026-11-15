@@ -1163,7 +1163,13 @@ export class LocationsService {
   }
 
   private async assertActiveCustodyFreeForZone(zoneId: string): Promise<void> {
-    const activeStatuses = ["CHECKED_IN", "PARTIALLY_CHECKED_IN", "DISPUTED"];
+    const activeStatuses = [
+      "CHECKED_IN",
+      "IN_STORAGE",
+      "OVERDUE",
+      "DISPUTED_RELEASE",
+      "ABANDONED"
+    ];
 
     const [activeRecord] = await db
       .select({ id: schema.custodyRecords.id })

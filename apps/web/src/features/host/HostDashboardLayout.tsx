@@ -121,7 +121,9 @@ export function HostDashboardLayout() {
       ? demoRoleMode
       : "HOST_STAFF";
 
-  const businessesQuery = useOwnedBusinessesQuery({ enabled: isAuthenticated });
+  const businessesQuery = useOwnedBusinessesQuery({
+    enabled: isAuthenticated && canActAsHostOwner
+  });
   const locationsQuery = useHostLocationsQuery({ enabled: isAuthenticated });
 
   const allLocations: StorageLocationItem[] = useMemo(() => {
@@ -172,8 +174,12 @@ export function HostDashboardLayout() {
     if (!isAuthenticated) {
       return;
     }
-    await Promise.all([businessesQuery.refetch(), locationsQuery.refetch()]);
-  }, [isAuthenticated, businessesQuery, locationsQuery]);
+    if (canActAsHostOwner) {
+      await Promise.all([businessesQuery.refetch(), locationsQuery.refetch()]);
+    } else {
+      await locationsQuery.refetch();
+    }
+  }, [isAuthenticated, canActAsHostOwner, businessesQuery, locationsQuery]);
 
   const navLocationId =
     effectiveSelectedLocationId ||
@@ -215,6 +221,7 @@ export function HostDashboardLayout() {
 
   const needsBusinessOnboarding =
     isAuthenticated &&
+    canActAsHostOwner &&
     businessesQuery.isSuccess &&
     (businessesQuery.data?.length ?? 0) === 0;
 

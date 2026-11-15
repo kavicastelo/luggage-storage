@@ -230,6 +230,18 @@ export class CapacityService {
       throw AppError.forbidden("Access denied: You do not own this capacity pool");
     }
 
+    const [existingReservation] = await db
+      .select({ id: schema.capacityReservations.id })
+      .from(schema.capacityReservations)
+      .where(eq(schema.capacityReservations.poolId, poolId))
+      .limit(1);
+
+    if (existingReservation) {
+      throw AppError.conflict(
+        "Cannot delete a capacity pool with existing booking reservations. Deactivate the pool instead."
+      );
+    }
+
     await db
       .delete(schema.storageCapacityPools)
       .where(eq(schema.storageCapacityPools.id, poolId));
