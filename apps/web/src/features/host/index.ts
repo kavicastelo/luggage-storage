@@ -1,9 +1,15 @@
 export { HostDashboardLayout, useHostVenue, type HostContextType } from "./HostDashboardLayout";
+export { HostOverviewDashboardPage } from "./HostOverviewPage";
 export { HostOnboardingPage } from "./HostOnboardingPage";
 export { HostLocationManagementPage } from "./HostLocationsPage";
 export { HostLocationProfileEditorPage } from "./HostLocationEditorPage";
 export { HostScheduleCalendarEditorPage } from "./HostSchedulePage";
 export { HostCapacityPoolsZonesPage } from "./HostCapacityZonesPage";
 export { HostPricingRulesMultipliersPage } from "./HostPricingPage";
+export { HostBookingManagementHubPage } from "./HostBookingsPage";
+export { HostWebCheckInOutOperationsPage } from "./HostOperationsDeskPage";
+export { HostFinancialRevenueLedgerPage } from "./HostFinancePage";
+export { HostPayoutAccountsHistoryPage } from "./HostPayoutsPage";
+export { HostReviewManagementPage } from "./HostReviewsPage";
 export { HostStaffManagementRbacPage } from "./HostStaffPage";
 export { HostBusinessProfileLegalPage } from "./HostBusinessSettingsPage";

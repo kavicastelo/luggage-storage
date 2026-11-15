@@ -33,6 +33,7 @@ import { mapApiLocationToItem } from "./host-helpers";
 
 export interface HostContextType {
   currentLocation: StorageLocationItem | null;
+  selectedBusinessId: string;
   selectedLocationId: string;
   setSelectedLocationId: (id: string) => void;
   allLocations: StorageLocationItem[];
@@ -50,7 +51,7 @@ const HostVenueContext = React.createContext<HostContextType | null>(null);
 export function useHostVenue(): HostContextType {
   const context = React.useContext(HostVenueContext);
   if (!context) {
-    const isAuthenticated = useAuthStore.getState().isAuthenticated;
+    const { isAuthenticated, user } = useAuthStore.getState();
     const isDemoActive =
       !isAuthenticated &&
       isDemoPreviewActive({
@@ -59,14 +60,23 @@ export function useHostVenue(): HostContextType {
         isAuthenticated
       });
     const fallbackLocations = isDemoActive ? DEMO_LOCATIONS : [];
+    const canActAsHostOwner = !isAuthenticated
+      ? true
+      : Boolean(user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN"));
+    const effectiveHostRole: "HOST_OWNER" | "HOST_STAFF" = isAuthenticated
+      ? canActAsHostOwner
+        ? "HOST_OWNER"
+        : "HOST_STAFF"
+      : "HOST_OWNER";
     return {
       currentLocation: fallbackLocations[0] ?? null,
+      selectedBusinessId: "",
       selectedLocationId: fallbackLocations[0]?.id ?? "",
       setSelectedLocationId: () => {},
       allLocations: fallbackLocations,
-      effectiveHostRole: "HOST_OWNER",
+      effectiveHostRole,
       setHostRoleMode: () => {},
-      canActAsHostOwner: true,
+      canActAsHostOwner,
       isDemoActive,
       querySuffix: isDemoActive ? "?preview=demo" : "",
       locationsError: null,
@@ -146,16 +156,19 @@ export function HostDashboardLayout() {
     }
   }, [effectiveSelectedLocationId, storedLocationId, setStoredLocationId]);
 
-  useEffect(() => {
+  const effectiveSelectedBusinessId = useMemo(() => {
     const businesses = businessesQuery.data ?? [];
-    if (
-      isAuthenticated &&
-      businesses.length > 0 &&
-      !businesses.some((b) => b.id === storedBusinessId)
-    ) {
-      setStoredBusinessId(businesses[0].id);
+    if (businesses.some((b) => b.id === storedBusinessId)) {
+      return storedBusinessId;
     }
-  }, [isAuthenticated, businessesQuery.data, storedBusinessId, setStoredBusinessId]);
+    return businesses[0]?.id ?? "";
+  }, [businessesQuery.data, storedBusinessId]);
+
+  useEffect(() => {
+    if (effectiveSelectedBusinessId && effectiveSelectedBusinessId !== storedBusinessId) {
+      setStoredBusinessId(effectiveSelectedBusinessId);
+    }
+  }, [effectiveSelectedBusinessId, storedBusinessId, setStoredBusinessId]);
 
   const currentLocation = useMemo(
     () => allLocations.find((l) => l.id === effectiveSelectedLocationId) || allLocations[0] || null,
@@ -227,6 +240,7 @@ export function HostDashboardLayout() {
 
   const contextValue: HostContextType = {
     currentLocation,
+    selectedBusinessId: effectiveSelectedBusinessId,
     selectedLocationId: effectiveSelectedLocationId,
     setSelectedLocationId: setStoredLocationId,
     allLocations,
