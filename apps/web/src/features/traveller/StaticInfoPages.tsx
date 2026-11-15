@@ -21,8 +21,21 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { formatLkr } from "@/data/mock-marketplace";
+import { useAuthStore } from "@/store/useAuthStore";
 
 export function BecomeAHostLandingPage() {
+  const { isAuthenticated, user } = useAuthStore();
+  const isAlreadyHost =
+    isAuthenticated &&
+    Boolean(
+      user?.roles?.some(
+        (role) => role === "HOST_OWNER" || role === "HOST_STAFF" || role === "SUPERADMIN"
+      )
+    );
+  const hostCtaTo = isAlreadyHost ? "/host/dashboard" : "/host/onboarding";
+  const hostCtaLabel = isAlreadyHost
+    ? "Open Host Dashboard"
+    : "Apply to Host in Sri Lanka";
   const [dailyBags, setDailyBags] = useState(18);
   const [avgFeeLkr, setAvgFeeLkr] = useState(1400);
 
@@ -51,11 +64,19 @@ export function BecomeAHostLandingPage() {
           </p>
           <div className="flex flex-wrap gap-3">
             <Link
-              to="/host"
+              to={hostCtaTo}
               className="px-5 py-3 rounded-xl bg-terracotta-500 text-white text-sm font-bold hover:bg-terracotta-600"
             >
-              Apply to Host in Sri Lanka
+              {hostCtaLabel}
             </Link>
+            {!isAuthenticated && (
+              <Link
+                to="/register"
+                className="px-5 py-3 rounded-xl bg-white/10 border border-white/25 text-white text-sm font-bold hover:bg-white/20"
+              >
+                Create Partner Account
+              </Link>
+            )}
             <Link
               to="/how-it-works"
               className="px-5 py-3 rounded-xl border border-white/25 text-white text-sm font-bold hover:bg-white/10"
