@@ -41,7 +41,10 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     "/confirm",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.UPLOAD_INITIATE)
+      ],
       schema: {
         description: "Confirm upload completion and associate media with storage resource",
         tags: ["Uploads"]
@@ -67,7 +70,13 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { documentId: string } }>(
     "/documents/:documentId/download",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requireAnyPermission([
+          SYSTEM_PERMISSIONS.HOSTS_VERIFICATION_READ_OWN,
+          SYSTEM_PERMISSIONS.ADMIN_HOST_READ
+        ])
+      ],
       schema: {
         description: "Generate an authorized temporary pre-signed URL to inspect a verification document",
         tags: ["Uploads"],

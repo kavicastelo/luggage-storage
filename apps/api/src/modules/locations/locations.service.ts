@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, count } from "drizzle-orm";
+import { eq, and, desc, sql, count, inArray } from "drizzle-orm";
 import {
   CreateLocationRequest,
   UpdateLocationRequest,
@@ -16,6 +16,10 @@ import {
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { auditService } from "../audit/audit.service.js";
+import {
+  assertHostLocationAccess,
+  getAccessibleHostLocationIds
+} from "../bookings/host-access.helper.js";
 
 export interface LocationCallerContext {
   userId: string;
@@ -168,17 +172,20 @@ export class LocationsService {
   }
 
   /**
-   * Retrieves all storage locations owned by businesses belonging to the caller.
+   * Retrieves all storage locations owned by businesses belonging to the caller
+   * or assigned to the caller as active host staff.
    */
   async getOwnedLocations(context: LocationCallerContext): Promise<StorageLocation[]> {
+    const nonAdminRoles = context.roles.filter((r) => r !== "SUPERADMIN");
+    const accessibleIds = await getAccessibleHostLocationIds(context.userId, nonAdminRoles);
+    if (accessibleIds.length === 0) {
+      return [];
+    }
+
     const rows = await db
       .select({ id: schema.storageLocations.id })
       .from(schema.storageLocations)
-      .innerJoin(
-        schema.hostBusinesses,
-        eq(schema.storageLocations.businessId, schema.hostBusinesses.id)
-      )
-      .where(eq(schema.hostBusinesses.ownerUserId, context.userId))
+      .where(inArray(schema.storageLocations.id, accessibleIds))
       .orderBy(desc(schema.storageLocations.createdAt));
 
     const locations: StorageLocation[] = [];
@@ -189,8 +196,47 @@ export class LocationsService {
     return locations;
   }
 
+  private async assertLocationOwnerOrSuperadmin(
+    locationId: string,
+    context: LocationCallerContext
+  ): Promise<void> {
+    const [loc] = await db
+      .select({
+        id: schema.storageLocations.id,
+        ownerUserId: schema.hostBusinesses.ownerUserId
+      })
+      .from(schema.storageLocations)
+      .innerJoin(
+        schema.hostBusinesses,
+        eq(schema.storageLocations.businessId, schema.hostBusinesses.id)
+      )
+      .where(eq(schema.storageLocations.id, locationId))
+      .limit(1);
+
+    if (!loc) {
+      throw AppError.notFound("Storage location not found");
+    }
+
+    const isSuperadmin = context.roles.includes("SUPERADMIN");
+    if (loc.ownerUserId !== context.userId && !isSuperadmin) {
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_ACCESS_DENIED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        metadata: {
+          locationId,
+          action: "LOCATION_WRITE_DENIED",
+          roles: context.roles
+        }
+      });
+      throw AppError.forbidden(
+        "Access denied: Only the business owner or Superadmin can modify this storage location"
+      );
+    }
+  }
+
   /**
-   * Retrieves full location details with sub-entities, enforcing ownership or admin privileges.
+   * Retrieves full location details with sub-entities, enforcing ownership, staff assignment, or admin read privileges.
    */
   async getLocationById(
     locationId: string,
@@ -213,9 +259,13 @@ export class LocationsService {
       throw AppError.notFound("Storage location not found");
     }
 
-    const isAdmin = context.roles.some((r) => ["SUPERADMIN", "SUPPORT"].includes(r));
-    if (loc.ownerUserId !== context.userId && !isAdmin) {
-      throw AppError.forbidden("Access denied: You do not have permission to view this location");
+    const isAdminOrSupport = context.roles.some((r) => ["SUPERADMIN", "SUPPORT"].includes(r));
+    if (loc.ownerUserId !== context.userId && !isAdminOrSupport) {
+      try {
+        await assertHostLocationAccess(db, context.userId, context.roles, locationId);
+      } catch {
+        throw AppError.forbidden("Access denied: You do not have permission to view this location");
+      }
     }
 
     const [images, zones, hours, exceptions] = await Promise.all([
@@ -319,6 +369,7 @@ export class LocationsService {
     request: UpdateLocationRequest,
     context: LocationCallerContext
   ): Promise<StorageLocation> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
     const loc = await this.getLocationById(locationId, context);
 
     const [business] = await db
@@ -376,6 +427,7 @@ export class LocationsService {
     locationId: string,
     context: LocationCallerContext
   ): Promise<StorageLocation> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
     const loc = await this.getLocationById(locationId, context);
 
     const [business] = await db
@@ -419,6 +471,7 @@ export class LocationsService {
     locationId: string,
     context: LocationCallerContext
   ): Promise<StorageLocation> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
     const loc = await this.getLocationById(locationId, context);
 
     await db
@@ -447,7 +500,8 @@ export class LocationsService {
     schedules: OpeningHourItemInput[],
     context: LocationCallerContext
   ): Promise<void> {
-    await this.getLocationById(locationId, context); // ownership check
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
+    await this.getLocationById(locationId, context); // load check
 
     // Validate schedules: openTime < closeTime when not closed
     for (const s of schedules) {
@@ -491,6 +545,7 @@ export class LocationsService {
     request: CreateOpeningHoursExceptionRequest,
     context: LocationCallerContext
   ): Promise<void> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
     await this.getLocationById(locationId, context);
 
     await db
@@ -530,6 +585,7 @@ export class LocationsService {
     request: CreateStorageZoneRequest,
     context: LocationCallerContext
   ): Promise<typeof schema.storageZones.$inferSelect> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
     await this.getLocationById(locationId, context);
 
     const [zone] = await db
@@ -561,6 +617,7 @@ export class LocationsService {
     request: AddLocationMediaRequest,
     context: LocationCallerContext
   ): Promise<typeof schema.locationMedia.$inferSelect> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
     await this.getLocationById(locationId, context);
 
     return db.transaction(async (tx) => {

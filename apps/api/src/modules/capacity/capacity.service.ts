@@ -8,6 +8,7 @@ import {
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { auditService } from "../audit/audit.service.js";
+import { assertHostLocationAccess } from "../bookings/host-access.helper.js";
 
 export interface CapacityContext {
   userId: string;
@@ -27,7 +28,7 @@ export class CapacityService {
     locationId: string,
     context: CapacityContext
   ): Promise<StorageCapacityPool[]> {
-    await this.verifyLocationAccess(locationId, context);
+    await this.verifyLocationReadAccess(locationId, context);
 
     const pools = await db
       .select()
@@ -55,7 +56,7 @@ export class CapacityService {
     request: CreateCapacityPoolRequest,
     context: CapacityContext
   ): Promise<StorageCapacityPool> {
-    await this.verifyLocationAccess(locationId, context);
+    await this.verifyLocationWriteAccess(locationId, context);
 
     const [pool] = await db
       .insert(schema.storageCapacityPools)
@@ -166,7 +167,29 @@ export class CapacityService {
     };
   }
 
-  private async verifyLocationAccess(locationId: string, context: CapacityContext): Promise<void> {
+  private async verifyLocationReadAccess(
+    locationId: string,
+    context: CapacityContext
+  ): Promise<void> {
+    if (context.roles.includes("SUPERADMIN") || context.roles.includes("SUPPORT")) {
+      const [loc] = await db
+        .select({ id: schema.storageLocations.id })
+        .from(schema.storageLocations)
+        .where(eq(schema.storageLocations.id, locationId))
+        .limit(1);
+      if (!loc) {
+        throw AppError.notFound("Storage location not found");
+      }
+      return;
+    }
+
+    await assertHostLocationAccess(db, context.userId, context.roles, locationId);
+  }
+
+  private async verifyLocationWriteAccess(
+    locationId: string,
+    context: CapacityContext
+  ): Promise<void> {
     const [loc] = await db
       .select({
         id: schema.storageLocations.id,

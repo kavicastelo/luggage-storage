@@ -12,6 +12,7 @@ import {
   refreshAccessToken,
   setAuthFailureHandler
 } from "../lib/api-client";
+import { queryClient } from "../lib/query-client";
 
 export interface AuthState {
   user: AuthenticatedUser | null;
@@ -21,6 +22,7 @@ export interface AuthState {
   isInitializing: boolean;
   isLoading: boolean;
   error: string | null;
+  logoutWarning: string | null;
 
   // Actions
   initAuth: () => Promise<void>;
@@ -29,6 +31,7 @@ export interface AuthState {
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  refreshSessionAndUser: () => Promise<void>;
   clearAuth: () => void;
   setError: (error: string | null) => void;
 
@@ -38,9 +41,12 @@ export interface AuthState {
   hasAllPermissions: (permissions: string[]) => boolean;
 }
 
+let logoutInFlight: Promise<void> | null = null;
+
 export const useAuthStore = create<AuthState>((set, get) => {
   // Wire up the API client failure callback to reset auth store
   setAuthFailureHandler(() => {
+    queryClient.clear();
     set({
       user: null,
       sessionId: null,
@@ -59,11 +65,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
     isInitializing: true,
     isLoading: false,
     error: null,
+    logoutWarning: null,
 
     setError: (error: string | null) => set({ error }),
 
     clearAuth: () => {
       clearAccessToken();
+      queryClient.clear();
       set({
         user: null,
         sessionId: null,
@@ -71,7 +79,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
         isAuthenticated: false,
         isInitializing: false,
         isLoading: false,
-        error: null
+        error: null,
+        logoutWarning: null
       });
     },
 
@@ -80,7 +89,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
      * Attempts to rotate refresh token via HTTP-only cookie.
      */
     initAuth: async () => {
-      set({ isInitializing: true, error: null });
+      set({ isInitializing: true, error: null, logoutWarning: null });
       try {
         const token = await refreshAccessToken();
         if (token) {
@@ -112,20 +121,22 @@ export const useAuthStore = create<AuthState>((set, get) => {
      * Authenticates user with credentials and updates in-memory token and state.
      */
     login: async (credentials: LoginRequest) => {
-      set({ isLoading: true, error: null });
+      set({ isLoading: true, error: null, logoutWarning: null });
       try {
         const loginData = await authApi.login(credentials);
         setAccessToken(loginData.accessToken);
 
         // Fetch complete profile with effective permissions
         const meData = await authApi.getMe();
+        queryClient.clear();
         set({
           user: meData.user,
           sessionId: meData.sessionId,
           permissions: meData.permissions || meData.user.permissions || [],
           isAuthenticated: true,
           isLoading: false,
-          error: null
+          error: null,
+          logoutWarning: null
         });
       } catch (err) {
         clearAccessToken();
@@ -163,27 +174,48 @@ export const useAuthStore = create<AuthState>((set, get) => {
      * Logs out the current session and clears state.
      */
     logout: async () => {
-      set({ isLoading: true });
-      try {
-        await authApi.logout();
-      } catch {
-        // Ensure state is cleared even if server error occurs
-      } finally {
-        get().clearAuth();
+      if (logoutInFlight) {
+        return logoutInFlight;
       }
+
+      logoutInFlight = (async () => {
+        set({ isLoading: true, logoutWarning: null });
+        let revocationWarning: string | null = null;
+        try {
+          await authApi.logout();
+        } catch {
+          // Ensure state is cleared even if server error occurs
+          revocationWarning =
+            "Signed out locally, but server session revocation could not be confirmed.";
+        } finally {
+          get().clearAuth();
+          if (revocationWarning) {
+            set({ logoutWarning: revocationWarning });
+          }
+          logoutInFlight = null;
+        }
+      })();
+
+      return logoutInFlight;
     },
 
     /**
      * Logs out all sessions for the user across all devices.
      */
     logoutAll: async () => {
-      set({ isLoading: true });
+      set({ isLoading: true, logoutWarning: null });
+      let revocationWarning: string | null = null;
       try {
         await authApi.logoutAll();
       } catch {
-        // Ignore server error on cleanup
+        // Ignore server error on cleanup while surfacing revocation failure warning
+        revocationWarning =
+          "Signed out locally, but server session revocation could not be confirmed.";
       } finally {
         get().clearAuth();
+        if (revocationWarning) {
+          set({ logoutWarning: revocationWarning });
+        }
       }
     },
 
@@ -202,6 +234,18 @@ export const useAuthStore = create<AuthState>((set, get) => {
       } catch {
         get().clearAuth();
       }
+    },
+
+    /**
+     * Rotates the session token to obtain updated JWT role claims and reloads user profile.
+     */
+    refreshSessionAndUser: async () => {
+      const token = await refreshAccessToken();
+      if (!token) {
+        get().clearAuth();
+        return;
+      }
+      await get().refreshUser();
     },
 
     /**

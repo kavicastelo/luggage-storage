@@ -17,13 +17,13 @@ export function NotFoundPage() {
           to="/"
           className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition"
         >
-          Return to Landing (PW-001)
+          Return to Home
         </Link>
         <Link
           to="/search"
           className="px-4 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl text-xs font-bold transition"
         >
-          Search Storage (PW-002)
+          Search Storage
         </Link>
       </div>
     </div>

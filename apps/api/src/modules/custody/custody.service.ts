@@ -831,7 +831,8 @@ export class CustodyService {
           overdueMinutes,
           overdueFeeMinor,
           handoverCondition,
-          zeroPossessoryLienEnforced: overdueMinutes > 0
+          zeroPossessoryLienEnforced: overdueMinutes > 0,
+          ...(input.collectionNotes ? { collectionNotes: input.collectionNotes } : {})
         }
       });
 
@@ -848,7 +849,8 @@ export class CustodyService {
         metadata: {
           releasedBagCount: input.releasedBagCount,
           overdueMinutes,
-          overdueFeeMinor
+          overdueFeeMinor,
+          ...(input.collectionNotes ? { collectionNotes: input.collectionNotes } : {})
         }
       });
 
@@ -865,7 +867,8 @@ export class CustodyService {
           custodyTokenId: consumedTokenId,
           payableId,
           transactionGroupId: txGroupId,
-          handoverCondition
+          handoverCondition,
+          ...(input.collectionNotes ? { collectionNotes: input.collectionNotes } : {})
         },
         tx
       });

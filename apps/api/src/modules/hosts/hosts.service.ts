@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import {
   CreateHostBusinessRequest,
   UpdateHostBusinessRequest,
@@ -118,25 +118,56 @@ export class HostsService {
   }
 
   /**
-   * Retrieves all businesses owned by the current authenticated user.
+   * Retrieves all businesses owned by the current authenticated user,
+   * or assigned via active host staff membership (with financial/KYC fields redacted).
    */
   async getOwnedBusinesses(context: HostContext): Promise<HostBusiness[]> {
-    const rows = await db
+    const ownedRows = await db
       .select()
       .from(schema.hostBusinesses)
       .where(eq(schema.hostBusinesses.ownerUserId, context.userId))
       .orderBy(desc(schema.hostBusinesses.createdAt));
 
+    const staffMemberships = await db
+      .select({ businessId: schema.hostStaffMemberships.businessId })
+      .from(schema.hostStaffMemberships)
+      .where(
+        and(
+          eq(schema.hostStaffMemberships.userId, context.userId),
+          eq(schema.hostStaffMemberships.isActive, true)
+        )
+      );
+
+    const ownedIdSet = new Set(ownedRows.map((b) => b.id));
+    const staffOnlyBizIds = staffMemberships
+      .map((m) => m.businessId)
+      .filter((id) => !ownedIdSet.has(id));
+
+    const staffRows =
+      staffOnlyBizIds.length > 0
+        ? await db
+            .select()
+            .from(schema.hostBusinesses)
+            .where(inArray(schema.hostBusinesses.id, staffOnlyBizIds))
+            .orderBy(desc(schema.hostBusinesses.createdAt))
+        : [];
+
     const results: HostBusiness[] = [];
-    for (const b of rows) {
+    for (const b of ownedRows) {
       const verification = await this.getLatestVerification(b.id);
       results.push(this.mapBusinessEntity(b, verification));
+    }
+    for (const b of staffRows) {
+      results.push(
+        this.mapBusinessEntity(b, undefined, { redactSensitive: true })
+      );
     }
     return results;
   }
 
   /**
-   * Retrieves a single Host Business by ID, enforcing ownership or administrative privilege.
+   * Retrieves a single Host Business by ID, enforcing ownership, active staff assignment,
+   * or administrative read privileges with field-level redaction.
    */
   async getBusinessById(businessId: string, context: HostContext): Promise<HostBusiness> {
     const [business] = await db
@@ -150,12 +181,34 @@ export class HostsService {
     }
 
     const isSuperadmin = context.roles.includes("SUPERADMIN");
-    if (business.ownerUserId !== context.userId && !isSuperadmin) {
+    const isOwner = business.ownerUserId === context.userId;
+    if (isOwner || isSuperadmin) {
+      const verification = await this.getLatestVerification(business.id);
+      return this.mapBusinessEntity(business, verification);
+    }
+
+    if (context.roles.includes("SUPPORT")) {
+      const verification = await this.getLatestVerification(business.id);
+      return this.mapBusinessEntity(business, verification, { redactPayoutOnly: true });
+    }
+
+    const [staffMembership] = await db
+      .select({ id: schema.hostStaffMemberships.id })
+      .from(schema.hostStaffMemberships)
+      .where(
+        and(
+          eq(schema.hostStaffMemberships.businessId, businessId),
+          eq(schema.hostStaffMemberships.userId, context.userId),
+          eq(schema.hostStaffMemberships.isActive, true)
+        )
+      )
+      .limit(1);
+
+    if (!staffMembership) {
       throw AppError.forbidden("Access denied: You do not have permission to view this business");
     }
 
-    const verification = await this.getLatestVerification(business.id);
-    return this.mapBusinessEntity(business, verification);
+    return this.mapBusinessEntity(business, undefined, { redactSensitive: true });
   }
 
   /**
@@ -426,7 +479,7 @@ export class HostsService {
       throw AppError.notFound("Host business not found");
     }
 
-    const isFinancialAdmin = context.roles.includes("SUPERADMIN") || context.roles.includes("ADMIN_FINANCIAL");
+    const isFinancialAdmin = context.roles.includes("SUPERADMIN");
     if (business.ownerUserId !== context.userId && !isFinancialAdmin) {
       throw AppError.forbidden("Access denied: You do not have permission to view sensitive banking details");
     }
@@ -441,6 +494,36 @@ export class HostsService {
       payoutAccountName: business.payoutAccountName,
       payoutBranchCode: business.payoutBranchCode
     };
+  }
+
+  /**
+   * Retrieves verification progress for authorized business owner, Superadmin, or Support (read-only).
+   * Host Staff are strictly denied access to KYC verification records.
+   */
+  async getVerificationByBusinessId(
+    businessId: string,
+    context: HostContext
+  ): Promise<HostVerification | null> {
+    const [business] = await db
+      .select({ id: schema.hostBusinesses.id, ownerUserId: schema.hostBusinesses.ownerUserId })
+      .from(schema.hostBusinesses)
+      .where(eq(schema.hostBusinesses.id, businessId))
+      .limit(1);
+
+    if (!business) {
+      throw AppError.notFound("Host business not found");
+    }
+
+    const canViewVerification =
+      business.ownerUserId === context.userId ||
+      context.roles.includes("SUPERADMIN") ||
+      context.roles.includes("SUPPORT");
+
+    if (!canViewVerification) {
+      throw AppError.forbidden("Access denied: You do not have permission to view business verification records");
+    }
+
+    return this.getLatestVerification(business.id);
   }
 
   /**
@@ -466,22 +549,27 @@ export class HostsService {
 
   /**
    * Maps database entity to contract model.
-   * Strictly masks bank account numbers to prevent financial data leakage.
+   * Strictly masks bank account numbers and redacts financial/KYC fields for non-owner callers.
    */
   private mapBusinessEntity(
     entity: typeof schema.hostBusinesses.$inferSelect,
-    verification?: HostVerification | null
+    verification?: HostVerification | null,
+    options?: { redactSensitive?: boolean; redactPayoutOnly?: boolean }
   ): HostBusiness {
-    const maskedAccount = maskPayoutAccountNumber(entity.payoutAccountNumber);
+    const redactAllSensitive = Boolean(options?.redactSensitive);
+    const redactPayout = redactAllSensitive || Boolean(options?.redactPayoutOnly);
+    const maskedAccount = redactPayout
+      ? null
+      : maskPayoutAccountNumber(entity.payoutAccountNumber);
 
     return {
       id: entity.id,
       ownerUserId: entity.ownerUserId,
       legalBusinessName: entity.legalBusinessName,
       tradeName: entity.tradeName,
-      businessRegistrationNumber: entity.businessRegistrationNumber,
+      businessRegistrationNumber: redactAllSensitive ? null : entity.businessRegistrationNumber,
       entityType: entity.entityType as HostBusiness["entityType"],
-      taxIdentifier: entity.taxIdentifier,
+      taxIdentifier: redactAllSensitive ? null : entity.taxIdentifier,
       contactEmail: entity.contactEmail,
       contactPhone: entity.contactPhone,
       addressLine1: entity.addressLine1,
@@ -489,15 +577,15 @@ export class HostsService {
       city: entity.city,
       postalCode: entity.postalCode,
       countryCode: entity.countryCode,
-      payoutBankName: entity.payoutBankName,
+      payoutBankName: redactPayout ? null : entity.payoutBankName,
       payoutAccountNumber: maskedAccount,
       payoutAccountNumberMasked: maskedAccount,
-      payoutAccountName: entity.payoutAccountName,
-      payoutBranchCode: entity.payoutBranchCode,
+      payoutAccountName: redactPayout ? null : entity.payoutAccountName,
+      payoutBranchCode: redactPayout ? null : entity.payoutBranchCode,
       status: entity.status as HostBusiness["status"],
       createdAt: entity.createdAt.toISOString(),
       updatedAt: entity.updatedAt.toISOString(),
-      verification: verification || undefined
+      verification: redactAllSensitive ? undefined : verification || undefined
     };
   }
 

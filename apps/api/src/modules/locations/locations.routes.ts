@@ -6,7 +6,8 @@ import {
   CreateOpeningHoursExceptionRequestSchema,
   CreateStorageZoneRequestSchema,
   AddLocationMediaRequestSchema,
-  createSuccessResponse
+  createSuccessResponse,
+  SYSTEM_PERMISSIONS
 } from "@luggage-storage/contracts";
 import { locationsService } from "./locations.service.js";
 
@@ -15,7 +16,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     "/locations",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CREATE)
+      ],
       schema: {
         description: "Create a new storage location draft under an owned host business",
         tags: ["Storage Locations"]
@@ -41,7 +45,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     "/locations",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_READ_OWN)
+      ],
       schema: {
         description: "List all storage locations owned by businesses of the authenticated user",
         tags: ["Storage Locations"]
@@ -66,7 +73,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { locationId: string } }>(
     "/locations/:locationId",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_READ_OWN)
+      ],
       schema: {
         description: "Retrieve comprehensive details of a storage location",
         tags: ["Storage Locations"],
@@ -99,7 +109,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.patch<{ Params: { locationId: string } }>(
     "/locations/:locationId",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_UPDATE_OWN)
+      ],
       schema: {
         description: "Update details or coordinates of an owned storage location",
         tags: ["Storage Locations"],
@@ -133,7 +146,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { locationId: string } }>(
     "/locations/:locationId/submit",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_SUBMIT)
+      ],
       schema: {
         description: "Submit a storage location draft for Superadmin moderation approval",
         tags: ["Storage Locations"],
@@ -166,7 +182,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { locationId: string } }>(
     "/locations/:locationId/disable",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_DISABLE)
+      ],
       schema: {
         description: "Disable an active or pending storage location",
         tags: ["Storage Locations"],
@@ -199,7 +218,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.put<{ Params: { locationId: string } }>(
     "/locations/:locationId/opening-hours",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CONFIGURE)
+      ],
       schema: {
         description: "Configure weekly recurring opening and intake hours",
         tags: ["Storage Locations"],
@@ -233,7 +255,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { locationId: string } }>(
     "/locations/:locationId/exceptions",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CONFIGURE)
+      ],
       schema: {
         description: "Add a date-specific opening hours exception or full-day closure",
         tags: ["Storage Locations"],
@@ -267,7 +292,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { locationId: string } }>(
     "/locations/:locationId/zones",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CONFIGURE)
+      ],
       schema: {
         description: "Create a storage zone / room partition within a location",
         tags: ["Storage Locations"],
@@ -301,7 +329,10 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { locationId: string } }>(
     "/locations/:locationId/media",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CONFIGURE)
+      ],
       schema: {
         description: "Link uploaded photo to a storage location",
         tags: ["Storage Locations"],

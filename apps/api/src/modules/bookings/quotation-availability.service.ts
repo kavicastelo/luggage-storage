@@ -482,6 +482,9 @@ export class QuotationAndAvailabilityService {
       businessId: string;
       policyId: string;
       allocations: PoolAllocationPlan[];
+      commissionRateBps: number;
+      platformCommissionMinor: number;
+      hostPayableMinor: number;
     }
   > {
     const input = BookingQuoteRequestSchema.parse(rawInput);
@@ -703,7 +706,15 @@ export class QuotationAndAvailabilityService {
           collectionAt: query.collectionAt,
           items
         });
-        const { businessId: _b, policyId: _p, allocations: _a, ...publicQuote } = fullQuote;
+        const {
+          businessId: _b,
+          policyId: _p,
+          allocations: _a,
+          commissionRateBps: _cr,
+          platformCommissionMinor: _pc,
+          hostPayableMinor: _hp,
+          ...publicQuote
+        } = fullQuote;
         quotes.push(publicQuote);
       } catch {
         // Skip locations without active pricing policy

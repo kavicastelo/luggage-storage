@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { useAuthStore } from "@/store/useAuthStore";
 import {
   PublicLandingPage,
   WebSearchDiscoveryPage,
@@ -17,8 +18,12 @@ import {
 } from "../src/pages/PublicMarketplacePages";
 
 function renderWithRouter(ui: React.ReactElement, initialRoute = "/") {
+  const effectiveRoute =
+    !useAuthStore.getState().isAuthenticated && !initialRoute.includes("preview=demo")
+      ? `${initialRoute}${initialRoute.includes("?") ? "&" : "?"}preview=demo`
+      : initialRoute;
   return renderToString(
-    <MemoryRouter initialEntries={[initialRoute]}>
+    <MemoryRouter initialEntries={[effectiveRoute]}>
       <Routes>
         <Route path="/" element={ui} />
         <Route path="/search" element={ui} />
@@ -46,7 +51,7 @@ describe("Phase 2C.2 — Public Traveller Web Experience Verification", () => {
       expect(html).toContain("Verified Custody");
       expect(html).toContain("Colombo Fort &amp; Pettah");
       expect(html).toContain("Find Storage");
-      expect(html).toContain("LKR 250,000 Protection");
+      expect(html).toContain("Serialized Tamper-Evident Seals");
       expect(html).toContain("How Verified Luggage Custody Works");
     });
 

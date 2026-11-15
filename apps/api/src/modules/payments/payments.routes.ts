@@ -127,6 +127,7 @@ export async function paymentRoutes(app: FastifyInstance): Promise<void> {
 
   // 3. Encapsulated webhook endpoints preserving exact raw body strings for signature verification
   app.register(async (webhookScope) => {
+    webhookScope.removeContentTypeParser("application/json");
     webhookScope.addContentTypeParser(
       "application/json",
       { parseAs: "string" },

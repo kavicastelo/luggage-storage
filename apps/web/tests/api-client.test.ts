@@ -5,13 +5,15 @@ import {
   setAccessToken,
   getAccessToken,
   clearAccessToken,
-  refreshAccessToken
+  refreshAccessToken,
+  setAuthFailureHandler
 } from "../src/lib/api-client";
 
 describe("api-client (HTTP & Refresh Interceptor)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     clearAccessToken();
+    setAuthFailureHandler(null);
   });
 
   it("should send requests with credentials: 'include'", async () => {
@@ -180,6 +182,101 @@ describe("api-client (HTTP & Refresh Interceptor)", () => {
       expect(apiErr.message).toBe("Validation failed");
       expect(apiErr.details).toEqual([{ field: "email", message: "Invalid email" }]);
     }
+  });
+
+  it("should omit Content-Type on bodyless POST and DELETE requests", async () => {
+    setAccessToken("active-jwt");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: { message: "ok" } })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchApi("/auth/logout", { method: "POST", skipAuthRefresh: true });
+    await fetchApi("/auth/sessions/123", { method: "DELETE" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const logoutInit = fetchMock.mock.calls[0]?.[1] as RequestInit & {
+      headers: Record<string, string>;
+    };
+    const deleteInit = fetchMock.mock.calls[1]?.[1] as RequestInit & {
+      headers: Record<string, string>;
+    };
+
+    const logoutHeaderKeys = Object.keys(logoutInit.headers).map((k) => k.toLowerCase());
+    const deleteHeaderKeys = Object.keys(deleteInit.headers).map((k) => k.toLowerCase());
+    expect(logoutHeaderKeys).not.toContain("content-type");
+    expect(deleteHeaderKeys).not.toContain("content-type");
+  });
+
+  it("should set Content-Type: application/json for JSON string bodies and strip Content-Type for FormData", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: { ok: true } })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchApi("/bookings/quote", {
+      method: "POST",
+      body: JSON.stringify({ locationId: "11111111-1111-1111-1111-111111111111" })
+    });
+
+    const formData = new FormData();
+    formData.append("file", new Blob(["hello"], { type: "text/plain" }), "doc.txt");
+    await fetchApi("/uploads/mock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: formData
+    });
+
+    const jsonInit = fetchMock.mock.calls[0]?.[1] as RequestInit & {
+      headers: Record<string, string>;
+    };
+    expect(jsonInit.headers["Content-Type"]).toBe("application/json");
+
+    const formInit = fetchMock.mock.calls[1]?.[1] as RequestInit & {
+      headers: Record<string, string>;
+    };
+    const formHeaderKeys = Object.keys(formInit.headers).map((k) => k.toLowerCase());
+    expect(formHeaderKeys).not.toContain("content-type");
+  });
+
+  it("should skip refresh on /api/v1/auth/login 401 and invoke authFailureHandler on malformed refresh payload", async () => {
+    const authFailureSpy = vi.fn();
+    setAuthFailureHandler(authFailureSpy);
+    setAccessToken("stale-token");
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          success: false,
+          error: { code: "UNAUTHORIZED", message: "Bad password" }
+        })
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: {} })
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchApi("/api/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: "a@b.com", password: "wrong" })
+      })
+    ).rejects.toThrow(ApiClientError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const refreshed = await refreshAccessToken();
+    expect(refreshed).toBeNull();
+    expect(getAccessToken()).toBeNull();
+    expect(authFailureSpy).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -10,7 +10,8 @@ import {
   IssueCustodyPassRequestSchema,
   RecordBookingExceptionRequestSchema,
   createPaginatedResponse,
-  createSuccessResponse
+  createSuccessResponse,
+  SYSTEM_PERMISSIONS
 } from "@luggage-storage/contracts";
 import { AppError } from "../../common/errors/app-error.js";
 import { quotationService } from "./quotation-availability.service.js";
@@ -71,7 +72,15 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const body = BookingQuoteRequestSchema.parse(request.body);
       const fullQuote = await quotationService.calculateQuote(body);
-      const { businessId: _b, policyId: _p, allocations: _a, ...publicQuote } = fullQuote;
+      const {
+        businessId: _b,
+        policyId: _p,
+        allocations: _a,
+        commissionRateBps: _cr,
+        platformCommissionMinor: _pc,
+        hostPayableMinor: _hp,
+        ...publicQuote
+      } = fullQuote;
       return reply.status(200).send(createSuccessResponse(publicQuote, request.id));
     }
   );
@@ -171,7 +180,15 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { bookingId: string } }>(
     "/:bookingId/exceptions",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requireAnyPermission([
+          SYSTEM_PERMISSIONS.BOOKINGS_CREATE,
+          SYSTEM_PERMISSIONS.HOSTS_BOOKINGS_MANAGE_OWN,
+          SYSTEM_PERMISSIONS.HOSTS_CUSTODY_OPERATE,
+          SYSTEM_PERMISSIONS.ADMIN_BOOKING_MANAGE
+        ])
+      ],
       schema: {
         tags: ["Availability & Bookings"],
         summary: "Record an operational booking exception or dispute and hold host settlement",

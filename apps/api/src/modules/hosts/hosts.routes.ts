@@ -3,12 +3,13 @@ import {
   CreateHostBusinessRequestSchema,
   UpdateHostBusinessRequestSchema,
   SubmitHostVerificationRequestSchema,
-  createSuccessResponse
+  createSuccessResponse,
+  SYSTEM_PERMISSIONS
 } from "@luggage-storage/contracts";
 import { hostsService } from "./hosts.service.js";
 
 export async function hostRoutes(app: FastifyInstance): Promise<void> {
-  // 1. Create Host Business
+  // 1. Create Host Business (self-onboarding allowed for authenticated TRAVELLER accounts)
   app.post(
     "/businesses",
     {
@@ -38,7 +39,10 @@ export async function hostRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     "/businesses",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_BUSINESS_READ_OWN)
+      ],
       schema: {
         description: "List all host businesses owned by the authenticated user",
         tags: ["Hosts"]
@@ -63,7 +67,13 @@ export async function hostRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { businessId: string } }>(
     "/businesses/:businessId",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requireAnyPermission([
+          SYSTEM_PERMISSIONS.HOSTS_BUSINESS_READ_OWN,
+          SYSTEM_PERMISSIONS.ADMIN_HOST_READ
+        ])
+      ],
       schema: {
         description: "Retrieve details of a specific host business",
         tags: ["Hosts"],
@@ -96,7 +106,10 @@ export async function hostRoutes(app: FastifyInstance): Promise<void> {
   app.patch<{ Params: { businessId: string } }>(
     "/businesses/:businessId",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_BUSINESS_UPDATE_OWN)
+      ],
       schema: {
         description: "Update details of an owned host business",
         tags: ["Hosts"],
@@ -130,7 +143,10 @@ export async function hostRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { businessId: string } }>(
     "/businesses/:businessId/verification",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_VERIFICATION_SUBMIT)
+      ],
       schema: {
         description: "Submit KYC and business registration documents for verification",
         tags: ["Hosts"],
@@ -164,7 +180,13 @@ export async function hostRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { businessId: string } }>(
     "/businesses/:businessId/verification",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requireAnyPermission([
+          SYSTEM_PERMISSIONS.HOSTS_VERIFICATION_READ_OWN,
+          SYSTEM_PERMISSIONS.ADMIN_HOST_READ
+        ])
+      ],
       schema: {
         description: "Retrieve verification progress and review feedback for a host business",
         tags: ["Hosts"],
@@ -179,7 +201,7 @@ export async function hostRoutes(app: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { businessId } = request.params;
-      const business = await hostsService.getBusinessById(businessId, {
+      const verification = await hostsService.getVerificationByBusinessId(businessId, {
         userId: request.user!.sub,
         roles: request.user!.roles,
         clientInfo: {
@@ -189,15 +211,21 @@ export async function hostRoutes(app: FastifyInstance): Promise<void> {
         }
       });
 
-      return reply.status(200).send(createSuccessResponse(business.verification || null, request.id));
+      return reply.status(200).send(createSuccessResponse(verification, request.id));
     }
   );
 
-  // 7. Get sensitive payout details (Authorized Host Owner or Financial Admin only)
+  // 7. Get sensitive payout details (Authorized Host Owner or Superadmin only)
   app.get<{ Params: { businessId: string } }>(
     "/businesses/:businessId/payout-details",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requireAnyPermission([
+          SYSTEM_PERMISSIONS.HOSTS_FINANCE_READ_OWN,
+          SYSTEM_PERMISSIONS.ADMIN_FINANCIAL_MANAGE
+        ])
+      ],
       schema: {
         description: "Retrieve sensitive payout details for authorized business owner or financial administrator",
         tags: ["Hosts"],

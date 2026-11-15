@@ -58,7 +58,17 @@ describe("Phase 2 — Web Screen Registry & Mascot Catalogue Verification", () =
       s.actorScope.includes("Support")
     ).map((s) => s.id);
 
-    expect(supportAccessibleAdminIds).toEqual(["AD-003", "AD-005", "AD-011", "AD-012"]);
+    expect(supportAccessibleAdminIds).toEqual([
+      "AD-002",
+      "AD-003",
+      "AD-004",
+      "AD-005",
+      "AD-006",
+      "AD-007",
+      "AD-011",
+      "AD-012",
+      "AD-013"
+    ]);
   });
 
   it("maintains balanced 85/15 LKR financial splits and 7-stage refund tracking", () => {

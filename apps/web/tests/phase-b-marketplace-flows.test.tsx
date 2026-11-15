@@ -50,9 +50,6 @@ describe("Phase B — Web Booking, Non-Escrow Settlement Ledger & Custody Integr
             grossStorageMinor: 240000,
             discountMinor: 0,
             storageSubtotalMinor: 240000,
-            commissionRateBps: 1500,
-            platformCommissionMinor: 36000,
-            hostPayableMinor: 204000,
             taxRateBps: 0,
             taxAmountMinor: 0,
             totalAmountMinor: 240000,
@@ -73,7 +70,8 @@ describe("Phase B — Web Booking, Non-Escrow Settlement Ledger & Custody Integr
       });
 
       expect(quote.totalAmountMinor).toBe(240000);
-      expect(quote.platformCommissionMinor + quote.hostPayableMinor).toBe(quote.totalAmountMinor);
+      expect(quote.platformCommissionMinor).toBeUndefined();
+      expect(quote.hostPayableMinor).toBeUndefined();
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("/bookings/quote"),
         expect.objectContaining({ method: "POST" })
@@ -259,7 +257,7 @@ describe("Phase B — Web Booking, Non-Escrow Settlement Ledger & Custody Integr
 
     it("ensures Location Profile & Admin Double-Entry Ledger use accurate non-escrow terminology", () => {
       const profileHtml = renderToString(
-        <MemoryRouter initialEntries={["/locations/colombo-fort-railway-hub"]}>
+        <MemoryRouter initialEntries={["/locations/colombo-fort-railway-hub?preview=demo"]}>
           <Routes>
             <Route path="/locations/:slug" element={<LocationProfileDetailPage />} />
           </Routes>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   MapPin,
   Shield,
@@ -40,6 +40,8 @@ import {
   MascotIllustration
 } from "@/components/ui";
 import { useAuthStore } from "@/store/useAuthStore";
+import { isDemoPreviewActive } from "@/config/demo-preview";
+import { getBookingStatusDisplay } from "@/lib/booking-status";
 import { marketplaceApi } from "@/services/marketplace-api";
 import {
   clearPendingCheckoutContext,
@@ -93,7 +95,9 @@ function mapRefundStatusToStage(status?: string): number {
 }
 
 function mapPublicLocationToItem(loc: PublicStorageLocation): StorageLocationItem {
-  const baseRate = Math.round((loc.baseRateMinor ?? 15000) / 100);
+  const baseDailyRateLkr =
+    loc.baseRateMinor != null ? Math.round(loc.baseRateMinor / 100) : null;
+  const sortPrice = baseDailyRateLkr ?? 0;
   return {
     id: loc.id,
     slug: loc.id,
@@ -109,33 +113,35 @@ function mapPublicLocationToItem(loc: PublicStorageLocation): StorageLocationIte
     is24Hours: loc.is24Hours,
     hasCctv: loc.amenities.includes("CCTV"),
     hasClimateControl: loc.amenities.includes("AIR_CONDITIONING"),
-    hasInsurance: true,
-    insuranceLimitLkr: 250000,
+    hasInsurance: false,
+    insuranceLimitLkr: 0,
     photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
-    gracePeriodMinutes: 30,
-    lateFeePolicyLabel: "Illustrative Tier LKR 300 / hr",
+    gracePeriodMinutes: 0,
+    lateFeePolicyLabel: "Calculated per booking policy at checkout",
     hourlyRateLkr: {
-      SMALL: Math.round(baseRate * 0.7),
-      MEDIUM: baseRate,
-      LARGE: Math.round(baseRate * 1.5),
-      OVERSIZED: Math.round(baseRate * 2.0)
+      SMALL: sortPrice,
+      MEDIUM: sortPrice,
+      LARGE: sortPrice,
+      OVERSIZED: sortPrice
     },
     dailyCapLkr: {
-      SMALL: Math.round(baseRate * 0.7 * 8),
-      MEDIUM: baseRate * 8,
-      LARGE: Math.round(baseRate * 1.5 * 8),
-      OVERSIZED: Math.round(baseRate * 2.0 * 8)
+      SMALL: sortPrice,
+      MEDIUM: sortPrice,
+      LARGE: sortPrice,
+      OVERSIZED: sortPrice
     },
-    totalCapacity: 50,
-    availableCapacity: 45,
+    totalCapacity: 0,
+    availableCapacity: 0,
     coordinates: {
       lat: loc.approximateLatitude,
       lng: loc.approximateLongitude
     },
     addressMasked: loc.approximateArea,
     addressExact: `${loc.approximateArea} (Exact entrance address unlocked upon payment confirmation)`,
-    zones: [{ id: "z1", code: "Z1", name: "Main Storage Room", capacity: 50, occupied: 5 }],
-    description: loc.description || "Secure, convenient storage facility in Sri Lanka."
+    zones: [],
+    description: loc.description || "Secure, convenient storage facility in Sri Lanka.",
+    isLiveLocation: true,
+    baseDailyRateLkr
   };
 }
 
@@ -144,18 +150,56 @@ function mapPublicLocationToItem(loc: PublicStorageLocation): StorageLocationIte
 // ============================================================================
 export function PublicLandingPage() {
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const isDemoActive = isDemoPreviewActive({
+    allowDemoPreview: true,
+    search: routeLocation.search,
+    isAuthenticated
+  });
+  const demoSuffix = isDemoActive ? "?preview=demo" : "";
   const [selectedCity, setSelectedCity] = useState("Colombo");
   const [bagCount, setBagCount] = useState(2);
   const [dropDate, setDropDate] = useState("2026-11-10");
+  const [liveHubs, setLiveHubs] = useState<PublicStorageLocation[]>([]);
+  const [hubsLoading, setHubsLoading] = useState(true);
+  const [hubsError, setHubsError] = useState<string | null>(null);
+
+  const loadFeaturedHubs = useCallback(async () => {
+    setHubsLoading(true);
+    setHubsError(null);
+    try {
+      const res = await marketplaceApi.searchLocations({
+        amenities: [],
+        page: 1,
+        limit: 6
+      });
+      setLiveHubs(res.locations || []);
+    } catch (err: unknown) {
+      setHubsError(err instanceof Error ? err.message : "Unable to load verified hubs.");
+    } finally {
+      setHubsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadFeaturedHubs();
+  }, [loadFeaturedHubs]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const demoQuery = isDemoActive ? "&preview=demo" : "";
     navigate(
-      `/search?city=${encodeURIComponent(selectedCity)}&date=${dropDate}&bags=${bagCount}`
+      `/search?city=${encodeURIComponent(selectedCity)}&date=${dropDate}&bags=${bagCount}${demoQuery}`
     );
   };
 
-  const featuredHubs = useMemo(() => DEMO_LOCATIONS.slice(0, 3), []);
+  const featuredHubs = useMemo(() => {
+    if (liveHubs.length > 0) {
+      return liveHubs.slice(0, 3).map(mapPublicLocationToItem);
+    }
+    return isDemoActive ? DEMO_LOCATIONS.slice(0, 3) : [];
+  }, [liveHubs, isDemoActive]);
 
   return (
     <div className="space-y-16 sm:space-y-20">
@@ -179,7 +223,7 @@ export function PublicLandingPage() {
             <p className="text-sand-200 text-base sm:text-lg max-w-2xl leading-relaxed">
               Drop off your backpacks, suitcases, and surfboards with inspected partner hotels and
               concierge vaults near Colombo Fort, Ella, Kandy, Galle Fort, and CMB Airport. Protected
-              by tamper-evident serialized seals and covered up to LKR 250,000.
+              by tamper-evident serialized seals and tracked through single-use QR/PIN custody handovers.
             </p>
 
             {/* Intuitive Search Bar Card */}
@@ -261,7 +305,7 @@ export function PublicLandingPage() {
             <div className="flex flex-wrap items-center gap-6 pt-2 text-xs sm:text-sm text-sand-300">
               <span className="flex items-center gap-2 font-medium">
                 <Shield className="h-4 w-4 text-emerald-400" />
-                LKR 250,000 Protection / Bag
+                Serialized Tamper-Evident Seals
               </span>
               <span className="flex items-center gap-2 font-medium">
                 <QrCode className="h-4 w-4 text-amber-300" />
@@ -288,14 +332,14 @@ export function PublicLandingPage() {
                   </h2>
                   <p className="text-xs text-sand-700 leading-relaxed">
                     From scenic Colombo-Badulla trains to coastal Galle walks, Kiri ensures every
-                    bag is sealed and protected.
+                    bag is sealed and tracked.
                   </p>
                 </div>
               </div>
               <div className="mt-5 pt-4 border-t border-sand-100 flex items-center justify-between text-xs">
-                <span className="font-semibold text-sand-700">Storage rates from</span>
-                <span className="font-extrabold text-terracotta-700 text-base">
-                  LKR 140 <span className="text-xs font-normal text-sand-600">/ hour</span>
+                <span className="font-semibold text-sand-700">Transparent LKR quotes</span>
+                <span className="font-extrabold text-terracotta-700 text-sm">
+                  Server-Verified Before Payment
                 </span>
               </div>
             </div>
@@ -326,14 +370,36 @@ export function PublicLandingPage() {
             </p>
           </div>
           <Link
-            to="/search"
+            to={`/search${demoSuffix}`}
             className="inline-flex items-center gap-2 text-sm font-bold text-terracotta-700 hover:text-terracotta-800 transition"
           >
-            <span>Explore All {DEMO_LOCATIONS.length} Hubs on Map</span>
+            <span>Explore Verified Hubs on Map</span>
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
 
+        {hubsError && !isDemoActive ? (
+          <Alert variant="danger" title="Unable to Load Storage Hubs">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>{hubsError}</span>
+              <Button type="button" variant="outline" size="sm" onClick={loadFeaturedHubs}>
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                Retry
+              </Button>
+            </div>
+          </Alert>
+        ) : featuredHubs.length === 0 ? (
+          <div className="bg-white rounded-3xl border border-sand-200 p-8 text-center space-y-3">
+            <p className="text-sm font-bold text-navy-950">
+              {hubsLoading
+                ? "Loading verified storage locations..."
+                : "No active storage locations published yet."}
+            </p>
+            <p className="text-xs text-sand-700">
+              Search by destination to check newly verified partner hubs as they go live.
+            </p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {featuredHubs.map((loc) => (
             <Card
@@ -367,27 +433,44 @@ export function PublicLandingPage() {
                     {loc.hasClimateControl ? "Climate Controlled" : "Secure Ventilated"}
                   </span>
                   <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200">
-                    {loc.availableCapacity} slots available
+                    {loc.isLiveLocation
+                      ? "Live capacity checked at booking"
+                      : `${loc.availableCapacity} slots available`}
                   </span>
                 </div>
                 <div className="pt-2 border-t border-sand-100 flex items-baseline justify-between">
                   <span className="text-xs text-sand-600">Standard Bag Rate</span>
                   <div>
-                    <span className="text-lg font-extrabold text-navy-950">
-                      {formatLkr(loc.hourlyRateLkr.MEDIUM)}
-                    </span>
-                    <span className="text-xs text-sand-600"> / hr</span>
+                    {loc.isLiveLocation ? (
+                      loc.baseDailyRateLkr != null ? (
+                        <>
+                          <span className="text-lg font-extrabold text-navy-950">
+                            {formatLkr(loc.baseDailyRateLkr)}
+                          </span>
+                          <span className="text-xs text-sand-600"> / day</span>
+                        </>
+                      ) : (
+                        <span className="text-sm font-bold text-navy-950">Quoted at Checkout</span>
+                      )
+                    ) : (
+                      <>
+                        <span className="text-lg font-extrabold text-navy-950">
+                          {formatLkr(loc.hourlyRateLkr.MEDIUM)}
+                        </span>
+                        <span className="text-xs text-sand-600"> / hr</span>
+                      </>
+                    )}
                   </div>
                 </div>
               </CardContent>
 
               <CardFooter className="gap-2">
-                <Link to={`/locations/${loc.slug}`} className="flex-1">
+                <Link to={`/locations/${loc.slug}${demoSuffix}`} className="flex-1">
                   <Button variant="outline" size="sm" className="w-full justify-center">
                     Inspect
                   </Button>
                 </Link>
-                <Link to={`/checkout/${loc.id}`} className="flex-1">
+                <Link to={`/checkout/${loc.id}${demoSuffix}`} className="flex-1">
                   <Button variant="primary" size="sm" className="w-full justify-center">
                     Book Now
                   </Button>
@@ -396,6 +479,7 @@ export function PublicLandingPage() {
             </Card>
           ))}
         </div>
+        )}
       </section>
 
       {/* 4-Step Chain of Custody */}
@@ -491,9 +575,9 @@ export function PublicLandingPage() {
             </div>
             <div className="p-4 rounded-xl bg-white border border-sand-200 shadow-sm">
               <CheckCircle2 className="h-5 w-5 text-emerald-600 mb-1" />
-              <h4 className="font-bold text-sm text-navy-900">LKR 250,000 Bailment Shield</h4>
+              <h4 className="font-bold text-sm text-navy-900">Verified Custody Protocol</h4>
               <p className="text-xs text-sand-600 mt-0.5">
-                Comprehensive platform protection for damage or loss during custody.
+                Bag reconciliation, tamper-evident seals, and documented incident review during storage.
               </p>
             </div>
           </div>
@@ -518,14 +602,26 @@ export function PublicLandingPage() {
 // ============================================================================
 export function WebSearchDiscoveryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const routeLocation = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const isDemoActive = isDemoPreviewActive({
+    allowDemoPreview: true,
+    search: routeLocation.search,
+    isAuthenticated
+  });
+  const demoSuffix = isDemoActive ? "?preview=demo" : "";
   const initialCity = searchParams.get("city") || "ALL";
 
   const [selectedCity, setSelectedCity] = useState(initialCity);
   const [only24Hours, setOnly24Hours] = useState(false);
   const [onlyClimateControl, setOnlyClimateControl] = useState(false);
   const [sortBy, setSortBy] = useState<"RECOMMENDED" | "PRICE_ASC" | "RATING_DESC">("RECOMMENDED");
-  const [selectedPinId, setSelectedPinId] = useState<string>(DEMO_LOCATIONS[0].id);
+  const [selectedPinId, setSelectedPinId] = useState<string>(
+    isDemoActive ? DEMO_LOCATIONS[0].id : ""
+  );
   const [liveLocations, setLiveLocations] = useState<PublicStorageLocation[]>([]);
+  const [searchLoading, setSearchLoading] = useState(true);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Sync state if query changes
   useEffect(() => {
@@ -533,29 +629,33 @@ export function WebSearchDiscoveryPage() {
     if (qCity && qCity !== selectedCity) {
       setSelectedCity(qCity);
     }
-  }, [searchParams]);
+  }, [searchParams, selectedCity]);
+
+  const loadSearch = useCallback(async () => {
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const res = await marketplaceApi.searchLocations({
+        city: selectedCity !== "ALL" ? selectedCity : undefined,
+        radiusMeters: 15000,
+        amenities: onlyClimateControl ? ["AIR_CONDITIONING"] : [],
+        page: 1,
+        limit: 20
+      });
+      setLiveLocations(res.locations ?? []);
+    } catch (err: unknown) {
+      setLiveLocations([]);
+      setSearchError(
+        err instanceof Error ? err.message : "Unable to load verified storage locations."
+      );
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [selectedCity, onlyClimateControl]);
 
   useEffect(() => {
-    let isMounted = true;
-    async function fetchLive() {
-      try {
-        const res = await marketplaceApi.searchLocations({
-          city: selectedCity !== "ALL" ? selectedCity : undefined,
-          radiusMeters: 15000,
-          amenities: [],
-          page: 1,
-          limit: 20
-        });
-        if (isMounted && res.locations) {
-          setLiveLocations(res.locations);
-        }
-      } catch {
-        // Fallback silently to mock demo state
-      }
-    }
-    fetchLive();
-    return () => { isMounted = false; };
-  }, [selectedCity]);
+    loadSearch();
+  }, [loadSearch]);
 
   const handleCityChange = (city: string) => {
     setSelectedCity(city);
@@ -571,11 +671,14 @@ export function WebSearchDiscoveryPage() {
   };
 
   const filteredLocations = useMemo(() => {
-    if (liveLocations.length > 0) {
-      return liveLocations.map(mapPublicLocationToItem);
-    }
+    const baseList =
+      liveLocations.length > 0
+        ? liveLocations.map(mapPublicLocationToItem)
+        : isDemoActive
+          ? DEMO_LOCATIONS
+          : [];
 
-    const list = DEMO_LOCATIONS.filter((loc) => {
+    const list = baseList.filter((loc) => {
       if (selectedCity !== "ALL" && loc.city.toLowerCase() !== selectedCity.toLowerCase()) {
         return false;
       }
@@ -585,12 +688,25 @@ export function WebSearchDiscoveryPage() {
     });
 
     if (sortBy === "PRICE_ASC") {
-      list.sort((a, b) => a.hourlyRateLkr.MEDIUM - b.hourlyRateLkr.MEDIUM);
+      list.sort(
+        (a, b) =>
+          (a.baseDailyRateLkr ?? a.hourlyRateLkr.MEDIUM) -
+          (b.baseDailyRateLkr ?? b.hourlyRateLkr.MEDIUM)
+      );
     } else if (sortBy === "RATING_DESC") {
       list.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
     }
     return list;
-  }, [liveLocations, selectedCity, only24Hours, onlyClimateControl, sortBy]);
+  }, [liveLocations, isDemoActive, selectedCity, only24Hours, onlyClimateControl, sortBy]);
+
+  useEffect(() => {
+    if (
+      filteredLocations.length > 0 &&
+      !filteredLocations.some((l) => l.id === selectedPinId)
+    ) {
+      setSelectedPinId(filteredLocations[0].id);
+    }
+  }, [filteredLocations, selectedPinId]);
 
   const activeSelectedLocation =
     filteredLocations.find((l) => l.id === selectedPinId) || filteredLocations[0];
@@ -674,8 +790,23 @@ export function WebSearchDiscoveryPage() {
         </div>
       </div>
 
+      {searchError && (
+        <Alert variant="danger" title="Unable to Load Storage Locations">
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
+            <span>{searchError}</span>
+            <Button variant="outline" size="sm" onClick={loadSearch}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       {/* Split View: Listings & Interactive Transit Corridor Map */}
-      {filteredLocations.length === 0 ? (
+      {searchLoading && filteredLocations.length === 0 ? (
+        <div className="bg-white rounded-3xl border border-sand-200 p-10 text-center text-sm font-medium text-sand-700">
+          Loading verified storage hubs...
+        </div>
+      ) : filteredLocations.length === 0 ? (
         <div className="bg-white rounded-3xl border border-sand-200 p-12 text-center space-y-4 max-w-lg mx-auto">
           <MascotIllustration
             mascot="shrug"
@@ -745,13 +876,30 @@ export function WebSearchDiscoveryPage() {
                     </div>
 
                     <div className="text-left sm:text-right flex-shrink-0">
-                      <span className="text-xs text-sand-600 block">Standard Bag</span>
-                      <span className="text-xl font-extrabold text-navy-950">
-                        {formatLkr(loc.hourlyRateLkr.MEDIUM)}
-                        <span className="text-xs font-normal text-sand-600"> / hr</span>
+                      <span className="text-xs text-sand-600 block">
+                        {loc.isLiveLocation ? "Standard Bag (From)" : "Standard Bag"}
                       </span>
+                      {loc.isLiveLocation ? (
+                        <span className="text-xl font-extrabold text-navy-950">
+                          {loc.baseDailyRateLkr != null ? (
+                            <>
+                              {formatLkr(loc.baseDailyRateLkr)}
+                              <span className="text-xs font-normal text-sand-600"> / day</span>
+                            </>
+                          ) : (
+                            <span className="text-sm font-bold">Quoted at Checkout</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-xl font-extrabold text-navy-950">
+                          {formatLkr(loc.hourlyRateLkr.MEDIUM)}
+                          <span className="text-xs font-normal text-sand-600"> / hr</span>
+                        </span>
+                      )}
                       <span className="block text-[11px] text-emerald-800 font-semibold mt-0.5">
-                        {loc.availableCapacity} slots available
+                        {loc.isLiveLocation
+                          ? "Availability verified at checkout"
+                          : `${loc.availableCapacity} slots available`}
                       </span>
                     </div>
                   </div>
@@ -763,12 +911,12 @@ export function WebSearchDiscoveryPage() {
                       <span>Hours: {loc.openHours}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Link to={`/locations/${loc.slug}`}>
+                      <Link to={`/locations/${loc.slug}${demoSuffix}`}>
                         <Button variant="outline" size="sm">
                           Details
                         </Button>
                       </Link>
-                      <Link to={`/checkout/${loc.id}`}>
+                      <Link to={`/checkout/${loc.id}${demoSuffix}`}>
                         <Button variant="primary" size="sm">
                           Book Now
                         </Button>
@@ -812,7 +960,11 @@ export function WebSearchDiscoveryPage() {
                       <div className="flex items-center justify-between">
                         <span className="font-bold">{loc.city}</span>
                         <span className="text-[11px] opacity-90">
-                          {formatLkr(loc.hourlyRateLkr.MEDIUM)}/h
+                          {loc.isLiveLocation
+                            ? loc.baseDailyRateLkr != null
+                              ? `${formatLkr(loc.baseDailyRateLkr)}/d`
+                              : "Live"
+                            : `${formatLkr(loc.hourlyRateLkr.MEDIUM)}/h`}
                         </span>
                       </div>
                       <p className="truncate text-[10px] opacity-80 mt-0.5">{loc.name}</p>
@@ -833,7 +985,7 @@ export function WebSearchDiscoveryPage() {
                       </p>
                     </div>
                     <Link
-                      to={`/locations/${activeSelectedLocation.slug}`}
+                      to={`/locations/${activeSelectedLocation.slug}${demoSuffix}`}
                       className="flex-shrink-0"
                     >
                       <Button variant="primary" size="sm">
@@ -866,36 +1018,114 @@ const LOCATION_UUID_REGEX =
 export function LocationProfileDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
+  const routeLocation = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const isDemoActive = isDemoPreviewActive({
+    allowDemoPreview: true,
+    search: routeLocation.search,
+    isAuthenticated
+  });
+  const demoSuffix = isDemoActive ? "?preview=demo" : "";
   const locationIdentifier =
     slug || searchParams.get("id") || searchParams.get("slug") || undefined;
+  const isLiveUuid = Boolean(
+    locationIdentifier && LOCATION_UUID_REGEX.test(locationIdentifier)
+  );
   const [liveLocation, setLiveLocation] = useState<PublicStorageLocation | null>(null);
+  const [locationLoading, setLocationLoading] = useState(isLiveUuid);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (locationIdentifier && LOCATION_UUID_REGEX.test(locationIdentifier)) {
-      marketplaceApi.getPublicLocationDetails(locationIdentifier)
-        .then((loc) => setLiveLocation(loc))
-        .catch(() => {});
+  const loadLocation = useCallback(async () => {
+    if (!locationIdentifier || !LOCATION_UUID_REGEX.test(locationIdentifier)) {
+      setLiveLocation(null);
+      setLocationLoading(false);
+      setLocationError(null);
+      return;
+    }
+    setLocationLoading(true);
+    setLocationError(null);
+    try {
+      const loc = await marketplaceApi.getPublicLocationDetails(locationIdentifier);
+      setLiveLocation(loc);
+    } catch (err: unknown) {
+      setLiveLocation(null);
+      setLocationError(
+        err instanceof Error ? err.message : "Unable to load storage location details."
+      );
+    } finally {
+      setLocationLoading(false);
     }
   }, [locationIdentifier]);
+
+  useEffect(() => {
+    loadLocation();
+  }, [loadLocation]);
 
   const location = useMemo(() => {
     if (liveLocation) {
       return mapPublicLocationToItem(liveLocation);
     }
-    return (
-      DEMO_LOCATIONS.find(
-        (l) => l.slug === locationIdentifier || l.id === locationIdentifier
-      ) || DEMO_LOCATIONS[0]
-    );
-  }, [liveLocation, locationIdentifier]);
+    if (!isLiveUuid && isDemoActive) {
+      return (
+        DEMO_LOCATIONS.find(
+          (l) => l.slug === locationIdentifier || l.id === locationIdentifier
+        ) || DEMO_LOCATIONS[0]
+      );
+    }
+    return null;
+  }, [liveLocation, isLiveUuid, isDemoActive, locationIdentifier]);
 
   const [hoursEstimate, setHoursEstimate] = useState(6);
+
+  if (locationLoading && !location) {
+    return (
+      <div className="bg-white rounded-3xl border border-sand-200 p-10 text-center text-sm font-medium text-sand-700 max-w-2xl mx-auto">
+        Loading verified storage location details...
+      </div>
+    );
+  }
+
+  if (locationError && !location) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        <Alert variant="danger" title="Unable to Load Location Details">
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
+            <span>{locationError}</span>
+            <Button variant="outline" size="sm" onClick={loadLocation}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+        <Link to={`/search${demoSuffix}`}>
+          <Button variant="outline" size="sm">
+            Back to Search
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  if (!location) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        <Alert variant="warning" title="Storage Location Unavailable">
+          This storage hub could not be found among active verified listings. Browse active hubs
+          in Search to place a live booking.
+        </Alert>
+        <Link to="/search">
+          <Button variant="primary" size="sm">
+            Browse Active Storage Hubs
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
       {/* Breadcrumb & Navigation */}
       <nav className="flex items-center gap-2 text-xs font-semibold text-sand-600">
-        <Link to="/search" className="hover:text-navy-950 transition">
+        <Link to={`/search${demoSuffix}`} className="hover:text-navy-950 transition">
           Find Storage
         </Link>
         <span>/</span>
@@ -925,7 +1155,7 @@ export function LocationProfileDetailPage() {
           </p>
         </div>
 
-        <Link to={`/checkout/${location.id}`} className="flex-shrink-0">
+        <Link to={`/checkout/${location.id}${demoSuffix}`} className="flex-shrink-0">
           <Button variant="primary" size="lg" className="w-full sm:w-auto font-bold shadow-md">
             <span>Book This Hub</span>
             <ArrowRight className="h-4 w-4 ml-2" />
@@ -954,10 +1184,10 @@ export function LocationProfileDetailPage() {
               </div>
               <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200/80">
                 <span className="text-[10px] text-sand-600 uppercase font-bold tracking-wider block">
-                  Protection
+                  Custody Seals
                 </span>
                 <span className="text-xs font-bold text-emerald-800 mt-0.5 block">
-                  {formatLkr(location.insuranceLimitLkr)} / bag
+                  Tamper-Evident Seals
                 </span>
               </div>
               <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200/80">
@@ -965,7 +1195,9 @@ export function LocationProfileDetailPage() {
                   Available Slots
                 </span>
                 <span className="text-xs font-bold text-navy-900 mt-0.5 block">
-                  {location.availableCapacity} / {location.totalCapacity} Free
+                  {location.isLiveLocation
+                    ? "Verified at Checkout"
+                    : `${location.availableCapacity} / ${location.totalCapacity} Free`}
                 </span>
               </div>
               <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200/80">
@@ -994,77 +1226,102 @@ export function LocationProfileDetailPage() {
 
           {/* Pricing Rate Card & Estimator */}
           <div className="bg-white rounded-3xl border border-sand-200 p-6 sm:p-8 space-y-6 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-navy-950">Transparent LKR Pricing Card</h2>
-                <p className="text-xs text-sand-700 mt-0.5">
-                  Hourly rates with automatic daily cost caps. No surprise fees at the counter.
+            {location.isLiveLocation ? (
+              <div className="space-y-3">
+                <h2 className="text-xl font-bold text-navy-950">Transparent LKR Pricing</h2>
+                <p className="text-xs text-sand-700 leading-relaxed">
+                  Published starting rate:{" "}
+                  <strong className="text-navy-950">
+                    {location.baseDailyRateLkr != null
+                      ? `${formatLkr(location.baseDailyRateLkr)} / day (Standard Bag)`
+                      : "Calculated per bag tier & duration at checkout"}
+                  </strong>
+                  . Authoritative multi-tier bag rates and taxes are calculated server-side in
+                  LKR before payment confirmation.
                 </p>
               </div>
-              <div className="flex items-center gap-3 bg-sand-50 border border-sand-200 px-3 py-1.5 rounded-xl">
-                <span className="text-xs font-bold text-navy-900">Duration: {hoursEstimate}h</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={24}
-                  value={hoursEstimate}
-                  onChange={(e) => setHoursEstimate(Number(e.target.value))}
-                  className="w-24 accent-terracotta-500"
-                  aria-label="Storage duration hours"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {(["SMALL", "MEDIUM", "LARGE", "OVERSIZED"] as const).map((tier) => {
-                const hourly = location.hourlyRateLkr[tier];
-                const cap = location.dailyCapLkr[tier];
-                const raw = hourly * hoursEstimate;
-                const effective = Math.min(raw, cap);
-                return (
-                  <div
-                    key={tier}
-                    className="p-4 rounded-2xl border border-sand-200 bg-sand-50/50 space-y-2"
-                  >
-                    <span className="text-xs font-extrabold text-navy-950 tracking-wider">
-                      {tier}
-                    </span>
-                    <p className="text-xs text-sand-600">
-                      {formatLkr(hourly)}/hr • Cap {formatLkr(cap)}
+            ) : (
+              <>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-navy-950">Transparent LKR Pricing Card</h2>
+                    <p className="text-xs text-sand-700 mt-0.5">
+                      Hourly rates with automatic daily cost caps. No surprise fees at the counter.
                     </p>
-                    <div className="pt-2 border-t border-sand-200/80">
-                      <span className="text-[10px] text-sand-500 block uppercase font-bold">
-                        {hoursEstimate}h Estimated Total
-                      </span>
-                      <span className="text-base font-extrabold text-terracotta-700">
-                        {formatLkr(effective)}
-                      </span>
-                    </div>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="flex items-center gap-3 bg-sand-50 border border-sand-200 px-3 py-1.5 rounded-xl">
+                    <span className="text-xs font-bold text-navy-900">Duration: {hoursEstimate}h</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={24}
+                      value={hoursEstimate}
+                      onChange={(e) => setHoursEstimate(Number(e.target.value))}
+                      className="w-24 accent-terracotta-500"
+                      aria-label="Storage duration hours"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {(["SMALL", "MEDIUM", "LARGE", "OVERSIZED"] as const).map((tier) => {
+                    const hourly = location.hourlyRateLkr[tier];
+                    const cap = location.dailyCapLkr[tier];
+                    const raw = hourly * hoursEstimate;
+                    const effective = Math.min(raw, cap);
+                    return (
+                      <div
+                        key={tier}
+                        className="p-4 rounded-2xl border border-sand-200 bg-sand-50/50 space-y-2"
+                      >
+                        <span className="text-xs font-extrabold text-navy-950 tracking-wider">
+                          {tier}
+                        </span>
+                        <p className="text-xs text-sand-600">
+                          {formatLkr(hourly)}/hr • Cap {formatLkr(cap)}
+                        </p>
+                        <div className="pt-2 border-t border-sand-200/80">
+                          <span className="text-[10px] text-sand-500 block uppercase font-bold">
+                            {hoursEstimate}h Estimated Total
+                          </span>
+                          <span className="text-base font-extrabold text-terracotta-700">
+                            {formatLkr(effective)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Dedicated Storage Zones */}
           <div className="bg-white rounded-3xl border border-sand-200 p-6 sm:p-8 space-y-4 shadow-sm">
             <h2 className="text-xl font-bold text-navy-950">Dedicated Storage Compartments</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {location.zones.map((z) => (
-                <div
-                  key={z.id}
-                  className="flex items-center justify-between text-xs p-3.5 rounded-xl bg-sand-50 border border-sand-200/80"
-                >
-                  <div>
-                    <span className="font-mono font-bold text-terracotta-700">{z.code}</span>
-                    <p className="text-navy-900 font-semibold mt-0.5">{z.name}</p>
+            {location.zones.length === 0 ? (
+              <p className="text-xs text-sand-700">
+                Storage compartment and serialized seal allocation are assigned by the host counter
+                upon check-in.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {location.zones.map((z) => (
+                  <div
+                    key={z.id}
+                    className="flex items-center justify-between text-xs p-3.5 rounded-xl bg-sand-50 border border-sand-200/80"
+                  >
+                    <div>
+                      <span className="font-mono font-bold text-terracotta-700">{z.code}</span>
+                      <p className="text-navy-900 font-semibold mt-0.5">{z.name}</p>
+                    </div>
+                    <span className="font-medium text-sand-700">
+                      {z.capacity - z.occupied} / {z.capacity} slots free
+                    </span>
                   </div>
-                  <span className="font-medium text-sand-700">
-                    {z.capacity - z.occupied} / {z.capacity} slots free
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1083,7 +1340,7 @@ export function LocationProfileDetailPage() {
               <p>Cancel more than 2 hours before your drop-off window for a 100% full refund.</p>
             </div>
 
-            <Link to={`/checkout/${location.id}`} className="block">
+            <Link to={`/checkout/${location.id}${demoSuffix}`} className="block">
               <Button variant="primary" size="lg" className="w-full justify-center font-bold">
                 Continue to Checkout
               </Button>
@@ -1109,21 +1366,66 @@ export function LocationProfileDetailPage() {
 export function WebCheckoutSchedulePage() {
   const { locId } = useParams<{ locId: string }>();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
   const { isAuthenticated, user } = useAuthStore();
   const isLiveLocation = isUuidId(locId);
+  const isDemoActive = isDemoPreviewActive({
+    allowDemoPreview: true,
+    search: routeLocation.search,
+    isAuthenticated
+  });
+  const demoSuffix = isDemoActive ? "?preview=demo" : "";
 
   const [liveLocation, setLiveLocation] = useState<PublicStorageLocation | null>(null);
+  const [locationLoadError, setLocationLoadError] = useState<string | null>(null);
   const [liveQuote, setLiveQuote] = useState<BookingQuoteResponse | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
-  const location = useMemo(() => {
+  const location = useMemo<StorageLocationItem | null>(() => {
     if (liveLocation) {
       return mapPublicLocationToItem(liveLocation);
     }
-    return DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0];
-  }, [liveLocation, locId]);
+    if (isLiveLocation && locId) {
+      return {
+        id: locId,
+        slug: locId,
+        name: "Selected Verified Storage Hub",
+        city: "Sri Lanka",
+        district: "Verified Hub",
+        landmark: "Verified Hub",
+        distanceKm: 0,
+        rating: null,
+        reviewCount: 0,
+        verifiedHost: "Verified Host Partner",
+        openHours: "Loading hours...",
+        is24Hours: false,
+        hasCctv: true,
+        hasClimateControl: false,
+        hasInsurance: false,
+        insuranceLimitLkr: 0,
+        photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
+        gracePeriodMinutes: 0,
+        lateFeePolicyLabel: "Calculated per booking policy at checkout",
+        hourlyRateLkr: { SMALL: 0, MEDIUM: 0, LARGE: 0, OVERSIZED: 0 },
+        dailyCapLkr: { SMALL: 0, MEDIUM: 0, LARGE: 0, OVERSIZED: 0 },
+        totalCapacity: 0,
+        availableCapacity: 0,
+        coordinates: { lat: 0, lng: 0 },
+        addressMasked: "Approximate area loaded from server",
+        addressExact: "Unlocked after payment confirmation",
+        zones: [],
+        description: "",
+        isLiveLocation: true,
+        baseDailyRateLkr: null
+      };
+    }
+    if (isDemoActive) {
+      return DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0];
+    }
+    return null;
+  }, [liveLocation, isLiveLocation, locId, isDemoActive]);
 
   const initialNames = useMemo(() => {
     const parts = (user?.displayName ?? "").trim().split(/\s+/).filter(Boolean);
@@ -1133,19 +1435,21 @@ export function WebCheckoutSchedulePage() {
         lastName: parts.slice(1).join(" ")
       };
     }
-    return isLiveLocation
+    return isLiveLocation || !isDemoActive
       ? { firstName: "", lastName: "" }
       : { firstName: "Maya", lastName: "Perera" };
-  }, [user?.displayName, isLiveLocation]);
+  }, [user?.displayName, isLiveLocation, isDemoActive]);
 
   const [dropOffDate, setDropOffDate] = useState("2026-11-10T09:00");
   const [pickUpDate, setPickUpDate] = useState("2026-11-10T17:00");
   const [bags, setBags] = useState({ SMALL: 1, MEDIUM: 1, LARGE: 0, OVERSIZED: 0 });
-  const [promoCode, setPromoCode] = useState("SLWELCOME10");
+  const [promoCode, setPromoCode] = useState(
+    isLiveLocation || !isDemoActive ? "" : "SLWELCOME10"
+  );
   const [firstName, setFirstName] = useState(initialNames.firstName);
   const [lastName, setLastName] = useState(initialNames.lastName);
   const [travellerEmail, setTravellerEmail] = useState(
-    user?.email || (isLiveLocation ? "" : "maya.perera@example.com")
+    user?.email || (isLiveLocation || !isDemoActive ? "" : "maya.perera@example.com")
   );
   const [billingPhone, setBillingPhone] = useState("");
   const [billingAddress, setBillingAddress] = useState("");
@@ -1172,19 +1476,22 @@ export function WebCheckoutSchedulePage() {
     draftKeyRef.current = null;
   }, [locId, dropOffDate, pickUpDate, bags.SMALL, bags.MEDIUM, bags.LARGE, bags.OVERSIZED]);
 
-  useEffect(() => {
+  const loadLocationDetails = useCallback(async () => {
     if (!isLiveLocation || !locId) return;
-    let mounted = true;
-    marketplaceApi
-      .getPublicLocationDetails(locId)
-      .then((loc) => {
-        if (mounted) setLiveLocation(loc);
-      })
-      .catch(() => {});
-    return () => {
-      mounted = false;
-    };
+    setLocationLoadError(null);
+    try {
+      const loc = await marketplaceApi.getPublicLocationDetails(locId);
+      setLiveLocation(loc);
+    } catch (err: unknown) {
+      setLocationLoadError(
+        err instanceof Error ? err.message : "Unable to load storage location details."
+      );
+    }
   }, [isLiveLocation, locId]);
+
+  useEffect(() => {
+    loadLocationDetails();
+  }, [loadLocationDetails]);
 
   useEffect(() => {
     if (!isLiveLocation || !locId) return;
@@ -1233,15 +1540,16 @@ export function WebCheckoutSchedulePage() {
   }, [isLiveLocation, locId, dropOffDate, pickUpDate, bags.SMALL, bags.MEDIUM, bags.LARGE, bags.OVERSIZED]);
 
   const totalBags = bags.SMALL + bags.MEDIUM + bags.LARGE + bags.OVERSIZED;
-  const fallbackSubtotalLkr =
-    bags.SMALL * location.dailyCapLkr.SMALL +
-    bags.MEDIUM * location.dailyCapLkr.MEDIUM +
-    bags.LARGE * location.dailyCapLkr.LARGE +
-    bags.OVERSIZED * location.dailyCapLkr.OVERSIZED;
+  const fallbackSubtotalLkr = location
+    ? bags.SMALL * location.dailyCapLkr.SMALL +
+      bags.MEDIUM * location.dailyCapLkr.MEDIUM +
+      bags.LARGE * location.dailyCapLkr.LARGE +
+      bags.OVERSIZED * location.dailyCapLkr.OVERSIZED
+    : 0;
   const subtotalLkr = liveQuote ? Math.round(liveQuote.storageSubtotalMinor / 100) : fallbackSubtotalLkr;
   const discountLkr = liveQuote
     ? 0
-    : promoCode.toUpperCase() === "SLWELCOME10"
+    : isDemoActive && promoCode.toUpperCase() === "SLWELCOME10"
       ? Math.round(subtotalLkr * 0.1)
       : 0;
   const totalPayableLkr = liveQuote
@@ -1262,6 +1570,7 @@ export function WebCheckoutSchedulePage() {
     const fullTravellerName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
 
     if (!isLiveLocation || !locId) {
+      if (!location) return;
       navigate(
         `/booking/confirm?loc=${location.id}&total=${totalPayableLkr}&bags=${totalBags}&name=${encodeURIComponent(fullTravellerName || "Traveller")}`
       );
@@ -1356,6 +1665,21 @@ export function WebCheckoutSchedulePage() {
     }
   };
 
+  if (!location) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        <Alert variant="warning" title="Checkout Unavailable">
+          Select a verified storage hub from Search to start a live booking checkout.
+        </Alert>
+        <Link to="/search">
+          <Button variant="primary" size="sm">
+            Browse Verified Storage Hubs
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
       <div>
@@ -1366,6 +1690,17 @@ export function WebCheckoutSchedulePage() {
           Reserve capacity at {location.name} ({location.city}).
         </p>
       </div>
+
+      {locationLoadError && (
+        <Alert variant="danger" title="Location Details Notice">
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
+            <span>{locationLoadError}</span>
+            <Button variant="outline" size="sm" onClick={loadLocationDetails}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      )}
 
       {checkoutError && (
         <Alert variant="danger" title="Reservation Notice">
@@ -1432,7 +1767,9 @@ export function WebCheckoutSchedulePage() {
                   <div>
                     <p className="text-sm font-bold text-navy-950">{item.label}</p>
                     <p className="text-xs text-sand-600">
-                      Daily Rate: {formatLkr(location.dailyCapLkr[item.key])}
+                      {isLiveLocation
+                        ? "Server-quoted by bag tier & duration"
+                        : `Daily Rate: ${formatLkr(location.dailyCapLkr[item.key])}`}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -1558,10 +1895,14 @@ export function WebCheckoutSchedulePage() {
               <div className="flex justify-between text-sand-700">
                 <span>Storage Subtotal</span>
                 <span className="font-semibold text-navy-900">
-                  {quoteLoading ? "Calculating..." : formatLkr(subtotalLkr)}
+                  {quoteLoading
+                    ? "Calculating..."
+                    : isLiveLocation && !liveQuote
+                      ? "Pending Quote"
+                      : formatLkr(subtotalLkr)}
                 </span>
               </div>
-              {!liveQuote && (
+              {!isLiveLocation && !liveQuote && discountLkr > 0 && (
                 <div className="flex justify-between text-emerald-800">
                   <span>Promo Discount ({promoCode || "None"})</span>
                   <span className="font-semibold">- {formatLkr(discountLkr)}</span>
@@ -1576,12 +1917,12 @@ export function WebCheckoutSchedulePage() {
                 </div>
               )}
               <div className="flex justify-between text-sand-600 text-xs">
-                <span>Tamper Seals & Protection Shield</span>
+                <span>Serialized Tamper-Evident Seals</span>
                 <span className="font-semibold text-emerald-800">Included</span>
               </div>
             </div>
 
-            {!liveQuote && (
+            {!isLiveLocation && !liveQuote && (
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -1590,14 +1931,16 @@ export function WebCheckoutSchedulePage() {
                   placeholder="Promo Code"
                   className="flex-1 rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono uppercase focus:outline-none focus:ring-2 focus:ring-terracotta-500"
                 />
-                <span className="text-xs text-emerald-800 font-bold">10% Applied</span>
+                {discountLkr > 0 && (
+                  <span className="text-xs text-emerald-800 font-bold">10% Applied</span>
+                )}
               </div>
             )}
 
             <div className="flex justify-between items-baseline pt-2">
               <span className="text-base font-bold text-navy-950">Total Payable</span>
               <span className="text-2xl font-extrabold text-terracotta-700">
-                {formatLkr(totalPayableLkr)}
+                {isLiveLocation && !liveQuote ? "Pending Quote" : formatLkr(totalPayableLkr)}
               </span>
             </div>
 
@@ -1646,6 +1989,14 @@ export function WebCheckoutSchedulePage() {
 // ============================================================================
 export function WebPaymentConfirmationPage() {
   const [searchParams] = useSearchParams();
+  const routeLocation = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const isDemoActive = isDemoPreviewActive({
+    allowDemoPreview: true,
+    search: routeLocation.search,
+    isAuthenticated
+  });
+  const demoSuffix = isDemoActive ? "?preview=demo" : "";
   const returnedHints = useMemo(
     () => parseCheckoutReturnQuery(searchParams.toString()),
     [searchParams]
@@ -1654,10 +2005,12 @@ export function WebPaymentConfirmationPage() {
   const bookingIdParam = returnedHints.bookingId || pendingContext?.bookingId || null;
   const orderIdParam = returnedHints.orderId || pendingContext?.orderId || null;
   const intentIdParam = searchParams.get("intentId") || pendingContext?.intentId || null;
-  const locId = searchParams.get("loc") || DEMO_LOCATIONS[0].id;
-  const totalLkr = Number(searchParams.get("total") || 2115);
-  const bagsCount = Number(searchParams.get("bags") || 2);
-  const location = DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0];
+  const locId = searchParams.get("loc") || (isDemoActive ? DEMO_LOCATIONS[0].id : "");
+  const totalLkr = Number(searchParams.get("total") || (isDemoActive ? 2115 : 0));
+  const bagsCount = Number(searchParams.get("bags") || (isDemoActive ? 2 : 0));
+  const location = isDemoActive
+    ? DEMO_LOCATIONS.find((l) => l.id === locId) || DEMO_LOCATIONS[0]
+    : null;
 
   const isLiveBooking = isUuidId(bookingIdParam) || Boolean(orderIdParam);
   const [liveBooking, setLiveBooking] = useState<BookingDetail | null>(null);
@@ -1755,7 +2108,11 @@ export function WebPaymentConfirmationPage() {
         return;
       }
       pollCountRef.current += 1;
-      refreshLiveCheckoutState().catch(() => {});
+      refreshLiveCheckoutState().catch((err: unknown) => {
+        setActionError(
+          err instanceof Error ? err.message : "Could not refresh payment status."
+        );
+      });
     }, 3000);
 
     return () => {
@@ -2308,6 +2665,25 @@ export function WebPaymentConfirmationPage() {
     );
   }
 
+  if (!isDemoActive || !location) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        <Alert variant="warning" title="No Booking Reference Found">
+          We could not find an active checkout session or booking reference in this URL. View
+          your confirmed bookings in the Traveller Portal or start a new search.
+        </Alert>
+        <div className="flex flex-wrap gap-3">
+          <Link to="/portal/bookings">
+            <Button variant="primary">View My Bookings</Button>
+          </Link>
+          <Link to="/search">
+            <Button variant="outline">Find Storage</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
       {/* Confirmation Banner */}
@@ -2418,13 +2794,13 @@ export function WebPaymentConfirmationPage() {
               <Printer className="h-4 w-4 mr-2" />
               <span>Print / Save Pass</span>
             </Button>
-            <Link to="/portal/bookings">
+            <Link to={`/portal/bookings${demoSuffix}`}>
               <Button variant="outline">
                 <span>View in My Bookings</span>
               </Button>
             </Link>
           </div>
-          <Link to="/search">
+          <Link to={`/search${demoSuffix}`}>
             <Button variant="ghost">Book Another Hub</Button>
           </Link>
         </div>
@@ -2692,12 +3068,12 @@ export function HelpCentreFaqPage() {
       a: "Never. Under our platform charter and Decoupled Mandatory Release Invariant, physical luggage return and overdue fee settlement are strictly separate. Hosts must immediately release your luggage upon QR or PIN verification. Any applicable late collection fees are reviewed and paid in-app—never extorted at the counter."
     },
     {
-      q: "Is my luggage insured against loss or damage?",
-      a: "Yes. Every verified storage booking includes up to LKR 250,000 in comprehensive platform protection against loss or damage during custody."
+      q: "How is my luggage protected during storage?",
+      a: "Every checked-in booking is secured at inspected partner storage vaults with serialized tamper-evident seals recorded at drop-off, optional photo verification, and single-use QR/PIN release credentials."
     },
     {
       q: "Can I pay in cash directly at the counter?",
-      a: "No. All bookings must be completed online through the platform. Online platform payment is what authorizes insurance protection, serialized tamper-evident seal issuance, and guaranteed pricing."
+      a: "No. All bookings must be completed online through the platform. Online platform payment records your booking in the platform ledger, authorizes serialized tamper-evident seal issuance, and locks guaranteed pricing."
     },
     {
       q: "What items are prohibited from storage?",
@@ -3043,12 +3419,7 @@ function mapBookingDetailToPortalRecord(
     mappedStatus = "CANCELLED_REFUNDED";
   }
 
-  const commissionMinor =
-    detail.pricingSnapshot?.platformCommissionMinor ??
-    Math.round(detail.totalAmountMinor * 0.15);
-  const hostPayableMinor =
-    detail.pricingSnapshot?.hostPayableMinor ??
-    detail.totalAmountMinor - commissionMinor;
+  const hasRefund = Boolean(detail.refundSummary);
 
   return {
     id: detail.id,
@@ -3064,9 +3435,15 @@ function mapBookingDetailToPortalRecord(
     bags,
     totalBags: detail.totalBags,
     totalAmountLkr: Math.round(detail.totalAmountMinor / 100),
-    platformCommissionLkr: Math.round(commissionMinor / 100),
-    hostNetPayoutLkr: Math.round(hostPayableMinor / 100),
+    platformCommissionLkr: 0,
+    hostNetPayoutLkr: 0,
+    hasFinancialBreakdown: false,
     status: mappedStatus,
+    rawStatus: detail.status,
+    hasRefund,
+    refundAmountLkr: detail.refundSummary
+      ? Math.round(detail.refundSummary.amountMinor / 100)
+      : undefined,
     pinCode: "Issued on demand",
     qrPayload:
       detail.status === "PENDING_PAYMENT"
@@ -3085,38 +3462,58 @@ function mapBookingDetailToPortalRecord(
 // PW-011: Traveller Web Portal (/portal/bookings)
 // ============================================================================
 export function TravellerWebPortalPage() {
+  const routeLocation = useLocation();
   const { user, isAuthenticated } = useAuthStore();
+  const isDemoActive = isDemoPreviewActive({
+    allowDemoPreview: true,
+    search: routeLocation.search,
+    isAuthenticated
+  });
+  const demoSuffix = isDemoActive ? "?preview=demo" : "";
   const [activeTab, setActiveTab] = useState<"ACTIVE" | "COMPLETED" | "REFUNDS">("ACTIVE");
-  const [bookings, setBookings] = useState<DemoBookingRecord[]>(DEMO_BOOKINGS);
+  const [bookings, setBookings] = useState<DemoBookingRecord[]>(
+    !isAuthenticated && isDemoActive ? DEMO_BOOKINGS : []
+  );
   const [liveStatusById, setLiveStatusById] = useState<Record<string, string>>({});
+  const [bookingsLoading, setBookingsLoading] = useState(isAuthenticated);
+  const [bookingsError, setBookingsError] = useState<string | null>(null);
   const [portalError, setPortalError] = useState<string | null>(null);
   const [passLoading, setPassLoading] = useState(false);
   const [selectedBookingForPass, setSelectedBookingForPass] = useState<DemoBookingRecord | null>(null);
   const [selectedBookingForCancel, setSelectedBookingForCancel] = useState<DemoBookingRecord | null>(null);
 
+  const loadBookings = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLiveStatusById({});
+      setBookings(isDemoActive ? DEMO_BOOKINGS : []);
+      setBookingsError(null);
+      setBookingsLoading(false);
+      return;
+    }
+    setBookingsLoading(true);
+    setBookingsError(null);
+    try {
+      const res = await marketplaceApi.getMyBookings();
+      const statusMap: Record<string, string> = {};
+      for (const b of res.bookings) {
+        statusMap[b.id] = b.status;
+      }
+      setLiveStatusById(statusMap);
+      setBookings(
+        res.bookings.map((b) => mapBookingDetailToPortalRecord(b, user?.email, user?.displayName))
+      );
+    } catch (err: unknown) {
+      setLiveStatusById({});
+      setBookings([]);
+      setBookingsError(err instanceof Error ? err.message : "Unable to load your bookings.");
+    } finally {
+      setBookingsLoading(false);
+    }
+  }, [isAuthenticated, isDemoActive, user?.email, user?.displayName]);
+
   useEffect(() => {
-    if (!isAuthenticated) return;
-    let mounted = true;
-    marketplaceApi
-      .getMyBookings()
-      .then((res) => {
-        if (!mounted) return;
-        if (res.bookings.length > 0) {
-          const statusMap: Record<string, string> = {};
-          for (const b of res.bookings) {
-            statusMap[b.id] = b.status;
-          }
-          setLiveStatusById(statusMap);
-          setBookings(
-            res.bookings.map((b) => mapBookingDetailToPortalRecord(b, user?.email, user?.displayName))
-          );
-        }
-      })
-      .catch(() => {});
-    return () => {
-      mounted = false;
-    };
-  }, [isAuthenticated, user?.email, user?.displayName]);
+    loadBookings();
+  }, [loadBookings]);
 
   const activeBookings = useMemo(
     () =>
@@ -3207,6 +3604,16 @@ export function TravellerWebPortalPage() {
   return (
     <div className="space-y-8">
       {/* Header Banner */}
+      {bookingsError && (
+        <Alert variant="danger" title="Unable to Load Bookings">
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
+            <span>{bookingsError}</span>
+            <Button variant="outline" size="sm" onClick={loadBookings}>
+              Retry
+            </Button>
+          </div>
+        </Alert>
+      )}
       {portalError && (
         <Alert variant="danger" title="Booking Portal Notice">
           {portalError}
@@ -3225,7 +3632,7 @@ export function TravellerWebPortalPage() {
           </p>
         </div>
 
-        <Link to="/search">
+        <Link to={`/search${demoSuffix}`}>
           <Button variant="primary">
             <Search className="h-4 w-4 mr-2" />
             <span>Book New Storage</span>
@@ -3233,228 +3640,273 @@ export function TravellerWebPortalPage() {
         </Link>
       </div>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2 border-b border-sand-200 pb-2">
-        <button
-          type="button"
-          onClick={() => setActiveTab("ACTIVE")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition min-h-[38px] ${
-            activeTab === "ACTIVE"
-              ? "bg-navy-900 text-white shadow-sm"
-              : "bg-sand-100 text-sand-800 hover:bg-sand-200"
-          }`}
-        >
-          Active & Upcoming ({activeBookings.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("COMPLETED")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition min-h-[38px] ${
-            activeTab === "COMPLETED"
-              ? "bg-navy-900 text-white shadow-sm"
-              : "bg-sand-100 text-sand-800 hover:bg-sand-200"
-          }`}
-        >
-          Past Trips ({completedBookings.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("REFUNDS")}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition min-h-[38px] ${
-            activeTab === "REFUNDS"
-              ? "bg-navy-900 text-white shadow-sm"
-              : "bg-sand-100 text-sand-800 hover:bg-sand-200"
-          }`}
-        >
-          Refunds & Settlements ({refundBookings.length})
-        </button>
-      </div>
-
-      {/* Tab Panels */}
-      {activeTab === "ACTIVE" && (
-        <div className="space-y-4">
-          {activeBookings.length === 0 ? (
-            <div className="bg-white rounded-3xl border border-sand-200 p-12 text-center space-y-3">
-              <p className="text-sm font-bold text-navy-950">No active storage bookings right now.</p>
-              <p className="text-xs text-sand-600">
-                Ready to travel hands-free? Book storage near your upcoming destination.
-              </p>
-              <Link to="/search">
-                <Button variant="primary">Find Storage</Button>
-              </Link>
-            </div>
-          ) : (
-            activeBookings.map((b) => (
-              <div
-                key={b.id}
-                className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-4"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-sand-100">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-xs text-navy-950">
-                        {b.reference}
-                      </span>
-                      <Badge variant={b.status === "CHECKED_IN" ? "success" : "brand"}>
-                        {b.status === "CHECKED_IN" ? "In Active Custody" : "Confirmed & Reserved"}
-                      </Badge>
-                    </div>
-                    <h3 className="font-bold text-base text-navy-950 mt-1">{b.locationName}</h3>
-                    <p className="text-xs text-sand-600">{b.city} • Zone {b.zoneCode}</p>
-                  </div>
-
-                  <div className="text-left sm:text-right">
-                    <span className="text-xs text-sand-600 block">{b.totalBags} Luggage Items</span>
-                    <span className="text-base font-extrabold text-navy-950">
-                      {formatLkr(b.totalAmountLkr)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-sand-700">
-                  <div className="p-3 rounded-xl bg-sand-50 border border-sand-100">
-                    <span className="text-[10px] uppercase font-bold text-sand-500 block">
-                      Pick-up Window
-                    </span>
-                    <span className="font-semibold text-navy-900 mt-0.5 block">
-                      {new Date(b.pickUpIso).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit"
-                      })}{" "}
-                      (IST)
-                    </span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-sand-50 border border-sand-100">
-                    <span className="text-[10px] uppercase font-bold text-sand-500 block">
-                      Security Seals
-                    </span>
-                    <span className="font-mono font-semibold text-navy-900 mt-0.5 block">
-                      {b.sealIds.join(", ")}
-                    </span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-sand-50 border border-sand-100">
-                    <span className="text-[10px] uppercase font-bold text-sand-500 block">
-                      Verification PIN
-                    </span>
-                    <span className="font-mono font-bold text-terracotta-700 mt-0.5 block">
-                      {b.pinCode}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={passLoading}
-                      onClick={() => handleOpenPassModal(b)}
-                    >
-                      <QrCode className="h-4 w-4 mr-2" />
-                      <span>View Digital Custody Pass</span>
-                    </Button>
-                    {liveStatusById[b.id] === "PENDING_PAYMENT" && (
-                      <Link to={`/booking/confirm?bookingId=${b.id}`}>
-                        <Button variant="secondary" size="sm">
-                          Complete Payment
-                        </Button>
-                      </Link>
-                    )}
-                  </div>
-
-                  {(b.status === "CONFIRMED" || b.status === "PENDING_HOST_APPROVAL") && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-rose-700 hover:text-rose-800 hover:bg-rose-50"
-                      onClick={() => setSelectedBookingForCancel(b)}
-                    >
-                      Cancel Reservation
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+      {bookingsLoading && bookings.length === 0 ? (
+        <div className="bg-white rounded-3xl border border-sand-200 p-10 text-center text-sm font-medium text-sand-700">
+          Loading your storage bookings...
         </div>
-      )}
-
-      {activeTab === "COMPLETED" && (
-        <div className="space-y-4">
-          {completedBookings.map((b) => (
-            <div
-              key={b.id}
-              className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      ) : (
+        <>
+          {/* Tabs */}
+          <div className="flex flex-wrap gap-2 border-b border-sand-200 pb-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab("ACTIVE")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition min-h-[38px] ${
+                activeTab === "ACTIVE"
+                  ? "bg-navy-900 text-white shadow-sm"
+                  : "bg-sand-100 text-sand-800 hover:bg-sand-200"
+              }`}
             >
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-bold text-xs text-navy-950">{b.reference}</span>
-                  <Badge variant="neutral">Completed & Handed Back</Badge>
-                </div>
-                <h3 className="font-bold text-base text-navy-950 mt-1">{b.locationName}</h3>
-                <p className="text-xs text-sand-600">
-                  {b.city} • Total Paid: {formatLkr(b.totalAmountLkr)} ({b.totalBags} Bags)
-                </p>
-              </div>
-              <Button variant="outline" size="sm">
-                <FileText className="h-4 w-4 mr-2" />
-                <span>Download VAT Invoice</span>
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {activeTab === "REFUNDS" && (
-        <div className="space-y-4">
-          {refundBookings.map((b) => (
-            <div
-              key={b.id}
-              className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm space-y-4"
+              Active & Upcoming ({activeBookings.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("COMPLETED")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition min-h-[38px] ${
+                activeTab === "COMPLETED"
+                  ? "bg-navy-900 text-white shadow-sm"
+                  : "bg-sand-100 text-sand-800 hover:bg-sand-200"
+              }`}
             >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-xs text-navy-950">{b.reference}</span>
-                    <Badge variant="warning">Refund Processing</Badge>
-                  </div>
-                  <h3 className="font-bold text-base text-navy-950 mt-1">{b.locationName}</h3>
-                </div>
-                <div className="text-left sm:text-right">
-                  <span className="text-xs text-sand-600 block">Refund Amount</span>
-                  <span className="text-base font-extrabold text-emerald-800">
-                    {formatLkr(b.totalAmountLkr)}
-                  </span>
-                </div>
-              </div>
+              Past Trips ({completedBookings.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("REFUNDS")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition min-h-[38px] ${
+                activeTab === "REFUNDS"
+                  ? "bg-navy-900 text-white shadow-sm"
+                  : "bg-sand-100 text-sand-800 hover:bg-sand-200"
+              }`}
+            >
+              Refunds & Settlements ({refundBookings.length})
+            </button>
+          </div>
 
-              {/* 7-Stage Settlement Progress Stepper */}
-              <div className="pt-2 space-y-2">
-                <span className="text-xs font-bold text-sand-700 block">
-                  7-Stage Settlement Pipeline Progress:
-                </span>
-                <div className="grid grid-cols-2 sm:grid-cols-7 gap-2">
-                  {REFUND_SEVEN_STAGES.map((st) => {
-                    const isDone = (b.refundStage || 2) >= st.stage;
-                    return (
-                      <div
-                        key={st.stage}
-                        className={`p-2 rounded-xl text-center border text-[10px] ${
-                          isDone
-                            ? "bg-emerald-50 border-emerald-300 text-emerald-900 font-bold"
-                            : "bg-sand-50 border-sand-200 text-sand-500"
-                        }`}
-                      >
-                        <span className="block font-mono">Stage {st.stage}</span>
-                        <span className="truncate block mt-0.5">{st.label}</span>
+          {/* Tab Panels */}
+          {activeTab === "ACTIVE" && (
+            <div className="space-y-4">
+              {activeBookings.length === 0 ? (
+                <div className="bg-white rounded-3xl border border-sand-200 p-12 text-center space-y-3">
+                  <p className="text-sm font-bold text-navy-950">No active storage bookings right now.</p>
+                  <p className="text-xs text-sand-600">
+                    Ready to travel hands-free? Book storage near your upcoming destination.
+                  </p>
+                  <Link to={`/search${demoSuffix}`}>
+                    <Button variant="primary">Find Storage</Button>
+                  </Link>
+                </div>
+              ) : (
+                activeBookings.map((b) => {
+                  const statusDisplay = getBookingStatusDisplay(b.rawStatus ?? b.status, {
+                    collectionAt: b.pickUpIso,
+                    hasRefund: b.hasRefund
+                  });
+                  return (
+                    <div
+                      key={b.id}
+                      className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-4"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-sand-100">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-xs text-navy-950">
+                              {b.reference}
+                            </span>
+                            <Badge variant={statusDisplay.tone}>{statusDisplay.label}</Badge>
+                          </div>
+                          <h3 className="font-bold text-base text-navy-950 mt-1">{b.locationName}</h3>
+                          <p className="text-xs text-sand-600">{b.city} • Zone {b.zoneCode}</p>
+                        </div>
+
+                        <div className="text-left sm:text-right">
+                          <span className="text-xs text-sand-600 block">{b.totalBags} Luggage Items</span>
+                          <span className="text-base font-extrabold text-navy-950">
+                            {formatLkr(b.totalAmountLkr)}
+                          </span>
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs text-sand-700">
+                        <div className="p-3 rounded-xl bg-sand-50 border border-sand-100">
+                          <span className="text-[10px] uppercase font-bold text-sand-500 block">
+                            Pick-up Window
+                          </span>
+                          <span className="font-semibold text-navy-900 mt-0.5 block">
+                            {new Date(b.pickUpIso).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit"
+                            })}{" "}
+                            (IST)
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-xl bg-sand-50 border border-sand-100">
+                          <span className="text-[10px] uppercase font-bold text-sand-500 block">
+                            Security Seals
+                          </span>
+                          <span className="font-mono font-semibold text-navy-900 mt-0.5 block">
+                            {b.sealIds.length > 0 ? b.sealIds.join(", ") : "Assigned at counter"}
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-xl bg-sand-50 border border-sand-100">
+                          <span className="text-[10px] uppercase font-bold text-sand-500 block">
+                            Verification PIN
+                          </span>
+                          <span className="font-mono font-bold text-terracotta-700 mt-0.5 block">
+                            {b.pinCode}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={passLoading}
+                            onClick={() => handleOpenPassModal(b)}
+                          >
+                            <QrCode className="h-4 w-4 mr-2" />
+                            <span>View Digital Custody Pass</span>
+                          </Button>
+                          {liveStatusById[b.id] === "PENDING_PAYMENT" && (
+                            <Link to={`/booking/confirm?bookingId=${b.id}`}>
+                              <Button variant="secondary" size="sm">
+                                Complete Payment
+                              </Button>
+                            </Link>
+                          )}
+                        </div>
+
+                        {(b.status === "CONFIRMED" || b.status === "PENDING_HOST_APPROVAL") && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-rose-700 hover:text-rose-800 hover:bg-rose-50"
+                            onClick={() => setSelectedBookingForCancel(b)}
+                          >
+                            Cancel Reservation
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
-          ))}
-        </div>
+          )}
+
+          {activeTab === "COMPLETED" && (
+            <div className="space-y-4">
+              {completedBookings.length === 0 ? (
+                <div className="bg-white rounded-3xl border border-sand-200 p-12 text-center space-y-2">
+                  <p className="text-sm font-bold text-navy-950">No completed storage trips yet.</p>
+                  <p className="text-xs text-sand-600">
+                    Released luggage sessions appear here once handover is complete.
+                  </p>
+                </div>
+              ) : (
+                completedBookings.map((b) => (
+                  <div
+                    key={b.id}
+                    className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs text-navy-950">{b.reference}</span>
+                        <Badge variant="neutral">Completed &amp; Handed Back</Badge>
+                      </div>
+                      <h3 className="font-bold text-base text-navy-950 mt-1">{b.locationName}</h3>
+                      <p className="text-xs text-sand-600">
+                        {b.city} • Total Paid: {formatLkr(b.totalAmountLkr)} ({b.totalBags} Bags)
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm">
+                      <FileText className="h-4 w-4 mr-2" />
+                      <span>Download VAT Invoice</span>
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {activeTab === "REFUNDS" && (
+            <div className="space-y-4">
+              {refundBookings.length === 0 ? (
+                <div className="bg-white rounded-3xl border border-sand-200 p-12 text-center space-y-2">
+                  <p className="text-sm font-bold text-navy-950">
+                    No cancellations or refund settlements on record.
+                  </p>
+                </div>
+              ) : (
+                refundBookings.map((b) => {
+                  const hasRefundRecord = b.hasRefund ?? b.refundStage !== undefined;
+                  const statusDisplay = getBookingStatusDisplay(b.rawStatus ?? b.status, {
+                    collectionAt: b.pickUpIso,
+                    hasRefund: hasRefundRecord
+                  });
+                  return (
+                    <div
+                      key={b.id}
+                      className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm space-y-4"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-xs text-navy-950">{b.reference}</span>
+                            <Badge variant={statusDisplay.tone}>{statusDisplay.label}</Badge>
+                          </div>
+                          <h3 className="font-bold text-base text-navy-950 mt-1">{b.locationName}</h3>
+                        </div>
+                        <div className="text-left sm:text-right">
+                          <span className="text-xs text-sand-600 block">
+                            {hasRefundRecord ? "Refund Amount" : "Refund Status"}
+                          </span>
+                          <span className="text-base font-extrabold text-emerald-800">
+                            {hasRefundRecord
+                              ? formatLkr(b.refundAmountLkr ?? b.totalAmountLkr)
+                              : "No Refund Issued"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {hasRefundRecord ? (
+                        <div className="pt-2 space-y-2">
+                          <span className="text-xs font-bold text-sand-700 block">
+                            7-Stage Settlement Pipeline Progress:
+                          </span>
+                          <div className="grid grid-cols-2 sm:grid-cols-7 gap-2">
+                            {REFUND_SEVEN_STAGES.map((st) => {
+                              const isDone = (b.refundStage || 1) >= st.stage;
+                              return (
+                                <div
+                                  key={st.stage}
+                                  className={`p-2 rounded-xl text-center border text-[10px] ${
+                                    isDone
+                                      ? "bg-emerald-50 border-emerald-300 text-emerald-900 font-bold"
+                                      : "bg-sand-50 border-sand-200 text-sand-500"
+                                  }`}
+                                >
+                                  <span className="block font-mono">Stage {st.stage}</span>
+                                  <span className="truncate block mt-0.5">{st.label}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-sand-600">
+                          Cancelled without a refund settlement record on this booking.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* Modal: View Digital Custody Pass */}

@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "@/lib/query-client";
 import { useAuthStore } from "@/store/useAuthStore";
 import { AppShell } from "@/components/layout/AppShell";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -73,15 +74,6 @@ import {
   AdminStaffRbacManagementPage
 } from "@/pages/AdminDashboardPages";
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false
-    }
-  }
-});
-
 function AppRoutes() {
   const { initAuth } = useAuthStore();
 
@@ -99,13 +91,15 @@ function AppRoutes() {
         <Route path="location/:slug" element={<LocationProfileDetailPage />} />
         <Route path="location" element={<LocationProfileDetailPage />} />
         <Route path="checkout/:locId" element={<WebCheckoutSchedulePage />} />
-        <Route path="booking/confirm" element={<WebPaymentConfirmationPage />} />
+        <Route element={<ProtectedRoute allowDemoPreview={true} />}>
+          <Route path="booking/confirm" element={<WebPaymentConfirmationPage />} />
+          <Route path="portal/bookings" element={<TravellerWebPortalPage />} />
+        </Route>
         <Route path="become-a-host" element={<BecomeAHostLandingPage />} />
         <Route path="how-it-works" element={<HowItWorksPage />} />
         <Route path="help" element={<HelpCentreFaqPage />} />
         <Route path="contact" element={<ContactUsPage />} />
         <Route path="terms" element={<TermsPrivacyLegalPage />} />
-        <Route path="portal/bookings" element={<TravellerWebPortalPage />} />
 
         {/* HD-001 through HD-014: Host Web Dashboard Surface (14 Active Screens) */}
         <Route

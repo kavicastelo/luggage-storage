@@ -1,7 +1,8 @@
 import { FastifyInstance } from "fastify";
 import {
   ConfigurePricingPolicyRequestSchema,
-  createSuccessResponse
+  createSuccessResponse,
+  SYSTEM_PERMISSIONS
 } from "@luggage-storage/contracts";
 import { pricingService } from "./pricing.service.js";
 
@@ -10,7 +11,13 @@ export async function pricingRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { locationId: string } }>(
     "/locations/:locationId/pricing",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requireAnyPermission([
+          SYSTEM_PERMISSIONS.HOSTS_LOCATION_READ_OWN,
+          SYSTEM_PERMISSIONS.ADMIN_LOCATION_READ
+        ])
+      ],
       schema: {
         description: "Retrieve active pricing policy and bag category rates for a location",
         tags: ["Pricing"],
@@ -43,7 +50,10 @@ export async function pricingRoutes(app: FastifyInstance): Promise<void> {
   app.put<{ Params: { locationId: string } }>(
     "/locations/:locationId/pricing",
     {
-      preHandler: [app.authenticate],
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CONFIGURE)
+      ],
       schema: {
         description: "Configure or update pricing policy and category rates for a location",
         tags: ["Pricing"],

@@ -22,8 +22,12 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { AuthenticatedUser } from "@luggage-storage/contracts";
 
 function renderWithRouter(ui: React.ReactElement, initialRoute = "/host/dashboard") {
+  const effectiveRoute =
+    !useAuthStore.getState().isAuthenticated && !initialRoute.includes("preview=demo")
+      ? `${initialRoute}${initialRoute.includes("?") ? "&" : "?"}preview=demo`
+      : initialRoute;
   return renderToString(
-    <MemoryRouter initialEntries={[initialRoute]}>
+    <MemoryRouter initialEntries={[effectiveRoute]}>
       <Routes>
         <Route path="/host" element={<HostDashboardLayout />}>
           <Route index element={<HostOverviewDashboardPage />} />

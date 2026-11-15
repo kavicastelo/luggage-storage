@@ -127,6 +127,9 @@ export function buildApp(): FastifyInstance {
     if (!isActive) {
       throw AppError.unauthorized("Session has been revoked or expired");
     }
+
+    // Hydrate live database roles so newly assigned or revoked roles apply without stale JWT claims
+    request.user.roles = await rbacService.getUserRoles(request.user.sub);
   });
 
   // Role-based authorization decorator factory
@@ -277,6 +280,26 @@ export function buildApp(): FastifyInstance {
       }
     };
   });
+
+  // Accept empty bodies cleanly when callers send Content-Type: application/json without payload
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (_request, body, done) => {
+      const raw = typeof body === "string" ? body : "";
+      if (raw.trim() === "") {
+        done(null, undefined);
+        return;
+      }
+      try {
+        done(null, JSON.parse(raw));
+      } catch (err) {
+        const parseError = err instanceof Error ? err : new Error("Invalid JSON body");
+        (parseError as Error & { statusCode?: number }).statusCode = 400;
+        done(parseError, undefined);
+      }
+    }
+  );
 
   // Error Handler
   app.setErrorHandler(errorHandler);
