@@ -36,6 +36,7 @@ import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { useAuthStore } from "@/store/useAuthStore";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { getBookingStatusDisplay } from "@/lib/booking-status";
+import { executeCounterCustodyHandover } from "@/lib/counter-custody";
 import { marketplaceApi } from "@/services/marketplace-api";
 import {
   StorageLocation,
@@ -2842,105 +2843,47 @@ export function HostWebCheckInOutOperationsPage() {
   const handleSimulateHandover = async () => {
     setHandoverErrorMessage(null);
     setHandoverSuccessMessage(null);
-    const trimmedBookingId = lookupQuery.trim();
-    const trimmedCredential = pinInput.trim().replace(/\s+/g, "");
-
-    if (!showDemoOps) {
-      if (!isAuthenticated) {
-        setHandoverErrorMessage(
-          "Sign in with an authorized Host account to execute counter custody handovers."
-        );
-        return;
-      }
-      if (!isHostUuid(trimmedBookingId)) {
-        setHandoverErrorMessage(
-          "Enter a valid booking UUID to verify live custody credentials."
-        );
-        return;
-      }
-    }
-
-    if (
-      operationMode === "CHECK_OUT" &&
-      hasCollectionException &&
-      exceptionNotes.trim().length < 3
-    ) {
-      setHandoverErrorMessage(
-        "Enter exception details (at least 3 characters) when reporting a custody discrepancy."
-      );
-      return;
-    }
-
-    if (isAuthenticated && isHostUuid(trimmedBookingId)) {
-      setIsSubmitting(true);
-      try {
-        const operation = operationMode === "CHECK_IN" ? "CHECK_IN" : "COLLECTION";
-        const verification = await marketplaceApi.verifyCustodyPass(
-          verificationMethod === "QR_SCAN"
-            ? {
-                bookingId: trimmedBookingId,
-                operation,
-                qrToken: trimmedCredential
-              }
-            : {
-                bookingId: trimmedBookingId,
-                operation,
-                verificationPin: trimmedCredential
-              }
-        );
-
-        const targetBookingId = verification.bookingId;
-        if (operationMode === "CHECK_IN") {
-          const bagList = Array.from({ length: reconciledBags }, (_, idx) => ({
-            bagTagCode: `TAG-${idx + 1}`,
-            bagCategory: "BAG_MEDIUM" as const,
-            securitySealNumber: `${sealInput}-${idx + 1}`
-          }));
-          const checkInRes = await marketplaceApi.completeCheckIn(targetBookingId, {
-            qrToken: verificationMethod === "QR_SCAN" ? trimmedCredential : undefined,
-            verificationPin: verificationMethod === "PIN_FALLBACK" ? trimmedCredential : undefined,
-            bags: bagList,
-            bagCountExceptionReason:
-              reconciledBags !== verification.expectedBagCount
-                ? "Bag count reconciled at Host Counter Web Desk"
-                : undefined
-          });
-          setHandoverSuccessMessage(
-            `Live Custody Check-In Completed: Booking ${verification.referenceCode} transitioned to ${checkInRes.status}. Reconciled ${reconciledBags} bags with tamper seals recorded.`
-          );
-        } else {
-          const collectionRes = await marketplaceApi.completeCollection(targetBookingId, {
-            qrToken: verificationMethod === "QR_SCAN" ? trimmedCredential : undefined,
-            verificationPin: verificationMethod === "PIN_FALLBACK" ? trimmedCredential : undefined,
-            releasedBagCount: reconciledBags,
-            collectionNotes: collectionNotes.trim() || undefined,
-            exceptionNotes: hasCollectionException ? exceptionNotes.trim() : undefined
-          });
-          const overdueNote =
-            collectionRes.overdueMinutes > 0
-              ? ` Overdue notice logged (${collectionRes.overdueMinutes} min late) — baggage released immediately without possessory lien.`
-              : "";
-          setHandoverSuccessMessage(
-            `Live Baggage Release Completed: Booking ${verification.referenceCode} transitioned to ${collectionRes.status}.${overdueNote}`
-          );
-        }
-      } catch (err: unknown) {
-        setHandoverErrorMessage(err instanceof Error ? err.message : "Counter verification failed.");
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
-
     setIsSubmitting(true);
-    setTimeout(() => {
+
+    try {
+      const outcome = await executeCounterCustodyHandover({
+        operationMode,
+        verificationMethod,
+        lookupQuery,
+        credentialInput: pinInput,
+        reconciledBags,
+        sealInput,
+        collectionNotes,
+        hasCollectionException,
+        exceptionNotes,
+        showDemoOps,
+        isAuthenticated
+      });
+
+      if (outcome.kind === "validation_error" || outcome.kind === "live_error") {
+        setIsSubmitting(false);
+        setHandoverErrorMessage(outcome.message);
+        return;
+      }
+
+      if (outcome.kind === "live_success") {
+        setIsSubmitting(false);
+        setHandoverSuccessMessage(outcome.message);
+        return;
+      }
+
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setHandoverSuccessMessage(
+          operationMode === "CHECK_IN"
+            ? `Local Prototype Simulation: Custody Handover logged to workstation session for booking ${lookupQuery}. Reconciled ${reconciledBags} bags. Numbered Seal ${sealInput} logged. Acting staff: Roshan Fernando (staff-usr-204). (Requires API integration in Phase 3+)`
+            : `Local Prototype Simulation: Baggage Release logged to workstation session for booking ${lookupQuery} via ${verificationMethod}. Reconciled ${reconciledBags} bags returned to guest. Custody cleared. (Requires API integration in Phase 3+)`
+        );
+      }, 700);
+    } catch (err: unknown) {
       setIsSubmitting(false);
-      setHandoverSuccessMessage(
-        operationMode === "CHECK_IN"
-          ? `Local Prototype Simulation: Custody Handover logged to workstation session for booking ${lookupQuery}. Reconciled ${reconciledBags} bags. Numbered Seal ${sealInput} logged. Acting staff: Roshan Fernando (staff-usr-204). (Requires API integration in Phase 3+)`
-          : `Local Prototype Simulation: Baggage Release logged to workstation session for booking ${lookupQuery} via ${verificationMethod}. Reconciled ${reconciledBags} bags returned to guest. Custody cleared. (Requires API integration in Phase 3+)`
-      );
-    }, 700);
+      setHandoverErrorMessage(err instanceof Error ? err.message : "Counter verification failed.");
+    }
   };
 
   return (

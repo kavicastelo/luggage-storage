@@ -210,5 +210,114 @@ describe("useAuthStore (Zustand Auth State)", () => {
     expect(typeof window !== "undefined" ? window.localStorage.getItem("refreshToken") : null).toBeNull();
     expect(typeof window !== "undefined" ? window.sessionStorage.getItem("token") : null).toBeNull();
   });
+
+  it("should clear local auth state and set logoutWarning when server logout fails", async () => {
+    setAccessToken("test-active-token");
+    useAuthStore.setState({
+      user: mockUser,
+      sessionId: "s0000000-0000-0000-0000-000000000005",
+      permissions: mockPermissions,
+      isAuthenticated: true
+    });
+
+    vi.spyOn(authApi, "logout").mockRejectedValue(new Error("Network timeout"));
+
+    await useAuthStore.getState().logout();
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(false);
+    expect(state.user).toBeNull();
+    expect(state.sessionId).toBeNull();
+    expect(state.permissions).toEqual([]);
+    expect(getAccessToken()).toBeNull();
+    expect(state.logoutWarning).toBe(
+      "Signed out locally, but server session revocation could not be confirmed."
+    );
+  });
+
+  it("should deduplicate concurrent logout calls via shared in-flight promise", async () => {
+    setAccessToken("test-active-token");
+    useAuthStore.setState({
+      user: mockUser,
+      sessionId: "s0000000-0000-0000-0000-000000000006",
+      permissions: mockPermissions,
+      isAuthenticated: true
+    });
+
+    let resolveLogout!: (val: { message: string }) => void;
+    const logoutSpy = vi.spyOn(authApi, "logout").mockImplementation(
+      () =>
+        new Promise<{ message: string }>((resolve) => {
+          resolveLogout = resolve;
+        })
+    );
+
+    const p1 = useAuthStore.getState().logout();
+    const p2 = useAuthStore.getState().logout();
+    expect(logoutSpy).toHaveBeenCalledTimes(1);
+
+    resolveLogout({ message: "Logged out" });
+    await Promise.all([p1, p2]);
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(getAccessToken()).toBeNull();
+  });
+
+  it("should refresh session token and reload user claims on refreshSessionAndUser, and clear auth on failure", async () => {
+    setAccessToken("old-token");
+    useAuthStore.setState({
+      user: mockUser,
+      sessionId: "s0000000-0000-0000-0000-000000000007",
+      permissions: mockPermissions,
+      isAuthenticated: true
+    });
+
+    const updatedUser: AuthenticatedUser = {
+      ...mockUser,
+      isEmailVerified: true,
+      roles: ["TRAVELLER", "HOST_OWNER"]
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: { accessToken: "rotated-session-token" }
+        })
+      })
+    );
+    vi.spyOn(authApi, "getMe").mockResolvedValueOnce({
+      user: updatedUser,
+      sessionId: "s0000000-0000-0000-0000-000000000007",
+      permissions: [...mockPermissions, "hosts.business.read_own"]
+    });
+
+    await useAuthStore.getState().refreshSessionAndUser();
+
+    expect(getAccessToken()).toBe("rotated-session-token");
+    expect(useAuthStore.getState().user?.roles).toEqual(["TRAVELLER", "HOST_OWNER"]);
+    expect(useAuthStore.getState().hasPermission("hosts.business.read_own")).toBe(true);
+
+    // Failure path: refresh returns 401 -> local auth state cleared
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          success: false,
+          error: { code: "UNAUTHORIZED", message: "Expired refresh session" }
+        })
+      })
+    );
+
+    await useAuthStore.getState().refreshSessionAndUser();
+    expect(getAccessToken()).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().user).toBeNull();
+  });
 });
 
