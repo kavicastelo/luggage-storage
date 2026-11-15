@@ -3,9 +3,12 @@ import {
   UpdateHostBusinessRequest,
   SubmitHostVerificationRequest,
   ReviewHostVerificationRequest,
+  AddHostStaffRequest,
+  UpdateHostStaffRequest,
   HostBusiness,
   HostVerification,
   HostVerificationQueueResponse,
+  HostStaffMemberDetail,
   CreateLocationRequest,
   UpdateLocationRequest,
   ReviewLocationRequest,
@@ -13,10 +16,14 @@ import {
   PublicStorageLocationDetail,
   LocationModerationQueueResponse,
   OpeningHourItemInput,
+  OpeningHours,
   CreateOpeningHoursExceptionRequest,
+  OpeningHoursException,
   CreateStorageZoneRequest,
+  UpdateStorageZoneRequest,
   StorageZone,
   AddLocationMediaRequest,
+  UpdateLocationMediaRequest,
   LocationMedia,
   CreateCapacityPoolRequest,
   UpdateCapacityPoolRequest,
@@ -59,7 +66,15 @@ import {
   AdminLedgerResponse,
   PaginatedApiResponse
 } from "@luggage-storage/contracts";
-import { fetchApi } from "../lib/api-client";
+import { ApiClientError, fetchApi } from "../lib/api-client";
+
+export interface HostBusinessPayoutDetails {
+  payoutBankName: string | null;
+  payoutAccountNumber: string | null;
+  payoutAccountNumberMasked: string | null;
+  payoutAccountName: string | null;
+  payoutBranchCode: string | null;
+}
 
 export const marketplaceApi = {
   // ==========================================================================
@@ -111,6 +126,62 @@ export const marketplaceApi = {
     const res = await fetchApi<HostVerification | null>(`/hosts/businesses/${businessId}/verification`, {
       method: "GET"
     });
+    return res.data;
+  },
+
+  async getPayoutDetails(businessId: string): Promise<HostBusinessPayoutDetails> {
+    const res = await fetchApi<HostBusinessPayoutDetails>(
+      `/hosts/businesses/${businessId}/payout-details`,
+      { method: "GET" }
+    );
+    return res.data;
+  },
+
+  async getBusinessStaff(businessId: string): Promise<HostStaffMemberDetail[]> {
+    const res = await fetchApi<{ staff: HostStaffMemberDetail[] }>(
+      `/hosts/businesses/${businessId}/staff`,
+      { method: "GET" }
+    );
+    return res.data.staff;
+  },
+
+  async addBusinessStaff(
+    businessId: string,
+    data: AddHostStaffRequest
+  ): Promise<HostStaffMemberDetail> {
+    const res = await fetchApi<{ staffMember: HostStaffMemberDetail }>(
+      `/hosts/businesses/${businessId}/staff`,
+      {
+        method: "POST",
+        body: JSON.stringify(data)
+      }
+    );
+    return res.data.staffMember;
+  },
+
+  async updateBusinessStaff(
+    businessId: string,
+    membershipId: string,
+    data: UpdateHostStaffRequest
+  ): Promise<HostStaffMemberDetail> {
+    const res = await fetchApi<{ staffMember: HostStaffMemberDetail }>(
+      `/hosts/businesses/${businessId}/staff/${membershipId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data)
+      }
+    );
+    return res.data.staffMember;
+  },
+
+  async removeBusinessStaff(
+    businessId: string,
+    membershipId: string
+  ): Promise<{ removed: boolean; membershipId: string }> {
+    const res = await fetchApi<{ removed: boolean; membershipId: string }>(
+      `/hosts/businesses/${businessId}/staff/${membershipId}`,
+      { method: "DELETE" }
+    );
     return res.data;
   },
 
@@ -192,6 +263,14 @@ export const marketplaceApi = {
     return res.data;
   },
 
+  async getOpeningHours(locationId: string): Promise<OpeningHours[]> {
+    const res = await fetchApi<{ schedules: OpeningHours[] }>(
+      `/hosts/locations/${locationId}/opening-hours`,
+      { method: "GET" }
+    );
+    return res.data.schedules;
+  },
+
   async setOpeningHours(
     locationId: string,
     schedules: OpeningHourItemInput[]
@@ -203,15 +282,45 @@ export const marketplaceApi = {
     return res.data;
   },
 
+  async getOpeningHoursExceptions(locationId: string): Promise<OpeningHoursException[]> {
+    const res = await fetchApi<{ exceptions: OpeningHoursException[] }>(
+      `/hosts/locations/${locationId}/exceptions`,
+      { method: "GET" }
+    );
+    return res.data.exceptions;
+  },
+
   async addOpeningHoursException(
     locationId: string,
     data: CreateOpeningHoursExceptionRequest
-  ): Promise<{ success: boolean }> {
-    const res = await fetchApi<{ success: boolean }>(`/hosts/locations/${locationId}/exceptions`, {
-      method: "POST",
-      body: JSON.stringify(data)
-    });
+  ): Promise<{ success: boolean; exception?: OpeningHoursException }> {
+    const res = await fetchApi<{ success: boolean; exception?: OpeningHoursException }>(
+      `/hosts/locations/${locationId}/exceptions`,
+      {
+        method: "POST",
+        body: JSON.stringify(data)
+      }
+    );
     return res.data;
+  },
+
+  async deleteOpeningHoursException(
+    locationId: string,
+    exceptionId: string
+  ): Promise<{ removed: boolean; exceptionId: string }> {
+    const res = await fetchApi<{ removed: boolean; exceptionId: string }>(
+      `/hosts/locations/${locationId}/exceptions/${exceptionId}`,
+      { method: "DELETE" }
+    );
+    return res.data;
+  },
+
+  async getStorageZones(locationId: string): Promise<StorageZone[]> {
+    const res = await fetchApi<{ zones: StorageZone[] }>(
+      `/hosts/locations/${locationId}/zones`,
+      { method: "GET" }
+    );
+    return res.data.zones;
   },
 
   async createStorageZone(
@@ -225,6 +334,37 @@ export const marketplaceApi = {
     return res.data;
   },
 
+  async updateStorageZone(
+    locationId: string,
+    zoneId: string,
+    data: UpdateStorageZoneRequest
+  ): Promise<StorageZone> {
+    const res = await fetchApi<StorageZone>(`/hosts/locations/${locationId}/zones/${zoneId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async deleteStorageZone(
+    locationId: string,
+    zoneId: string
+  ): Promise<{ removed: boolean; zoneId: string }> {
+    const res = await fetchApi<{ removed: boolean; zoneId: string }>(
+      `/hosts/locations/${locationId}/zones/${zoneId}`,
+      { method: "DELETE" }
+    );
+    return res.data;
+  },
+
+  async getLocationMedia(locationId: string): Promise<LocationMedia[]> {
+    const res = await fetchApi<{ media: LocationMedia[] }>(
+      `/hosts/locations/${locationId}/media`,
+      { method: "GET" }
+    );
+    return res.data.media;
+  },
+
   async addLocationMedia(
     locationId: string,
     data: AddLocationMediaRequest
@@ -233,6 +373,29 @@ export const marketplaceApi = {
       method: "POST",
       body: JSON.stringify(data)
     });
+    return res.data;
+  },
+
+  async updateLocationMedia(
+    locationId: string,
+    mediaId: string,
+    data: UpdateLocationMediaRequest
+  ): Promise<LocationMedia> {
+    const res = await fetchApi<LocationMedia>(`/hosts/locations/${locationId}/media/${mediaId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async deleteLocationMedia(
+    locationId: string,
+    mediaId: string
+  ): Promise<{ removed: boolean; mediaId: string }> {
+    const res = await fetchApi<{ removed: boolean; mediaId: string }>(
+      `/hosts/locations/${locationId}/media/${mediaId}`,
+      { method: "DELETE" }
+    );
     return res.data;
   },
 
@@ -273,6 +436,14 @@ export const marketplaceApi = {
     return res.data;
   },
 
+  async deleteCapacityPool(poolId: string): Promise<{ removed: boolean; poolId: string }> {
+    const res = await fetchApi<{ removed: boolean; poolId: string }>(
+      `/hosts/capacity-pools/${poolId}`,
+      { method: "DELETE" }
+    );
+    return res.data;
+  },
+
   // ==========================================================================
   // 5. Pricing Configuration
   // ==========================================================================
@@ -282,6 +453,17 @@ export const marketplaceApi = {
       method: "GET"
     });
     return res.data;
+  },
+
+  async getPricingPolicyOrNull(locationId: string): Promise<PricingPolicy | null> {
+    try {
+      return await this.getPricingPolicy(locationId);
+    } catch (err) {
+      if (err instanceof ApiClientError && err.statusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
   },
 
   async configurePricingPolicy(

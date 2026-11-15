@@ -28,3 +28,20 @@ export const travellerQueryKeys = {
   checkoutStatus: (query: CheckoutStatusQuery) =>
     ["traveller", "payments", "checkout-status", query] as const
 };
+
+export const hostQueryKeys = {
+  all: ["host"] as const,
+  businesses: () => ["host", "businesses"] as const,
+  businessDetail: (businessId: string) => ["host", "businesses", "detail", businessId] as const,
+  verification: (businessId: string) => ["host", "businesses", "verification", businessId] as const,
+  payoutDetails: (businessId: string) => ["host", "businesses", "payout", businessId] as const,
+  staff: (businessId: string) => ["host", "businesses", "staff", businessId] as const,
+  locations: () => ["host", "locations"] as const,
+  locationDetail: (locationId: string) => ["host", "locations", "detail", locationId] as const,
+  openingHours: (locationId: string) => ["host", "locations", "opening-hours", locationId] as const,
+  exceptions: (locationId: string) => ["host", "locations", "exceptions", locationId] as const,
+  zones: (locationId: string) => ["host", "locations", "zones", locationId] as const,
+  media: (locationId: string) => ["host", "locations", "media", locationId] as const,
+  capacityPools: (locationId: string) => ["host", "locations", "capacity-pools", locationId] as const,
+  pricingPolicy: (locationId: string) => ["host", "locations", "pricing", locationId] as const
+};
