@@ -72,7 +72,15 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const body = BookingQuoteRequestSchema.parse(request.body);
       const fullQuote = await quotationService.calculateQuote(body);
-      const { businessId: _b, policyId: _p, allocations: _a, ...publicQuote } = fullQuote;
+      const {
+        businessId: _b,
+        policyId: _p,
+        allocations: _a,
+        commissionRateBps: _cr,
+        platformCommissionMinor: _pc,
+        hostPayableMinor: _hp,
+        ...publicQuote
+      } = fullQuote;
       return reply.status(200).send(createSuccessResponse(publicQuote, request.id));
     }
   );

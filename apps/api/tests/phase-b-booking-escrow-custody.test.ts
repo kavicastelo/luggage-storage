@@ -468,10 +468,10 @@ describe("Phase B: Booking, Non-Escrow Settlement Ledger & Custody Engine", () =
       expect(quote.totalBags).toBe(3);
       expect(quote.requestedCapacityUnits).toBe(3); // 2*1 (medium) + 1*1 (small)
       expect(quote.storageSubtotalMinor).toBe(270000);
-      expect(quote.commissionRateBps).toBe(1500);
-      expect(quote.platformCommissionMinor).toBe(40500); // 15%
-      expect(quote.hostPayableMinor).toBe(229500); // 85%
-      expect(quote.platformCommissionMinor + quote.hostPayableMinor).toBe(quote.storageSubtotalMinor);
+      expect(quote.commissionRateBps).toBeUndefined();
+      expect(quote.platformCommissionMinor).toBeUndefined();
+      expect(quote.hostPayableMinor).toBeUndefined();
+      expect(quote.totalAmountMinor).toBe(270000);
 
       // 2. Oversized bag rejected when acceptsOversized = false
       const oversizedQuote = await app.inject({

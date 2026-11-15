@@ -515,6 +515,8 @@ export interface StorageLocationItem {
   addressExact: string;
   zones: { id: string; code: string; name: string; capacity: number; occupied: number }[];
   description: string;
+  isLiveLocation?: boolean;
+  baseDailyRateLkr?: number | null;
 }
 
 export const DEMO_LOCATIONS: StorageLocationItem[] = [
@@ -725,6 +727,10 @@ export interface DemoBookingRecord {
   zoneCode: string;
   evidencePhotosCount: number;
   refundStage?: number;
+  rawStatus?: string;
+  hasRefund?: boolean;
+  refundAmountLkr?: number;
+  hasFinancialBreakdown?: boolean;
 }
 
 export const DEMO_BOOKINGS: DemoBookingRecord[] = [

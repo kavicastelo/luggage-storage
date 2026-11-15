@@ -323,6 +323,7 @@ export class BookingsService {
         travellerDisplayName: schema.users.displayName,
         travellerEmail: schema.users.email,
         businessName: schema.hostBusinesses.tradeName,
+        businessOwnerUserId: schema.hostBusinesses.ownerUserId,
         locId: schema.storageLocations.id,
         locName: schema.storageLocations.name,
         locCity: schema.storageLocations.city,
@@ -351,6 +352,9 @@ export class BookingsService {
     const isAdminOrSupport =
       callerRoles.includes("SUPERADMIN") || callerRoles.includes("SUPPORT");
     const isTravellerOwner = row.booking.travellerUserId === callerUserId;
+    const canViewCommissionFields =
+      callerRoles.includes("SUPERADMIN") ||
+      (callerRoles.includes("HOST_OWNER") && row.businessOwnerUserId === callerUserId);
 
     let isAuthorizedHost = false;
     if (!isAdminOrSupport && !isTravellerOwner) {
@@ -478,9 +482,13 @@ export class BookingsService {
             grossStorageMinor: snap.grossStorageMinor,
             discountMinor: snap.discountMinor,
             storageSubtotalMinor: snap.storageSubtotalMinor,
-            commissionRateBps: snap.commissionRateBps,
-            platformCommissionMinor: snap.platformCommissionMinor,
-            hostPayableMinor: snap.hostPayableMinor,
+            ...(canViewCommissionFields
+              ? {
+                  commissionRateBps: snap.commissionRateBps,
+                  platformCommissionMinor: snap.platformCommissionMinor,
+                  hostPayableMinor: snap.hostPayableMinor
+                }
+              : {}),
             taxRateBps: snap.taxRateBps,
             taxAmountMinor: snap.taxAmountMinor,
             totalAmountMinor: snap.totalAmountMinor,

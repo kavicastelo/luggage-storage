@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Link, Outlet, useLocation, useParams, useSearchParams } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -35,6 +35,7 @@ import {
 import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { useAuthStore } from "@/store/useAuthStore";
 import { isDemoPreviewActive } from "@/config/demo-preview";
+import { getBookingStatusDisplay } from "@/lib/booking-status";
 import { marketplaceApi } from "@/services/marketplace-api";
 import {
   StorageLocation,
@@ -83,12 +84,10 @@ function mapHostBookingToRecord(detail: BookingDetail): DemoBookingRecord {
     mappedStatus = "CANCELLED_REFUNDED";
   }
 
-  const commissionMinor =
-    detail.pricingSnapshot?.platformCommissionMinor ??
-    Math.round(detail.totalAmountMinor * 0.15);
-  const hostPayableMinor =
-    detail.pricingSnapshot?.hostPayableMinor ??
-    detail.totalAmountMinor - commissionMinor;
+  const commissionMinor = detail.pricingSnapshot?.platformCommissionMinor ?? 0;
+  const hostPayableMinor = detail.pricingSnapshot?.hostPayableMinor ?? 0;
+  const hasFinancialBreakdown = detail.pricingSnapshot?.hostPayableMinor != null;
+  const hasRefund = Boolean(detail.refundSummary);
 
   return {
     id: detail.id,
@@ -106,6 +105,12 @@ function mapHostBookingToRecord(detail: BookingDetail): DemoBookingRecord {
     totalAmountLkr: Math.round(detail.totalAmountMinor / 100),
     platformCommissionLkr: Math.round(commissionMinor / 100),
     hostNetPayoutLkr: Math.round(hostPayableMinor / 100),
+    hasFinancialBreakdown,
+    rawStatus: detail.status,
+    hasRefund,
+    refundAmountLkr: detail.refundSummary
+      ? Math.round(detail.refundSummary.amountMinor / 100)
+      : undefined,
     status: mappedStatus,
     pinCode: "Hashed Single-Use",
     qrPayload: "Hashed Single-Use",
@@ -115,18 +120,57 @@ function mapHostBookingToRecord(detail: BookingDetail): DemoBookingRecord {
   };
 }
 
+function mapOwnedStorageLocationToItem(loc: StorageLocation): StorageLocationItem {
+  return {
+    id: loc.id,
+    slug: loc.id,
+    name: loc.name,
+    city: loc.city,
+    district: loc.city,
+    landmark: loc.addressLine1,
+    distanceKm: 0,
+    rating: null,
+    reviewCount: 0,
+    verifiedHost: "Owned Host Venue",
+    openHours: "Configured in Schedule",
+    is24Hours: false,
+    hasCctv: loc.amenities.includes("CCTV"),
+    hasClimateControl: loc.amenities.includes("AIR_CONDITIONING"),
+    hasInsurance: false,
+    insuranceLimitLkr: 0,
+    photoEvidencePolicy: "OPTIONAL_BY_DEFAULT",
+    gracePeriodMinutes: 0,
+    lateFeePolicyLabel: "Configured by location pricing rules",
+    hourlyRateLkr: { SMALL: 0, MEDIUM: 0, LARGE: 0, OVERSIZED: 0 },
+    dailyCapLkr: { SMALL: 0, MEDIUM: 0, LARGE: 0, OVERSIZED: 0 },
+    totalCapacity: 0,
+    availableCapacity: 0,
+    coordinates: { lat: loc.latitude, lng: loc.longitude },
+    addressMasked: `${loc.city} District`,
+    addressExact: loc.addressLine1,
+    zones: [],
+    description: loc.description || "Verified host storage location",
+    isLiveLocation: true,
+    baseDailyRateLkr: null
+  };
+}
+
 // ============================================================================
 // Shared Host Venue Context & Helper Hooks
 // ============================================================================
 
 interface HostContextType {
-  currentLocation: StorageLocationItem;
+  currentLocation: StorageLocationItem | null;
   selectedLocationId: string;
   setSelectedLocationId: (id: string) => void;
   allLocations: StorageLocationItem[];
   effectiveHostRole: "HOST_OWNER" | "HOST_STAFF";
   setHostRoleMode: (role: "HOST_OWNER" | "HOST_STAFF") => void;
   canActAsHostOwner: boolean;
+  isDemoActive: boolean;
+  querySuffix: string;
+  locationsError: string | null;
+  reloadLocations: () => Promise<void>;
 }
 
 const HostVenueContext = React.createContext<HostContextType | null>(null);
@@ -134,15 +178,25 @@ const HostVenueContext = React.createContext<HostContextType | null>(null);
 export function useHostVenue(): HostContextType {
   const context = React.useContext(HostVenueContext);
   if (!context) {
-    // Graceful fallback if rendered outside layout
+    const isAuthenticated = useAuthStore.getState().isAuthenticated;
+    const isDemoActive = !isAuthenticated && isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: typeof window !== "undefined" ? window.location.search : "",
+      isAuthenticated
+    });
+    const fallbackLocations = isDemoActive ? DEMO_LOCATIONS : [];
     return {
-      currentLocation: DEMO_LOCATIONS[0],
-      selectedLocationId: DEMO_LOCATIONS[0].id,
+      currentLocation: fallbackLocations[0] ?? null,
+      selectedLocationId: fallbackLocations[0]?.id ?? "",
       setSelectedLocationId: () => {},
-      allLocations: DEMO_LOCATIONS,
+      allLocations: fallbackLocations,
       effectiveHostRole: "HOST_OWNER",
       setHostRoleMode: () => {},
-      canActAsHostOwner: true
+      canActAsHostOwner: true,
+      isDemoActive,
+      querySuffix: isDemoActive ? "?preview=demo" : "",
+      locationsError: null,
+      reloadLocations: async () => {}
     };
   }
   return context;
@@ -158,21 +212,61 @@ export function HostDashboardLayout() {
   const initialRole: "HOST_OWNER" | "HOST_STAFF" =
     roleParam === "HOST_STAFF" || roleParam === "STAFF" ? "HOST_STAFF" : "HOST_OWNER";
   const { isAuthenticated, user } = useAuthStore();
-  const [hostRoleMode, setHostRoleMode] = useState<"HOST_OWNER" | "HOST_STAFF">(initialRole);
-  const [selectedLocationId, setSelectedLocationId] = useState<string>("loc-cmb-fort-01");
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const currentLocation = useMemo(
-    () => DEMO_LOCATIONS.find((l) => l.id === selectedLocationId) || DEMO_LOCATIONS[0],
-    [selectedLocationId]
-  );
-
   const isDemoActive = isDemoPreviewActive({
     allowDemoPreview: true,
     search: location.search,
     isAuthenticated
   });
   const querySuffix = isDemoActive ? "?preview=demo" : "";
+  const [hostRoleMode, setHostRoleMode] = useState<"HOST_OWNER" | "HOST_STAFF">(initialRole);
+  const [liveOwnedLocations, setLiveOwnedLocations] = useState<StorageLocation[]>([]);
+  const [locationsError, setLocationsError] = useState<string | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState<string>(
+    !isAuthenticated && isDemoActive ? DEMO_LOCATIONS[0].id : ""
+  );
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const reloadLocations = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLiveOwnedLocations([]);
+      setLocationsError(null);
+      return;
+    }
+    setLocationsError(null);
+    try {
+      const locs = await marketplaceApi.getOwnedLocations();
+      setLiveOwnedLocations(locs);
+    } catch (err: unknown) {
+      setLiveOwnedLocations([]);
+      setLocationsError(
+        err instanceof Error ? err.message : "Unable to load your host storage locations."
+      );
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    reloadLocations();
+  }, [reloadLocations]);
+
+  const allLocations = useMemo(() => {
+    if (isAuthenticated) {
+      return liveOwnedLocations.map(mapOwnedStorageLocationToItem);
+    }
+    return isDemoActive ? DEMO_LOCATIONS : [];
+  }, [isAuthenticated, liveOwnedLocations, isDemoActive]);
+
+  useEffect(() => {
+    if (allLocations.length > 0 && !allLocations.some((l) => l.id === selectedLocationId)) {
+      setSelectedLocationId(allLocations[0].id);
+    } else if (allLocations.length === 0 && selectedLocationId) {
+      setSelectedLocationId("");
+    }
+  }, [allLocations, selectedLocationId]);
+
+  const currentLocation = useMemo(
+    () => allLocations.find((l) => l.id === selectedLocationId) || allLocations[0] || null,
+    [allLocations, selectedLocationId]
+  );
 
   const canActAsHostOwner =
     !isAuthenticated ||
@@ -184,6 +278,8 @@ export function HostDashboardLayout() {
       : "HOST_STAFF"
     : hostRoleMode;
 
+  const navLocationId = selectedLocationId || "select";
+
   // Canonical Host Navigation Items (Strictly Customer/Host Facing — Zero Developer Codes)
   const operationalNavItems = [
     { label: "Overview", to: "/host/dashboard", icon: LayoutDashboard, ownerOnly: false },
@@ -194,10 +290,10 @@ export function HostDashboardLayout() {
   ];
 
   const locationConfigNavItems = [
-    { label: "Location Profile", to: `/host/locations/${selectedLocationId}`, icon: Building2, ownerOnly: true },
-    { label: "Hours & Calendar", to: `/host/locations/${selectedLocationId}/schedule`, icon: Calendar, ownerOnly: true },
-    { label: "Capacity & Zones", to: `/host/locations/${selectedLocationId}/capacity`, icon: Layers, ownerOnly: true },
-    { label: "Pricing Rules", to: `/host/locations/${selectedLocationId}/pricing`, icon: Tag, ownerOnly: true }
+    { label: "Location Profile", to: `/host/locations/${navLocationId}`, icon: Building2, ownerOnly: true },
+    { label: "Hours & Calendar", to: `/host/locations/${navLocationId}/schedule`, icon: Calendar, ownerOnly: true },
+    { label: "Capacity & Zones", to: `/host/locations/${navLocationId}/capacity`, icon: Layers, ownerOnly: true },
+    { label: "Pricing Rules", to: `/host/locations/${navLocationId}/pricing`, icon: Tag, ownerOnly: true }
   ];
 
   const businessNavItems = [
@@ -227,10 +323,14 @@ export function HostDashboardLayout() {
     currentLocation,
     selectedLocationId,
     setSelectedLocationId,
-    allLocations: DEMO_LOCATIONS,
+    allLocations,
     effectiveHostRole,
     setHostRoleMode,
-    canActAsHostOwner
+    canActAsHostOwner,
+    isDemoActive,
+    querySuffix,
+    locationsError,
+    reloadLocations
   };
 
   return (
@@ -243,8 +343,13 @@ export function HostDashboardLayout() {
               CL
             </div>
             <div>
-              <p className="text-xs font-bold leading-tight truncate max-w-[180px]">{currentLocation.name}</p>
-              <p className="text-[10px] text-sand-300">{currentLocation.city} • {effectiveHostRole === "HOST_OWNER" ? "Host Owner" : "Host Staff"}</p>
+              <p className="text-xs font-bold leading-tight truncate max-w-[180px]">
+                {currentLocation?.name || "Host Partner Portal"}
+              </p>
+              <p className="text-[10px] text-sand-300">
+                {currentLocation?.city || "Sri Lanka"} •{" "}
+                {effectiveHostRole === "HOST_OWNER" ? "Host Owner" : "Host Staff"}
+              </p>
             </div>
           </div>
           <button
@@ -281,9 +386,17 @@ export function HostDashboardLayout() {
                 <p className="text-xs font-semibold text-sand-200">
                   {isAuthenticated && user
                     ? user.displayName || user.email
-                    : "Ceylon Transit Hospitality (Pvt) Ltd"}
+                    : isDemoActive
+                      ? "Ceylon Transit Hospitality (Pvt) Ltd"
+                      : "Host Workstation"}
                 </p>
-                <p className="text-[11px] text-sand-400 mt-0.5">Sample Host Partner Profile (Demo Preview)</p>
+                <p className="text-[11px] text-sand-400 mt-0.5">
+                  {isAuthenticated
+                    ? "Verified Host Account"
+                    : isDemoActive
+                      ? "Sample Host Partner Profile (Demo Preview)"
+                      : "Sign in to load host venues"}
+                </p>
               </div>
 
               {/* Active Venue Selector */}
@@ -295,14 +408,19 @@ export function HostDashboardLayout() {
                   <select
                     aria-label="Active Storage Hub"
                     value={selectedLocationId}
+                    disabled={allLocations.length === 0}
                     onChange={(e) => setSelectedLocationId(e.target.value)}
-                    className="w-full appearance-none rounded-xl bg-navy-900 border border-navy-700 px-3 py-2 text-xs text-sand-100 font-medium pr-8 focus:outline-none focus:ring-1 focus:ring-terracotta-500"
+                    className="w-full appearance-none rounded-xl bg-navy-900 border border-navy-700 px-3 py-2 text-xs text-sand-100 font-medium pr-8 focus:outline-none focus:ring-1 focus:ring-terracotta-500 disabled:opacity-60"
                   >
-                    {DEMO_LOCATIONS.map((loc) => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name} ({loc.city})
-                      </option>
-                    ))}
+                    {allLocations.length === 0 ? (
+                      <option value="">No storage hubs loaded</option>
+                    ) : (
+                      allLocations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.name} ({loc.city})
+                        </option>
+                      ))
+                    )}
                   </select>
                   <ChevronDown className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-sand-400 pointer-events-none" />
                 </div>
@@ -537,21 +655,101 @@ export function HostDashboardLayout() {
 // HD-001: Host Overview Dashboard (/host/dashboard)
 // ============================================================================
 export function HostOverviewDashboardPage() {
-  const { currentLocation, effectiveHostRole } = useHostVenue();
+  const {
+    currentLocation,
+    effectiveHostRole,
+    isDemoActive,
+    querySuffix,
+    locationsError,
+    reloadLocations
+  } = useHostVenue();
+  const { isAuthenticated, user } = useAuthStore();
+  const showDemoOverview = !isAuthenticated && isDemoActive;
+  const [liveBookings, setLiveBookings] = useState<DemoBookingRecord[]>([]);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
 
-  // Operational metrics
-  const activeBagsInVault = 28;
-  const totalCapacitySlots = currentLocation.totalCapacity;
-  const occupancyPercentage = Math.round((activeBagsInVault / totalCapacitySlots) * 100);
+  const loadOverview = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLiveBookings([]);
+      setOverviewError(null);
+      return;
+    }
+    setOverviewError(null);
+    try {
+      const res = await marketplaceApi.getHostBookings();
+      setLiveBookings(res.bookings.map(mapHostBookingToRecord));
+    } catch (err: unknown) {
+      setLiveBookings([]);
+      setOverviewError(
+        err instanceof Error ? err.message : "Unable to load host overview bookings."
+      );
+    }
+  }, [isAuthenticated]);
 
-  const todaysCheckInsCount = 6;
-  const todaysCollectionsCount = 5;
-  const netEarningsLkr = 184500;
+  useEffect(() => {
+    loadOverview();
+  }, [loadOverview]);
 
-  const overdueBookings = DEMO_BOOKINGS.filter((b) => b.status === "OVERDUE");
+  const bookingsSource = showDemoOverview ? DEMO_BOOKINGS : liveBookings;
+  const activeBagsInVault = showDemoOverview
+    ? 28
+    : liveBookings
+        .filter((b) => b.rawStatus === "IN_STORAGE" || b.status === "CHECKED_IN")
+        .reduce((sum, b) => sum + b.totalBags, 0);
+  const totalCapacitySlots = currentLocation?.totalCapacity ?? 0;
+  const occupancyPercentage =
+    totalCapacitySlots > 0
+      ? Math.min(100, Math.round((activeBagsInVault / totalCapacitySlots) * 100))
+      : 0;
+
+  const todaysCheckInsCount = showDemoOverview
+    ? 6
+    : liveBookings.filter(
+        (b) => b.status === "CONFIRMED" || b.status === "PENDING_HOST_APPROVAL"
+      ).length;
+  const todaysCollectionsCount = showDemoOverview
+    ? 5
+    : liveBookings.filter((b) => b.status === "COMPLETED" || b.status === "CHECKED_IN").length;
+  const netEarningsLkr = showDemoOverview
+    ? 184500
+    : liveBookings
+        .filter((b) => b.hasFinancialBreakdown)
+        .reduce((sum, b) => sum + b.hostNetPayoutLkr, 0);
+
+  const overdueBookings = useMemo(
+    () =>
+      bookingsSource.filter((b) =>
+        showDemoOverview
+          ? b.status === "OVERDUE"
+          : getBookingStatusDisplay(b.rawStatus ?? b.status, {
+              collectionAt: b.pickUpIso,
+              hasRefund: b.hasRefund
+            }).isOverdue
+      ),
+    [bookingsSource, showDemoOverview]
+  );
 
   return (
     <div className="space-y-6">
+      {(locationsError || overviewError) && (
+        <div
+          role="alert"
+          className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs font-semibold flex flex-wrap items-center justify-between gap-3"
+        >
+          <span>{locationsError || overviewError}</span>
+          <button
+            type="button"
+            onClick={() => {
+              reloadLocations();
+              loadOverview();
+            }}
+            className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-900 font-bold hover:bg-rose-100 transition"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* CWCP Header */}
       <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -560,10 +758,12 @@ export function HostOverviewDashboardPage() {
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-navy-100 text-navy-900 border border-navy-200">
                 Active Storage Hub
               </span>
-              <span className="text-xs text-navy-600 font-medium">{currentLocation.city}</span>
+              <span className="text-xs text-navy-600 font-medium">
+                {currentLocation?.city || "Host Operations"}
+              </span>
             </div>
             <h1 className="text-2xl font-extrabold text-navy-950 tracking-tight">
-              {currentLocation.name}
+              {currentLocation?.name || "Host Operations Overview"}
             </h1>
             <p className="text-xs text-navy-600">
               Live custody workstation, capacity utilization, and today&apos;s customer handovers.
@@ -571,14 +771,14 @@ export function HostOverviewDashboardPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
-              to="/host/operations"
+              to={`/host/operations${querySuffix}`}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
             >
               <QrCode className="h-4 w-4" />
               <span>Open Check-In Desk</span>
             </Link>
             <Link
-              to="/host/bookings"
+              to={`/host/bookings${querySuffix}`}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-sand-300 text-navy-800 hover:bg-sand-50 text-xs font-bold transition"
             >
               <Briefcase className="h-3.5 w-3.5 text-navy-600" />
@@ -598,9 +798,14 @@ export function HostOverviewDashboardPage() {
           </div>
           <div className="flex items-baseline gap-2">
             <p className="text-2xl font-extrabold text-navy-950">
-              {activeBagsInVault} <span className="text-sm font-semibold text-navy-500">/ {totalCapacitySlots} slots</span>
+              {activeBagsInVault}{" "}
+              <span className="text-sm font-semibold text-navy-500">
+                {totalCapacitySlots > 0 ? `/ ${totalCapacitySlots} slots` : "bags in storage"}
+              </span>
             </p>
-            <span className="text-xs font-bold text-emerald-700">{occupancyPercentage}% full</span>
+            {totalCapacitySlots > 0 && (
+              <span className="text-xs font-bold text-emerald-700">{occupancyPercentage}% full</span>
+            )}
           </div>
           <div className="w-full bg-sand-100 rounded-full h-1.5 overflow-hidden">
             <div
@@ -611,31 +816,47 @@ export function HostOverviewDashboardPage() {
           <p className="text-[11px] text-navy-600 font-medium">Reconciled and sealed with tamper tags</p>
         </div>
 
-        {/* Card 2: Today's Check-Ins */}
+        {/* Card 2: Arrivals */}
         <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-navy-500">
-            <span>Today&apos;s Arrivals</span>
+            <span>{showDemoOverview ? "Today's Arrivals" : "Upcoming Arrivals"}</span>
             <ArrowRight className="h-4 w-4 text-emerald-600" />
           </div>
-          <p className="text-2xl font-extrabold text-navy-950">{todaysCheckInsCount} Bags</p>
+          <p className="text-2xl font-extrabold text-navy-950">
+            {todaysCheckInsCount} {showDemoOverview ? "Bags" : "Bookings"}
+          </p>
           <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-semibold">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>3 checked in • 3 pending arrival</span>
+            <span>
+              {showDemoOverview
+                ? "3 checked in • 3 pending arrival"
+                : "Confirmed or awaiting host approval"}
+            </span>
           </div>
-          <p className="text-[11px] text-navy-500">Next arrival scheduled at 11:30 IST</p>
+          <p className="text-[11px] text-navy-500">
+            {showDemoOverview ? "Next arrival scheduled at 11:30 IST" : "Synced with host booking ledger"}
+          </p>
         </div>
 
-        {/* Card 3: Today's Collections */}
+        {/* Card 3: Pickups / Completed */}
         <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-navy-500">
-            <span>Today&apos;s Pickups</span>
+            <span>{showDemoOverview ? "Today's Pickups" : "Active & Released"}</span>
             <Clock className="h-4 w-4 text-sky-600" />
           </div>
-          <p className="text-2xl font-extrabold text-navy-950">{todaysCollectionsCount} Bags</p>
+          <p className="text-2xl font-extrabold text-navy-950">
+            {todaysCollectionsCount} {showDemoOverview ? "Bags" : "Bookings"}
+          </p>
           <div className="flex items-center gap-1.5 text-[11px] text-navy-700 font-semibold">
-            <span>4 completed • 1 overdue notice</span>
+            <span>
+              {showDemoOverview
+                ? "4 completed • 1 overdue notice"
+                : `${overdueBookings.length} overdue custody notice(s)`}
+            </span>
           </div>
-          <p className="text-[11px] text-amber-700 font-semibold">30m grace window monitored</p>
+          <p className="text-[11px] text-amber-700 font-semibold">
+            {showDemoOverview ? "30m grace window monitored" : "Mandatory release policy active"}
+          </p>
         </div>
 
         {/* Card 4: Net Host Balance */}
@@ -647,9 +868,11 @@ export function HostOverviewDashboardPage() {
             </div>
             <p className="text-2xl font-extrabold text-navy-950">{formatLkr(netEarningsLkr)}</p>
             <div className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold">
-              <span>85% net host share</span>
+              <span>{showDemoOverview ? "85% net host share" : "Host payable snapshot total"}</span>
             </div>
-            <p className="text-[11px] text-navy-500">Next batch payout: Friday (CEFT)</p>
+            <p className="text-[11px] text-navy-500">
+              {showDemoOverview ? "Next batch payout: Friday (CEFT)" : "View Finance Ledger for payout breakdown"}
+            </p>
           </div>
         )}
       </div>
@@ -671,20 +894,22 @@ export function HostOverviewDashboardPage() {
                 </span>
               </div>
               <p className="text-xs text-navy-800 font-medium mt-1">
-                Traveller <strong className="font-semibold">{overdueBookings[0].travellerName}</strong> was scheduled for collection at 20:00 IST. The 30-minute grace window has elapsed. Disclosed late rate active.
+                Traveller <strong className="font-semibold">{overdueBookings[0].travellerName}</strong> has passed the scheduled collection window.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <a
-              href={`tel:${overdueBookings[0].travellerPhone}`}
-              className="px-3 py-1.5 rounded-xl border border-amber-400 bg-white text-navy-900 text-xs font-bold hover:bg-amber-100/50 transition flex items-center gap-1.5"
-            >
-              <Phone className="h-3.5 w-3.5 text-terracotta-600" />
-              <span>Call Traveller</span>
-            </a>
+            {showDemoOverview && (
+              <a
+                href={`tel:${overdueBookings[0].travellerPhone}`}
+                className="px-3 py-1.5 rounded-xl border border-amber-400 bg-white text-navy-900 text-xs font-bold hover:bg-amber-100/50 transition flex items-center gap-1.5"
+              >
+                <Phone className="h-3.5 w-3.5 text-terracotta-600" />
+                <span>Call Traveller</span>
+              </a>
+            )}
             <Link
-              to={`/host/bookings?inspect=${overdueBookings[0].id}`}
+              to={`/host/bookings?inspect=${overdueBookings[0].id}${isDemoActive ? "&preview=demo" : ""}`}
               className="px-3 py-1.5 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800 transition"
             >
               Inspect Booking
@@ -704,7 +929,7 @@ export function HostOverviewDashboardPage() {
                 <p className="text-xs text-navy-600">Upcoming arrivals, active vault storage, and pending handovers</p>
               </div>
               <Link
-                to="/host/bookings"
+                to={`/host/bookings${querySuffix}`}
                 className="text-xs font-bold text-terracotta-600 hover:text-terracotta-700 flex items-center gap-1"
               >
                 <span>Full Ledger</span>
@@ -712,96 +937,95 @@ export function HostOverviewDashboardPage() {
               </Link>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-sand-200 text-navy-500 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="pb-2.5">Reference</th>
-                    <th className="pb-2.5">Traveller</th>
-                    <th className="pb-2.5">Bags & Zone</th>
-                    <th className="pb-2.5">Status</th>
-                    <th className="pb-2.5 text-right">Counter Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-sand-100">
-                  {DEMO_BOOKINGS.slice(0, 5).map((booking) => {
-                    const isCheckedIn = booking.status === "CHECKED_IN";
-                    const isOverdue = booking.status === "OVERDUE";
-                    const isConfirmed = booking.status === "CONFIRMED";
-                    const isPending = booking.status === "PENDING_HOST_APPROVAL";
+            {bookingsSource.length === 0 ? (
+              <div className="p-6 rounded-xl bg-sand-50 border border-sand-200 text-center text-xs text-navy-600">
+                No host bookings recorded yet for your verified locations.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-sand-200 text-navy-500 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="pb-2.5">Reference</th>
+                      <th className="pb-2.5">Traveller</th>
+                      <th className="pb-2.5">Bags &amp; Zone</th>
+                      <th className="pb-2.5">Status</th>
+                      <th className="pb-2.5 text-right">Counter Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-sand-100">
+                    {bookingsSource.slice(0, 5).map((booking) => {
+                      const statusInfo = getBookingStatusDisplay(
+                        booking.rawStatus ?? booking.status,
+                        {
+                          collectionAt: booking.pickUpIso,
+                          hasRefund: booking.hasRefund
+                        }
+                      );
+                      const isCheckedIn = booking.status === "CHECKED_IN";
+                      const isConfirmed = booking.status === "CONFIRMED";
 
-                    return (
-                      <tr key={booking.id} className="hover:bg-sand-50/60 transition">
-                        <td className="py-3 font-mono font-bold text-navy-900">
-                          {booking.reference}
-                        </td>
-                        <td className="py-3">
-                          <p className="font-semibold text-navy-900">{booking.travellerName}</p>
-                          <p className="text-[10px] text-navy-500">{booking.travellerPhone}</p>
-                        </td>
-                        <td className="py-3">
-                          <span className="font-semibold text-navy-800">{booking.totalBags} Bags</span>
-                          <span className="text-[10px] text-navy-500 ml-1.5 px-1.5 py-0.5 rounded bg-sand-100 font-mono">
-                            {booking.zoneCode}
-                          </span>
-                        </td>
-                        <td className="py-3">
-                          {isCheckedIn && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                              In Custody
+                      return (
+                        <tr key={booking.id} className="hover:bg-sand-50/60 transition">
+                          <td className="py-3 font-mono font-bold text-navy-900">
+                            {booking.reference}
+                          </td>
+                          <td className="py-3">
+                            <p className="font-semibold text-navy-900">{booking.travellerName}</p>
+                            <p className="text-[10px] text-navy-500">{booking.travellerPhone}</p>
+                          </td>
+                          <td className="py-3">
+                            <span className="font-semibold text-navy-800">{booking.totalBags} Bags</span>
+                            <span className="text-[10px] text-navy-500 ml-1.5 px-1.5 py-0.5 rounded bg-sand-100 font-mono">
+                              {booking.zoneCode}
                             </span>
-                          )}
-                          {isOverdue && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
-                              Overdue
-                            </span>
-                          )}
-                          {isConfirmed && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                              Confirmed
-                            </span>
-                          )}
-                          {isPending && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
-                              Approval SLA (11m)
-                            </span>
-                          )}
-                          {booking.status === "COMPLETED" && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                              Completed
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 text-right">
-                          {isCheckedIn ? (
-                            <Link
-                              to={`/host/operations?ref=${booking.reference}&mode=checkout`}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition shadow-xs"
+                          </td>
+                          <td className="py-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                statusInfo.tone === "danger"
+                                  ? "bg-rose-50 text-rose-800 border-rose-200"
+                                  : statusInfo.tone === "success"
+                                    ? "bg-blue-50 text-blue-800 border-blue-200"
+                                    : statusInfo.tone === "warning"
+                                      ? "bg-amber-50 text-amber-800 border-amber-200"
+                                      : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              }`}
                             >
-                              Check-Out
-                            </Link>
-                          ) : isConfirmed ? (
-                            <Link
-                              to={`/host/operations?ref=${booking.reference}&mode=checkin`}
-                              className="px-2.5 py-1 rounded-lg bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold text-[11px] transition shadow-xs"
-                            >
-                              Check-In
-                            </Link>
-                          ) : (
-                            <Link
-                              to={`/host/bookings?inspect=${booking.id}`}
-                              className="px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 text-navy-800 font-bold text-[11px] transition"
-                            >
-                              Inspect
-                            </Link>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                              {statusInfo.label}
+                            </span>
+                          </td>
+                          <td className="py-3 text-right">
+                            {isCheckedIn ? (
+                              <Link
+                                to={`/host/operations?ref=${booking.reference}&mode=checkout${isDemoActive ? "&preview=demo" : ""}`}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition shadow-xs"
+                              >
+                                Check-Out
+                              </Link>
+                            ) : isConfirmed ? (
+                              <Link
+                                to={`/host/operations?ref=${booking.reference}&mode=checkin${isDemoActive ? "&preview=demo" : ""}`}
+                                className="px-2.5 py-1 rounded-lg bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold text-[11px] transition shadow-xs"
+                              >
+                                Check-In
+                              </Link>
+                            ) : (
+                              <Link
+                                to={`/host/bookings?inspect=${booking.id}${isDemoActive ? "&preview=demo" : ""}`}
+                                className="px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 text-navy-800 font-bold text-[11px] transition"
+                              >
+                                Inspect
+                              </Link>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* Physical Zone Capacity Meters */}
@@ -811,9 +1035,9 @@ export function HostOverviewDashboardPage() {
                 <h3 className="text-sm font-bold text-navy-950">Physical Zone Capacity</h3>
                 <p className="text-xs text-navy-600">Real-time rack and compartment occupancy</p>
               </div>
-              {effectiveHostRole !== "HOST_STAFF" && (
+              {effectiveHostRole !== "HOST_STAFF" && currentLocation && (
                 <Link
-                  to={`/host/locations/${currentLocation.id}/capacity`}
+                  to={`/host/locations/${currentLocation.id}/capacity${querySuffix}`}
                   className="text-xs font-bold text-terracotta-600 hover:text-terracotta-700"
                 >
                   Manage Zones →
@@ -821,34 +1045,40 @@ export function HostOverviewDashboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-              {currentLocation.zones.map((zone) => {
-                const zonePercent = Math.round((zone.occupied / zone.capacity) * 100);
-                return (
-                  <div
-                    key={zone.id}
-                    className="p-3.5 rounded-xl bg-sand-50/70 border border-sand-200 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-bold text-navy-900">{zone.code}</span>
-                      <span className="text-xs font-semibold text-navy-700">{zonePercent}%</span>
+            {!currentLocation || currentLocation.zones.length === 0 ? (
+              <p className="text-xs text-navy-600">
+                Zone occupancy breakdown loads when compartment rules are configured on a live storage hub.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                {currentLocation.zones.map((zone) => {
+                  const zonePercent = Math.round((zone.occupied / zone.capacity) * 100);
+                  return (
+                    <div
+                      key={zone.id}
+                      className="p-3.5 rounded-xl bg-sand-50/70 border border-sand-200 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs font-bold text-navy-900">{zone.code}</span>
+                        <span className="text-xs font-semibold text-navy-700">{zonePercent}%</span>
+                      </div>
+                      <p className="text-xs font-medium text-navy-800 truncate">{zone.name}</p>
+                      <div className="w-full bg-sand-200 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${
+                            zonePercent > 80 ? "bg-amber-500" : "bg-emerald-500"
+                          }`}
+                          style={{ width: `${zonePercent}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-navy-500">
+                        {zone.occupied} of {zone.capacity} occupied
+                      </p>
                     </div>
-                    <p className="text-xs font-medium text-navy-800 truncate">{zone.name}</p>
-                    <div className="w-full bg-sand-200 rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className={`h-1.5 rounded-full transition-all ${
-                          zonePercent > 80 ? "bg-amber-500" : "bg-emerald-500"
-                        }`}
-                        style={{ width: `${zonePercent}%` }}
-                      />
-                    </div>
-                    <p className="text-[10px] text-navy-500">
-                      {zone.occupied} of {zone.capacity} occupied
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -860,37 +1090,49 @@ export function HostOverviewDashboardPage() {
               <h3 className="text-sm font-bold text-navy-950">Staff on Counter Duty</h3>
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
             </div>
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-sand-50 border border-sand-200">
-              <div className="h-10 w-10 rounded-full bg-navy-900 text-white flex items-center justify-center font-bold text-sm">
-                RF
+            {showDemoOverview ? (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-sand-50 border border-sand-200">
+                <div className="h-10 w-10 rounded-full bg-navy-900 text-white flex items-center justify-center font-bold text-sm">
+                  RF
+                </div>
+                <div className="truncate">
+                  <p className="text-xs font-bold text-navy-900 truncate">Roshan Fernando</p>
+                  <p className="text-[11px] text-navy-600">Counter Supervisor • Fort Hub</p>
+                  <p className="text-[10px] text-emerald-700 font-semibold">14 handovers completed today</p>
+                </div>
               </div>
-              <div className="truncate">
-                <p className="text-xs font-bold text-navy-900 truncate">Roshan Fernando</p>
-                <p className="text-[11px] text-navy-600">Counter Supervisor • Fort Hub</p>
-                <p className="text-[10px] text-emerald-700 font-semibold">14 handovers completed today</p>
+            ) : (
+              <div className="p-3 rounded-xl bg-sand-50 border border-sand-200 text-xs">
+                <p className="font-bold text-navy-900">
+                  {user?.displayName || user?.email || "Authenticated Host Operator"}
+                </p>
+                <p className="text-[11px] text-navy-600 mt-0.5">
+                  {effectiveHostRole === "HOST_OWNER" ? "Host Owner Session" : "Host Staff Counter Session"}
+                </p>
               </div>
-            </div>
+            )}
             <p className="text-[11px] text-navy-600">
               Responsible for physical seal application, camera evidence checks, and rate-limited PIN releases.
             </p>
           </div>
 
-          {/* Recent Verified Review */}
-          <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-navy-950">Recent Guest Review</h3>
-              <div className="flex items-center text-amber-500 text-xs">
-                <span>★★★★★</span>
+          {showDemoOverview && (
+            <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-navy-950">Recent Guest Review</h3>
+                <div className="flex items-center text-amber-500 text-xs">
+                  <span>★★★★★</span>
+                </div>
+              </div>
+              <blockquote className="text-xs text-navy-700 italic border-l-2 border-terracotta-500 pl-3">
+                &ldquo;Super fast QR check-in right outside Colombo Fort Station! Loved seeing the numbered security seal placed on our backpacks.&rdquo;
+              </blockquote>
+              <div className="flex items-center justify-between text-[11px] text-navy-500 pt-1">
+                <span>Amaya Perera (Sri Lanka)</span>
+                <span>Yesterday</span>
               </div>
             </div>
-            <blockquote className="text-xs text-navy-700 italic border-l-2 border-terracotta-500 pl-3">
-              &ldquo;Super fast QR check-in right outside Colombo Fort Station! Loved seeing the numbered security seal placed on our backpacks.&rdquo;
-            </blockquote>
-            <div className="flex items-center justify-between text-[11px] text-navy-500 pt-1">
-              <span>Amaya Perera (Sri Lanka)</span>
-              <span>Yesterday</span>
-            </div>
-          </div>
+          )}
 
           {/* Custody Best Practices Card */}
           <div className="bg-navy-950 text-white rounded-2xl p-5 shadow-sm space-y-3 border border-navy-800">
@@ -925,12 +1167,14 @@ export function HostOverviewDashboardPage() {
 // HD-002: Storage Location Directory (/host/locations)
 // ============================================================================
 export function HostLocationManagementPage() {
-  const { effectiveHostRole } = useHostVenue();
+  const { effectiveHostRole, isDemoActive } = useHostVenue();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoLocations = !isAuthenticated && isDemoActive;
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [serverLocations, setServerLocations] = useState<StorageLocation[]>([]);
   const [businesses, setBusinesses] = useState<HostBusiness[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isAuthenticated);
   const [creating, setCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -943,8 +1187,16 @@ export function HostLocationManagementPage() {
   const [latitude, setLatitude] = useState(6.9344);
   const [longitude, setLongitude] = useState(79.8428);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!isAuthenticated) {
+      setServerLocations([]);
+      setBusinesses([]);
+      setErrorMsg(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setErrorMsg(null);
     try {
       const [locs, bsns] = await Promise.all([
         marketplaceApi.getOwnedLocations(),
@@ -955,16 +1207,17 @@ export function HostLocationManagementPage() {
       if (bsns.length > 0 && !selectedBusinessId) {
         setSelectedBusinessId(bsns[0].id);
       }
-    } catch {
-      // Fallback silently to mock demo state
+    } catch (err: unknown) {
+      setServerLocations([]);
+      setErrorMsg(err instanceof Error ? err.message : "Unable to load storage locations.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAuthenticated, selectedBusinessId]);
 
   React.useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleCreateLocation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1003,7 +1256,7 @@ export function HostLocationManagementPage() {
   };
 
   const displayLocations = useMemo(() => {
-    if (serverLocations.length > 0) {
+    if (isAuthenticated || !showDemoLocations) {
       return serverLocations.filter(
         (loc) =>
           loc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1017,7 +1270,7 @@ export function HostLocationManagementPage() {
         loc.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
         loc.landmark.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [serverLocations, searchTerm]);
+  }, [isAuthenticated, showDemoLocations, serverLocations, searchTerm]);
 
   return (
     <div className="space-y-6">
@@ -1064,14 +1317,33 @@ export function HostLocationManagementPage() {
       )}
 
       {errorMsg && (
-        <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs font-semibold rounded-xl">
-          {errorMsg}
+        <div
+          role="alert"
+          className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs font-semibold rounded-xl flex flex-wrap items-center justify-between gap-3"
+        >
+          <span>{errorMsg}</span>
+          <button
+            type="button"
+            onClick={loadData}
+            className="px-3 py-1 rounded-lg bg-white border border-red-300 text-red-900 font-bold hover:bg-red-100 transition"
+          >
+            Retry
+          </button>
         </div>
       )}
 
       {/* Location Directory Cards */}
       <div className="space-y-4">
-        {displayLocations.map((loc: any) => (
+        {loading && displayLocations.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs font-semibold text-navy-600">
+            Loading storage locations...
+          </div>
+        ) : displayLocations.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs text-navy-600">
+            No storage locations registered yet.
+          </div>
+        ) : (
+          displayLocations.map((loc: any) => (
           <div
             key={loc.id}
             className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm hover:border-sand-300 transition space-y-4"
@@ -1150,7 +1422,8 @@ export function HostLocationManagementPage() {
               )}
             </div>
           </div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Add Location Modal */}
@@ -1285,15 +1558,37 @@ export function HostLocationManagementPage() {
 // ============================================================================
 export function HostLocationProfileEditorPage() {
   const { id } = useParams<{ id: string }>();
-  const loc = DEMO_LOCATIONS.find((l) => l.id === id) || DEMO_LOCATIONS[0];
+  const { allLocations, isDemoActive, querySuffix } = useHostVenue();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoLoc = !isAuthenticated && isDemoActive;
+  const loc =
+    allLocations.find((l) => l.id === id) ||
+    (showDemoLoc ? DEMO_LOCATIONS.find((l) => l.id === id) || DEMO_LOCATIONS[0] : allLocations[0] || null);
 
-  const [name, setName] = useState(loc.name);
-  const [landmark, setLandmark] = useState(loc.landmark);
-  const [description, setDescription] = useState(loc.description);
-  const [addressMasked, setAddressMasked] = useState(loc.addressMasked);
-  const [addressExact, setAddressExact] = useState(loc.addressExact);
-  const [photoPolicy, setPhotoPolicy] = useState<string>(loc.photoEvidencePolicy);
+  const [name, setName] = useState(loc?.name ?? "");
+  const [landmark, setLandmark] = useState(loc?.landmark ?? "");
+  const [description, setDescription] = useState(loc?.description ?? "");
+  const [addressMasked, setAddressMasked] = useState(loc?.addressMasked ?? "");
+  const [addressExact, setAddressExact] = useState(loc?.addressExact ?? "");
+  const [photoPolicy, setPhotoPolicy] = useState<string>(loc?.photoEvidencePolicy ?? "OPTIONAL_BY_DEFAULT");
   const [savedNotice, setSavedNotice] = useState(false);
+
+  if (!loc) {
+    return (
+      <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-3 shadow-sm">
+        <p className="text-sm font-bold text-navy-950">No storage location selected or available</p>
+        <p className="text-xs text-navy-600">
+          Create or select a verified storage hub from Storage Locations before editing its profile.
+        </p>
+        <Link
+          to={`/host/locations${querySuffix}`}
+          className="inline-flex items-center px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition"
+        >
+          Return to Storage Locations
+        </Link>
+      </div>
+    );
+  }
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1467,7 +1762,20 @@ export function HostLocationProfileEditorPage() {
 // ============================================================================
 export function HostScheduleCalendarEditorPage() {
   const { id } = useParams<{ id: string }>();
-  const loc = DEMO_LOCATIONS.find((l) => l.id === id) || DEMO_LOCATIONS[0];
+  const location = useLocation();
+  const { allLocations, isDemoActive, querySuffix } = useHostVenue();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoLoc =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
+  const loc =
+    allLocations.find((l) => l.id === id) ||
+    (showDemoLoc ? DEMO_LOCATIONS.find((l) => l.id === id) || DEMO_LOCATIONS[0] : allLocations[0] || null);
 
   const daysOfWeek = [
     { day: "Monday", open: "06:00", close: "23:00", is24h: false },
@@ -1480,6 +1788,23 @@ export function HostScheduleCalendarEditorPage() {
   ];
 
   const [saved, setSaved] = useState(false);
+
+  if (!loc) {
+    return (
+      <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-3 shadow-sm">
+        <p className="text-sm font-bold text-navy-950">No storage location selected or available</p>
+        <p className="text-xs text-navy-600">
+          Create or select a verified storage hub from Storage Locations before managing operating hours.
+        </p>
+        <Link
+          to={`/host/locations${querySuffix}`}
+          className="inline-flex items-center px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition"
+        >
+          Return to Storage Locations
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1624,8 +1949,38 @@ export function HostScheduleCalendarEditorPage() {
 // ============================================================================
 export function HostCapacityPoolsZonesPage() {
   const { id } = useParams<{ id: string }>();
-  const loc = DEMO_LOCATIONS.find((l) => l.id === id) || DEMO_LOCATIONS[0];
+  const location = useLocation();
+  const { allLocations, isDemoActive, querySuffix } = useHostVenue();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoLoc =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
+  const loc =
+    allLocations.find((l) => l.id === id) ||
+    (showDemoLoc ? DEMO_LOCATIONS.find((l) => l.id === id) || DEMO_LOCATIONS[0] : allLocations[0] || null);
   const [showAddZone, setShowAddZone] = useState(false);
+
+  if (!loc) {
+    return (
+      <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-3 shadow-sm">
+        <p className="text-sm font-bold text-navy-950">No storage location selected or available</p>
+        <p className="text-xs text-navy-600">
+          Create or select a verified storage hub from Storage Locations before managing capacity zones.
+        </p>
+        <Link
+          to={`/host/locations${querySuffix}`}
+          className="inline-flex items-center px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition"
+        >
+          Return to Storage Locations
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1797,11 +2152,41 @@ export function HostCapacityPoolsZonesPage() {
 // ============================================================================
 export function HostPricingRulesMultipliersPage() {
   const { id } = useParams<{ id: string }>();
-  const loc = DEMO_LOCATIONS.find((l) => l.id === id) || DEMO_LOCATIONS[0];
+  const location = useLocation();
+  const { allLocations, isDemoActive, querySuffix } = useHostVenue();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoLoc =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
+  const loc =
+    allLocations.find((l) => l.id === id) ||
+    (showDemoLoc ? DEMO_LOCATIONS.find((l) => l.id === id) || DEMO_LOCATIONS[0] : allLocations[0] || null);
 
-  const [gracePeriodMins, setGracePeriodMins] = useState<number>(loc.gracePeriodMinutes);
+  const [gracePeriodMins, setGracePeriodMins] = useState<number>(loc?.gracePeriodMinutes ?? 30);
   const [lateFeeRule, setLateFeeRule] = useState<string>("STANDARD_HOURLY_OR_DAILY_TIER");
   const [saved, setSaved] = useState(false);
+
+  if (!loc) {
+    return (
+      <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-3 shadow-sm">
+        <p className="text-sm font-bold text-navy-950">No storage location selected or available</p>
+        <p className="text-xs text-navy-600">
+          Create or select a verified storage hub from Storage Locations before configuring pricing rules.
+        </p>
+        <Link
+          to={`/host/locations${querySuffix}`}
+          className="inline-flex items-center px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition"
+        >
+          Return to Storage Locations
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1936,40 +2321,57 @@ export function HostPricingRulesMultipliersPage() {
 // HD-007 & HD-008: Booking Management Hub & Custody Investigation Drawer
 // ============================================================================
 export function HostBookingManagementHubPage() {
-  const { isAuthenticated } = useAuthStore();
+  const location = useLocation();
+  const { isDemoActive, effectiveHostRole } = useHostVenue();
+  const { isAuthenticated, user } = useAuthStore();
+  const showDemoBookings =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
   const [searchParams, setSearchParams] = useSearchParams();
   const inspectId = searchParams.get("inspect");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
-  const [bookings, setBookings] = useState<DemoBookingRecord[]>(DEMO_BOOKINGS);
+  const [bookings, setBookings] = useState<DemoBookingRecord[]>(
+    showDemoBookings ? DEMO_BOOKINGS : []
+  );
+  const [bookingsError, setBookingsError] = useState<string | null>(null);
   const [liveCustodyDetail, setLiveCustodyDetail] = useState<CustodyRecordDetail | null>(null);
   const [hubNotice, setHubNotice] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
   const [inspectedBooking, setInspectedBooking] = useState<DemoBookingRecord | null>(() =>
-    inspectId ? DEMO_BOOKINGS.find((b) => b.id === inspectId) || DEMO_BOOKINGS[0] : null
+    showDemoBookings && inspectId
+      ? DEMO_BOOKINGS.find((b) => b.id === inspectId) || DEMO_BOOKINGS[0]
+      : null
   );
 
-  useEffect(() => {
+  const loadHostBookings = useCallback(async () => {
     if (!isAuthenticated) return;
-    let mounted = true;
-    marketplaceApi
-      .getHostBookings()
-      .then((res) => {
-        if (mounted && res.bookings.length > 0) {
-          setBookings(res.bookings.map(mapHostBookingToRecord));
-        }
-      })
-      .catch(() => {});
-    return () => {
-      mounted = false;
-    };
+    setBookingsError(null);
+    try {
+      const res = await marketplaceApi.getHostBookings();
+      setBookings(res.bookings.map(mapHostBookingToRecord));
+    } catch (err: unknown) {
+      setBookings([]);
+      setBookingsError(
+        err instanceof Error ? err.message : "Unable to load host bookings."
+      );
+    }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    loadHostBookings();
+  }, [loadHostBookings]);
 
   const openInvestigationModal = async (b: DemoBookingRecord) => {
     setInspectedBooking(b);
     setLiveCustodyDetail(null);
-    setSearchParams({ inspect: b.id });
+    setSearchParams(showDemoBookings ? { inspect: b.id, preview: "demo" } : { inspect: b.id });
     if (isHostUuid(b.id) && isAuthenticated) {
       try {
         const detail = await marketplaceApi.getCustodyDetail(b.id);
@@ -1983,7 +2385,7 @@ export function HostBookingManagementHubPage() {
   const closeInvestigationModal = () => {
     setInspectedBooking(null);
     setLiveCustodyDetail(null);
-    setSearchParams({});
+    setSearchParams(showDemoBookings ? { preview: "demo" } : {});
   };
 
   const handleHostDecision = async (
@@ -1992,12 +2394,17 @@ export function HostBookingManagementHubPage() {
   ) => {
     setHubNotice(null);
     if (!isHostUuid(bookingId)) {
+      if (!showDemoBookings) {
+        setHubNotice("Live server booking ID is required for booking state transitions.");
+        return;
+      }
       setBookings((prev) =>
         prev.map((b) =>
           b.id === bookingId
             ? {
                 ...b,
-                status: decision === "ACCEPT" ? "CONFIRMED" : "CANCELLED_REFUNDED"
+                status: decision === "ACCEPT" ? "CONFIRMED" : "CANCELLED_REFUNDED",
+                rawStatus: decision === "ACCEPT" ? "CONFIRMED" : "CANCELLED_BY_HOST"
               }
             : b
         )
@@ -2051,6 +2458,21 @@ export function HostBookingManagementHubPage() {
 
   return (
     <div className="space-y-6">
+      {bookingsError && (
+        <div
+          role="alert"
+          className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-950 flex items-center justify-between gap-3"
+        >
+          <span>{bookingsError}</span>
+          <button
+            type="button"
+            onClick={() => void loadHostBookings()}
+            className="px-3 py-1 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-bold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {hubNotice && (
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-xs font-bold text-emerald-950">
           {hubNotice}
@@ -2069,8 +2491,9 @@ export function HostBookingManagementHubPage() {
           </div>
           <button
             type="button"
-            onClick={() => openInvestigationModal(bookings[0] || DEMO_BOOKINGS[0])}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold shadow-sm transition"
+            disabled={bookings.length === 0}
+            onClick={() => bookings[0] && openInvestigationModal(bookings[0])}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm transition"
           >
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
             <span>Inspect Custody Evidence</span>
@@ -2083,7 +2506,11 @@ export function HostBookingManagementHubPage() {
             <Search className="absolute left-3.5 top-3 h-4 w-4 text-navy-400" />
             <input
               type="text"
-              placeholder="Search by reference (e.g. LS-2026-8841) or traveller name..."
+              placeholder={
+                showDemoBookings
+                  ? "Search by reference (e.g. LS-2026-8841) or traveller name..."
+                  : "Search by booking reference or traveller name..."
+              }
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full rounded-xl border border-sand-300 pl-10 pr-4 py-2.5 text-xs text-navy-900 placeholder:text-navy-400 focus:outline-none focus:ring-1 focus:ring-terracotta-500"
@@ -2122,83 +2549,105 @@ export function HostBookingManagementHubPage() {
                 <th className="p-3.5">Traveller &amp; Contact</th>
                 <th className="p-3.5">Bags &amp; Zone</th>
                 <th className="p-3.5">Custody Status</th>
-                <th className="p-3.5">Host Net (85%)</th>
+                {effectiveHostRole !== "HOST_STAFF" && (
+                  <th className="p-3.5">
+                    {showDemoBookings ? "Host Net (85%)" : "Host Net"}
+                  </th>
+                )}
                 <th className="p-3.5 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-sand-100">
-              {filteredBookings.map((b) => (
-                <tr key={b.id} className="hover:bg-sand-50/70 transition">
-                  <td className="p-3.5 font-mono font-bold text-navy-900">{b.reference}</td>
-                  <td className="p-3.5">
-                    <p className="font-semibold text-navy-950">{b.travellerName}</p>
-                    <p className="text-[10px] text-navy-500">{b.travellerPhone}</p>
-                  </td>
-                  <td className="p-3.5 text-navy-700">
-                    <span className="font-semibold">{b.totalBags} Bags</span> •{" "}
-                    <span className="font-mono text-[11px] px-1 py-0.5 rounded bg-sand-100">{b.zoneCode}</span>
-                  </td>
-                  <td className="p-3.5">
-                    <span
-                      className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
-                        b.status === "CHECKED_IN"
-                          ? "bg-blue-50 text-blue-800 border border-blue-200"
-                          : b.status === "OVERDUE"
-                          ? "bg-rose-50 text-rose-800 border border-rose-200"
-                          : b.status === "CONFIRMED" || b.status === "PENDING_HOST_APPROVAL"
-                          ? "bg-amber-50 text-amber-800 border border-amber-200"
-                          : "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                      }`}
-                    >
-                      {b.status.replace(/_/g, " ")}
-                    </span>
-                  </td>
-                  <td className="p-3.5 font-bold text-emerald-700">
-                    {formatLkr(b.hostNetPayoutLkr)}
-                  </td>
-                  <td className="p-3.5 text-right">
-                    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                      {b.status === "PENDING_HOST_APPROVAL" && (
-                        <>
-                          <button
-                            type="button"
-                            disabled={actionBusyId === b.id}
-                            onClick={() => handleHostDecision(b.id, "ACCEPT")}
-                            className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition"
-                          >
-                            Accept
-                          </button>
-                          <button
-                            type="button"
-                            disabled={actionBusyId === b.id}
-                            onClick={() => handleHostDecision(b.id, "REJECT")}
-                            className="px-2.5 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold text-xs transition"
-                          >
-                            Decline
-                          </button>
-                        </>
-                      )}
-                      {b.status === "CONFIRMED" && isHostUuid(b.id) && (
-                        <button
-                          type="button"
-                          disabled={actionBusyId === b.id}
-                          onClick={() => handleHostDecision(b.id, "CANCEL")}
-                          className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs transition"
-                        >
-                          Host Cancel
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => openInvestigationModal(b)}
-                        className="px-3 py-1.5 rounded-lg bg-navy-100 hover:bg-navy-200 text-navy-900 font-bold text-xs transition"
-                      >
-                        Investigate Custody
-                      </button>
-                    </div>
+              {filteredBookings.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={effectiveHostRole === "HOST_STAFF" ? 5 : 6}
+                    className="p-6 text-center text-navy-500"
+                  >
+                    No bookings match the selected criteria.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredBookings.map((b) => {
+                  const statusDisplay = getBookingStatusDisplay(b.rawStatus ?? b.status, {
+                    hasRefund: b.hasRefund
+                  });
+                  const badgeToneClass =
+                    statusDisplay.tone === "success"
+                      ? "bg-blue-50 text-blue-800 border border-blue-200"
+                      : statusDisplay.tone === "danger"
+                        ? "bg-rose-50 text-rose-800 border border-rose-200"
+                        : statusDisplay.tone === "warning" || statusDisplay.tone === "brand"
+                          ? "bg-amber-50 text-amber-800 border border-amber-200"
+                          : "bg-emerald-50 text-emerald-800 border border-emerald-200";
+                  return (
+                    <tr key={b.id} className="hover:bg-sand-50/70 transition">
+                      <td className="p-3.5 font-mono font-bold text-navy-900">{b.reference}</td>
+                      <td className="p-3.5">
+                        <p className="font-semibold text-navy-950">{b.travellerName}</p>
+                        <p className="text-[10px] text-navy-500">{b.travellerPhone}</p>
+                      </td>
+                      <td className="p-3.5 text-navy-700">
+                        <span className="font-semibold">{b.totalBags} Bags</span> •{" "}
+                        <span className="font-mono text-[11px] px-1 py-0.5 rounded bg-sand-100">{b.zoneCode}</span>
+                      </td>
+                      <td className="p-3.5">
+                        <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${badgeToneClass}`}>
+                          {statusDisplay.label}
+                        </span>
+                      </td>
+                      {effectiveHostRole !== "HOST_STAFF" && (
+                        <td className="p-3.5 font-bold text-emerald-700">
+                          {b.hasFinancialBreakdown !== false
+                            ? formatLkr(b.hostNetPayoutLkr)
+                            : "—"}
+                        </td>
+                      )}
+                      <td className="p-3.5 text-right">
+                        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                          {b.status === "PENDING_HOST_APPROVAL" && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={actionBusyId === b.id}
+                                onClick={() => handleHostDecision(b.id, "ACCEPT")}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actionBusyId === b.id}
+                                onClick={() => handleHostDecision(b.id, "REJECT")}
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold text-xs transition"
+                              >
+                                Decline
+                              </button>
+                            </>
+                          )}
+                          {b.status === "CONFIRMED" && isHostUuid(b.id) && (
+                            <button
+                              type="button"
+                              disabled={actionBusyId === b.id}
+                              onClick={() => handleHostDecision(b.id, "CANCEL")}
+                              className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs transition"
+                            >
+                              Host Cancel
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openInvestigationModal(b)}
+                            className="px-3 py-1.5 rounded-lg bg-navy-100 hover:bg-navy-200 text-navy-900 font-bold text-xs transition"
+                          >
+                            Investigate Custody
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -2258,20 +2707,28 @@ export function HostBookingManagementHubPage() {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : showDemoBookings ? (
                 <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 space-y-2 text-navy-800">
                   <div className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                     <div>
                       <strong className="text-navy-950">1. Reservation Confirmed</strong>
-                      <p className="text-[11px] text-navy-500">Gross {formatLkr(inspectedBooking.totalAmountLkr)} • Host Net {formatLkr(inspectedBooking.hostNetPayoutLkr)}</p>
+                      <p className="text-[11px] text-navy-500">
+                        Gross {formatLkr(inspectedBooking.totalAmountLkr)}
+                        {effectiveHostRole !== "HOST_STAFF" && inspectedBooking.hasFinancialBreakdown !== false
+                          ? ` • Host Net ${formatLkr(inspectedBooking.hostNetPayoutLkr)}`
+                          : ""}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                     <div>
                       <strong className="text-navy-950">2. Physical Intake Handover</strong>
-                      <p className="text-[11px] text-navy-500">Prototype Intake: Handover recorded against demo session fixture • Backup PIN: <span className="font-mono">{inspectedBooking.pinCode}</span></p>
+                      <p className="text-[11px] text-navy-500">
+                        Prototype Intake: Handover recorded against demo session fixture • Backup PIN:{" "}
+                        <span className="font-mono">{inspectedBooking.pinCode}</span>
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2">
@@ -2289,9 +2746,16 @@ export function HostBookingManagementHubPage() {
                     <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
                     <div>
                       <strong className="text-navy-950">4. Vault Compartment Assigned</strong>
-                      <p className="text-[11px] text-navy-500">Placed in Zone {inspectedBooking.zoneCode} • Attributed to Staff <span className="font-mono">staff-usr-204</span></p>
+                      <p className="text-[11px] text-navy-500">
+                        Placed in Zone {inspectedBooking.zoneCode} • Attributed to Staff{" "}
+                        <span className="font-mono">staff-usr-204</span>
+                      </p>
                     </div>
                   </div>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 text-navy-600">
+                  No custody intake or release events recorded yet for this booking.
                 </div>
               )}
             </div>
@@ -2317,7 +2781,14 @@ export function HostBookingManagementHubPage() {
                 <p className="font-bold text-navy-950">Custody Audit Details</p>
                 <p className="text-navy-700">Reconciled Bags: <strong className="text-navy-900">{inspectedBooking.totalBags} Bags</strong></p>
                 <p className="text-navy-700">Photo Evidence: {inspectedBooking.evidencePhotosCount} photos captured</p>
-                <p className="text-navy-700">Responsible Counter Staff: <span className="font-mono text-navy-900 font-bold">Roshan Fernando</span></p>
+                <p className="text-navy-700">
+                  Responsible Counter Staff:{" "}
+                  <span className="font-mono text-navy-900 font-bold">
+                    {showDemoBookings
+                      ? "Roshan Fernando"
+                      : user?.displayName || user?.email || "Authenticated Counter Operator"}
+                  </span>
+                </p>
               </div>
             </div>
 
@@ -2344,13 +2815,23 @@ export function HostBookingManagementHubPage() {
 // HD-009: Web Check-in/Out Operations (/host/operations)
 // ============================================================================
 export function HostWebCheckInOutOperationsPage() {
-  const { isAuthenticated } = useAuthStore();
+  const location = useLocation();
+  const { isDemoActive } = useHostVenue();
+  const { isAuthenticated, user } = useAuthStore();
+  const showDemoOps =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
   const [operationMode, setOperationMode] = useState<"CHECK_IN" | "CHECK_OUT">("CHECK_IN");
   const [verificationMethod, setVerificationMethod] = useState<"QR_SCAN" | "PIN_FALLBACK">("QR_SCAN");
-  const [lookupQuery, setLookupQuery] = useState("LS-2026-8841");
-  const [pinInput, setPinInput] = useState("482910");
-  const [reconciledBags, setReconciledBags] = useState(3);
-  const [sealInput, setSealInput] = useState("SEAL-LK-90211");
+  const [lookupQuery, setLookupQuery] = useState(showDemoOps ? "LS-2026-8841" : "");
+  const [pinInput, setPinInput] = useState(showDemoOps ? "482910" : "");
+  const [reconciledBags, setReconciledBags] = useState(showDemoOps ? 3 : 1);
+  const [sealInput, setSealInput] = useState(showDemoOps ? "SEAL-LK-90211" : "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [handoverSuccessMessage, setHandoverSuccessMessage] = useState<string | null>(null);
   const [handoverErrorMessage, setHandoverErrorMessage] = useState<string | null>(null);
@@ -2360,6 +2841,21 @@ export function HostWebCheckInOutOperationsPage() {
     setHandoverSuccessMessage(null);
     const trimmedBookingId = lookupQuery.trim();
     const trimmedCredential = pinInput.trim().replace(/\s+/g, "");
+
+    if (!showDemoOps) {
+      if (!isAuthenticated) {
+        setHandoverErrorMessage(
+          "Sign in with an authorized Host account to execute counter custody handovers."
+        );
+        return;
+      }
+      if (!isHostUuid(trimmedBookingId)) {
+        setHandoverErrorMessage(
+          "Enter a valid booking UUID to verify live custody credentials."
+        );
+        return;
+      }
+    }
 
     if (isAuthenticated && isHostUuid(trimmedBookingId)) {
       setIsSubmitting(true);
@@ -2488,52 +2984,62 @@ export function HostWebCheckInOutOperationsPage() {
       <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
         <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
         <div>
-          <strong className="text-navy-950">Desktop Counter Workstation (Local Prototype Simulation):</strong> Supports manual barcode scanner input, booking lookup, or 6-digit backup PIN verification. Physical intake and releases in this prototype session update client state and will connect to the live backend custody API in Phase 3+. Optical camera scanning requires a mobile companion or dedicated USB barcode hardware.
+          {showDemoOps ? (
+            <>
+              <strong className="text-navy-950">Desktop Counter Workstation (Local Prototype Simulation):</strong> Supports manual barcode scanner input, booking lookup, or 6-digit backup PIN verification. Physical intake and releases in this demo session update client state only.
+            </>
+          ) : (
+            <>
+              <strong className="text-navy-950">Live Counter Custody Workstation:</strong> Enter the booking UUID alongside the traveller&apos;s QR scan token or 6-digit backup PIN to verify and record server custody transitions.
+            </>
+          )}
         </div>
       </div>
 
       {/* Counter Workstation Card */}
       <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-5 shadow-sm">
         {/* Quick Demo Pre-fill */}
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="text-[11px] font-bold text-navy-500">Quick Test Records:</span>
-          <button
-            type="button"
-            onClick={() => {
-              setLookupQuery("LS-2026-8841");
-              setPinInput("482910");
-              setReconciledBags(3);
-              setSealInput("SEAL-LK-90211");
-            }}
-            className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
-          >
-            LS-2026-8841 (Amaya)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setLookupQuery("LS-2026-8842");
-              setPinInput("739204");
-              setReconciledBags(2);
-              setSealInput("SEAL-LK-90214");
-            }}
-            className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
-          >
-            LS-2026-8842 (Liam)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setLookupQuery("LS-2026-8835");
-              setPinInput("661928");
-              setReconciledBags(2);
-              setSealInput("SEAL-LK-88101");
-            }}
-            className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
-          >
-            LS-2026-8835 (Henrik - Overdue)
-          </button>
-        </div>
+        {showDemoOps && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="text-[11px] font-bold text-navy-500">Quick Test Records:</span>
+            <button
+              type="button"
+              onClick={() => {
+                setLookupQuery("LS-2026-8841");
+                setPinInput("482910");
+                setReconciledBags(3);
+                setSealInput("SEAL-LK-90211");
+              }}
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
+            >
+              LS-2026-8841 (Amaya)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLookupQuery("LS-2026-8842");
+                setPinInput("739204");
+                setReconciledBags(2);
+                setSealInput("SEAL-LK-90214");
+              }}
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
+            >
+              LS-2026-8842 (Liam)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLookupQuery("LS-2026-8835");
+                setPinInput("661928");
+                setReconciledBags(2);
+                setSealInput("SEAL-LK-88101");
+              }}
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
+            >
+              LS-2026-8835 (Henrik - Overdue)
+            </button>
+          </div>
+        )}
 
         {/* Verification Method Toggle */}
         <div className="flex flex-wrap gap-2 text-xs">
@@ -2571,6 +3077,7 @@ export function HostWebCheckInOutOperationsPage() {
               type="text"
               value={lookupQuery}
               onChange={(e) => setLookupQuery(e.target.value)}
+              placeholder={showDemoOps ? "LS-2026-8841" : "Enter Booking UUID"}
               className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900"
             />
           </div>
@@ -2633,7 +3140,11 @@ export function HostWebCheckInOutOperationsPage() {
               <option value="VAULT-B">VAULT-B: Back Climate-Controlled Bay (Slot 04)</option>
               <option value="SURF-C">SURF-C: Oversized Surf / Gear Bay</option>
             </select>
-            <p className="text-[10px] text-navy-500 mt-1">Logged to staff member Roshan Fernando.</p>
+            <p className="text-[10px] text-navy-500 mt-1">
+              {showDemoOps
+                ? "Logged to staff member Roshan Fernando."
+                : `Logged to counter operator ${user?.displayName || user?.email || "active session"}.`}
+            </p>
           </div>
         </div>
 
@@ -2690,36 +3201,53 @@ export function HostWebCheckInOutOperationsPage() {
 // Financial Revenue & Ledger (/host/finance)
 // ============================================================================
 export function HostFinancialRevenueLedgerPage() {
+  const location = useLocation();
+  const { isDemoActive } = useHostVenue();
   const { isAuthenticated } = useAuthStore();
+  const showDemoFinance =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
   const [downloadNotice, setDownloadNotice] = useState(false);
   const [liveFinance, setLiveFinance] = useState<HostFinanceSummaryResponse | null>(null);
+  const [financeError, setFinanceError] = useState<string | null>(null);
+
+  const loadFinance = useCallback(async () => {
+    if (!isAuthenticated) return;
+    setFinanceError(null);
+    try {
+      const res = await marketplaceApi.getHostFinanceSummary();
+      setLiveFinance(res);
+    } catch (err: unknown) {
+      setLiveFinance(null);
+      setFinanceError(
+        err instanceof Error ? err.message : "Unable to load host financial ledger."
+      );
+    }
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
-    let mounted = true;
-    marketplaceApi
-      .getHostFinanceSummary()
-      .then((res) => {
-        if (mounted && res.payables.length > 0) {
-          setLiveFinance(res);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      mounted = false;
-    };
-  }, [isAuthenticated]);
+    loadFinance();
+  }, [loadFinance]);
 
   const grossDisplayLkr = liveFinance
     ? Math.round(
         liveFinance.payables.reduce((sum, p) => sum + p.grossSubtotalMinor, 0) / 100
       )
-    : 217058;
+    : showDemoFinance
+      ? 217058
+      : 0;
   const commissionDisplayLkr = liveFinance
     ? Math.round(
         liveFinance.payables.reduce((sum, p) => sum + p.commissionMinor, 0) / 100
       )
-    : 32558;
+    : showDemoFinance
+      ? 32558
+      : 0;
   const netDisplayLkr = liveFinance
     ? Math.round(
         (liveFinance.totalAccruedMinor +
@@ -2727,7 +3255,9 @@ export function HostFinancialRevenueLedgerPage() {
           liveFinance.totalPaidMinor) /
           100
       )
-    : 184500;
+    : showDemoFinance
+      ? 184500
+      : 0;
 
   return (
     <div className="space-y-6">
@@ -2739,7 +3269,9 @@ export function HostFinancialRevenueLedgerPage() {
               Financial Revenue &amp; Commission Ledger
             </h1>
             <p className="text-xs text-navy-600 mt-0.5">
-              Itemized gross booking volume, illustrative 15% platform commission, and 85% net host earnings (DEC-006 Pending PO Sign-Off).
+              {showDemoFinance
+                ? "Itemized gross booking volume, illustrative 15% platform commission, and 85% net host earnings (DEC-006 Pending PO Sign-Off)."
+                : "Itemized gross booking volume, platform commission deductions, and net host settlement payables."}
             </p>
           </div>
           <button
@@ -2757,25 +3289,49 @@ export function HostFinancialRevenueLedgerPage() {
       </div>
 
       {/* Honest Prototype Notice */}
-      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-        <div>
-          {liveFinance ? (
-            <>
-              <strong className="text-navy-950">Live Non-Escrow Settlement Ledger:</strong> Showing real server-backed host settlement payables accrued from confirmed and completed LKR bookings. Automated bank batch disbursement remains scheduled for Phase C.
-            </>
-          ) : (
-            <>
-              <strong className="text-navy-950">Financial Ledger (Demo Figures):</strong> Financial volumes, deductions, and batch settlement dates are calculated from local mock bookings for Fort Hub demonstration. Export actions generate simulated client exports. Production ledger queries will connect to the payments service in Phase 3+.
-            </>
-          )}
+      {liveFinance ? (
+        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-navy-950">Live Non-Escrow Settlement Ledger:</strong> Showing real server-backed host settlement payables accrued from confirmed and completed LKR bookings. Automated bank batch disbursement remains scheduled for Phase C.
+          </div>
         </div>
-      </div>
+      ) : showDemoFinance ? (
+        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-navy-950">Financial Ledger (Demo Figures):</strong> Financial volumes, deductions, and batch settlement dates are calculated from local mock bookings for Fort Hub demonstration. Export actions generate simulated client exports.
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-navy-950">Host Settlement Ledger:</strong> Host payable totals reflect authenticated booking settlements from the server ledger.
+          </div>
+        </div>
+      )}
+
+      {financeError && (
+        <div
+          role="alert"
+          className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-950 text-xs font-bold flex items-center justify-between gap-3"
+        >
+          <span>{financeError}</span>
+          <button
+            type="button"
+            onClick={() => void loadFinance()}
+            className="px-3 py-1 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-bold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {downloadNotice && (
         <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center gap-2">
           <Info className="h-4 w-4 text-blue-600" />
-          <span>Generating financial ledger export (CSV). Download starting shortly (Demo Action).</span>
+          <span>Generating financial ledger export (CSV). Download starting shortly.</span>
         </div>
       )}
 
@@ -2788,18 +3344,24 @@ export function HostFinancialRevenueLedgerPage() {
         </div>
 
         <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-1">
-          <span className="text-xs font-bold text-navy-500 uppercase tracking-wider">Platform Fee (15%)</span>
+          <span className="text-xs font-bold text-navy-500 uppercase tracking-wider">
+            {showDemoFinance ? "Platform Fee (15%)" : "Platform Commission"}
+          </span>
           <p className="text-2xl font-extrabold text-navy-600">-{formatLkr(commissionDisplayLkr)}</p>
           <span className="text-[11px] text-navy-500">Payment processing &amp; platform commission</span>
         </div>
 
         <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-1">
-          <span className="text-xs font-bold text-navy-500 uppercase tracking-wider">Net Host Payout (85%)</span>
+          <span className="text-xs font-bold text-navy-500 uppercase tracking-wider">
+            {showDemoFinance ? "Net Host Payout (85%)" : "Net Host Payable"}
+          </span>
           <p className="text-2xl font-extrabold text-emerald-700">{formatLkr(netDisplayLkr)}</p>
           <span className="text-[11px] text-emerald-800 font-semibold">
             {liveFinance
               ? `Eligible now: ${formatLkr(Math.round(liveFinance.totalEligibleMinor / 100))}`
-              : "Illustrative Friday batch estimate (DEC-006)"}
+              : showDemoFinance
+                ? "Illustrative Friday batch estimate (DEC-006)"
+                : "Server-authoritative payable snapshot"}
           </span>
         </div>
       </div>
@@ -2808,7 +3370,11 @@ export function HostFinancialRevenueLedgerPage() {
       <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
         <div className="p-4 border-b border-sand-200 flex items-center justify-between">
           <h2 className="text-sm font-bold text-navy-950">Recent Completed &amp; Cleared Bookings</h2>
-          <span className="text-xs text-navy-500">Settled to Commercial Bank of Ceylon PLC</span>
+          <span className="text-xs text-navy-500">
+            {showDemoFinance
+              ? "Settled to Commercial Bank of Ceylon PLC"
+              : "Settled per verified payout account"}
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
@@ -2817,14 +3383,15 @@ export function HostFinancialRevenueLedgerPage() {
                 <th className="p-3.5">Booking Ref</th>
                 <th className="p-3.5">Traveller</th>
                 <th className="p-3.5">Gross (LKR)</th>
-                <th className="p-3.5">Platform Fee (15%)</th>
-                <th className="p-3.5">Host Net (85%)</th>
+                <th className="p-3.5">{showDemoFinance ? "Platform Fee (15%)" : "Platform Commission"}</th>
+                <th className="p-3.5">{showDemoFinance ? "Host Net (85%)" : "Host Net"}</th>
                 <th className="p-3.5">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-sand-100">
-              {liveFinance
-                ? liveFinance.payables.map((p) => (
+              {liveFinance ? (
+                liveFinance.payables.length > 0 ? (
+                  liveFinance.payables.map((p) => (
                     <tr key={p.id} className="hover:bg-sand-50/70 transition">
                       <td className="p-3.5 font-mono font-bold text-navy-900">
                         {p.referenceCode || p.bookingId.slice(0, 8)}
@@ -2846,20 +3413,35 @@ export function HostFinancialRevenueLedgerPage() {
                       </td>
                     </tr>
                   ))
-                : DEMO_BOOKINGS.map((b) => (
-                    <tr key={b.id} className="hover:bg-sand-50/70 transition">
-                      <td className="p-3.5 font-mono font-bold text-navy-900">{b.reference}</td>
-                      <td className="p-3.5 font-semibold text-navy-950">{b.travellerName}</td>
-                      <td className="p-3.5 text-navy-800">{formatLkr(b.totalAmountLkr)}</td>
-                      <td className="p-3.5 text-navy-500">-{formatLkr(b.platformCommissionLkr)}</td>
-                      <td className="p-3.5 font-bold text-emerald-700">{formatLkr(b.hostNetPayoutLkr)}</td>
-                      <td className="p-3.5">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          Cleared
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-navy-500">
+                      No host settlement payables recorded yet.
+                    </td>
+                  </tr>
+                )
+              ) : showDemoFinance ? (
+                DEMO_BOOKINGS.map((b) => (
+                  <tr key={b.id} className="hover:bg-sand-50/70 transition">
+                    <td className="p-3.5 font-mono font-bold text-navy-900">{b.reference}</td>
+                    <td className="p-3.5 font-semibold text-navy-950">{b.travellerName}</td>
+                    <td className="p-3.5 text-navy-800">{formatLkr(b.totalAmountLkr)}</td>
+                    <td className="p-3.5 text-navy-500">-{formatLkr(b.platformCommissionLkr)}</td>
+                    <td className="p-3.5 font-bold text-emerald-700">{formatLkr(b.hostNetPayoutLkr)}</td>
+                    <td className="p-3.5">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        Cleared
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-navy-500">
+                    No host settlement payables recorded yet.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -2872,34 +3454,47 @@ export function HostFinancialRevenueLedgerPage() {
 // HD-011: Payout Accounts & History (/host/payouts)
 // ============================================================================
 export function HostPayoutAccountsHistoryPage() {
+  const location = useLocation();
+  const { isDemoActive } = useHostVenue();
+  const { isAuthenticated } = useAuthStore();
+  const showDemo =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
   const [showEditBankModal, setShowEditBankModal] = useState(false);
 
-  const payoutBatches = [
-    {
-      id: "BATCH-2026-W44",
-      date: "06 Nov 2026",
-      amountLkr: 64850,
-      method: "CEFT Transfer",
-      ref: "CEFT-LK-90281",
-      status: "Completed"
-    },
-    {
-      id: "BATCH-2026-W43",
-      date: "30 Oct 2026",
-      amountLkr: 72400,
-      method: "CEFT Transfer",
-      ref: "CEFT-LK-89104",
-      status: "Completed"
-    },
-    {
-      id: "BATCH-2026-W42",
-      date: "23 Oct 2026",
-      amountLkr: 47250,
-      method: "CEFT Transfer",
-      ref: "CEFT-LK-87890",
-      status: "Completed"
-    }
-  ];
+  const payoutBatches = showDemo
+    ? [
+        {
+          id: "BATCH-2026-W44",
+          date: "06 Nov 2026",
+          amountLkr: 64850,
+          method: "CEFT Transfer",
+          ref: "CEFT-LK-90281",
+          status: "Completed"
+        },
+        {
+          id: "BATCH-2026-W43",
+          date: "30 Oct 2026",
+          amountLkr: 72400,
+          method: "CEFT Transfer",
+          ref: "CEFT-LK-89104",
+          status: "Completed"
+        },
+        {
+          id: "BATCH-2026-W42",
+          date: "23 Oct 2026",
+          amountLkr: 47250,
+          method: "CEFT Transfer",
+          ref: "CEFT-LK-87890",
+          status: "Completed"
+        }
+      ]
+    : [];
 
   return (
     <div className="space-y-6">
@@ -2911,7 +3506,9 @@ export function HostPayoutAccountsHistoryPage() {
               Payout Accounts &amp; Settlement History
             </h1>
             <p className="text-xs text-navy-600 mt-0.5">
-              Manage Sri Lankan LKR settlement bank details (CEFT / SLIPS) and review weekly batch transfer statements (Illustrative Friday Schedule: DEC-006 Pending PO Sign-Off).
+              {showDemo
+                ? "Manage Sri Lankan LKR settlement bank details (CEFT / SLIPS) and review weekly batch transfer statements (Illustrative Friday Schedule: DEC-006 Pending PO Sign-Off)."
+                : "Manage Sri Lankan LKR settlement bank details (CEFT / SLIPS) and review batch settlement statements."}
             </p>
           </div>
           <button
@@ -2925,45 +3522,54 @@ export function HostPayoutAccountsHistoryPage() {
       </div>
 
       {/* Honest Prototype Notice */}
-      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <strong className="text-navy-950">Payout Accounts (Demo Record):</strong> Bank beneficiary details and batch settlement records are illustrative fixtures for Ceylon Transit Hospitality demonstration. Bank verification and CEFT/SLIPS disbursement integration will connect in Phase 3+.
+      {showDemo && (
+        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-navy-950">Payout Accounts (Demo Record):</strong> Bank beneficiary details and batch settlement records are illustrative fixtures for demo preview.
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Primary Settlement Bank Card */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="h-10 w-10 rounded-xl bg-navy-900 text-white flex items-center justify-center font-bold">
-              <Building2 className="h-5 w-5" />
+      {showDemo ? (
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="h-10 w-10 rounded-xl bg-navy-900 text-white flex items-center justify-center font-bold">
+                <Building2 className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-navy-950">Commercial Bank of Ceylon PLC</h2>
+                <p className="text-xs text-navy-600">Colombo Fort Corporate Branch (Code 001)</p>
+              </div>
+            </div>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200">
+              Sample Bank Record (Demo)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 text-xs">
+            <div>
+              <span className="text-navy-500">Account Beneficiary:</span>
+              <p className="font-bold text-navy-900">Ceylon Transit Hospitality (Pvt) Ltd</p>
             </div>
             <div>
-              <h2 className="text-sm font-bold text-navy-950">Commercial Bank of Ceylon PLC</h2>
-              <p className="text-xs text-navy-600">Colombo Fort Corporate Branch (Code 001)</p>
+              <span className="text-navy-500">Masked Account Number:</span>
+              <p className="font-mono font-bold text-navy-900">**** **** **** 8821</p>
+            </div>
+            <div>
+              <span className="text-navy-500">Clearing Method:</span>
+              <p className="font-bold text-navy-900">CEFT / SLIPS (Same-Day Clearing)</p>
             </div>
           </div>
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200">
-            Sample Bank Record (Demo)
-          </span>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 text-xs">
-          <div>
-            <span className="text-navy-500">Account Beneficiary:</span>
-            <p className="font-bold text-navy-900">Ceylon Transit Hospitality (Pvt) Ltd</p>
-          </div>
-          <div>
-            <span className="text-navy-500">Masked Account Number:</span>
-            <p className="font-mono font-bold text-navy-900">**** **** **** 8821</p>
-          </div>
-          <div>
-            <span className="text-navy-500">Clearing Method:</span>
-            <p className="font-bold text-navy-900">CEFT / SLIPS (Same-Day Clearing)</p>
-          </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs text-navy-600 shadow-sm">
+          <p className="font-bold text-navy-950 mb-1">No Verified Settlement Bank Account</p>
+          <p>Submit corporate bank beneficiary details via Update Bank Details once automated payouts are enabled.</p>
         </div>
-      </div>
+      )}
 
       {/* Batch Settlement History */}
       <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
@@ -2983,27 +3589,35 @@ export function HostPayoutAccountsHistoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-sand-100">
-              {payoutBatches.map((batch) => (
-                <tr key={batch.id} className="hover:bg-sand-50/70 transition">
-                  <td className="p-3.5 font-mono font-bold text-navy-900">{batch.id}</td>
-                  <td className="p-3.5 text-navy-700">{batch.date}</td>
-                  <td className="p-3.5 font-bold text-emerald-700">{formatLkr(batch.amountLkr)}</td>
-                  <td className="p-3.5 font-mono text-navy-600">{batch.ref}</td>
-                  <td className="p-3.5">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                      {batch.status}
-                    </span>
-                  </td>
-                  <td className="p-3.5 text-right">
-                    <button
-                      type="button"
-                      className="text-terracotta-600 hover:text-terracotta-700 font-bold"
-                    >
-                      Download Sample PDF (Demo Action)
-                    </button>
+              {payoutBatches.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-navy-500">
+                    No settlement payout batches recorded yet.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                payoutBatches.map((batch) => (
+                  <tr key={batch.id} className="hover:bg-sand-50/70 transition">
+                    <td className="p-3.5 font-mono font-bold text-navy-900">{batch.id}</td>
+                    <td className="p-3.5 text-navy-700">{batch.date}</td>
+                    <td className="p-3.5 font-bold text-emerald-700">{formatLkr(batch.amountLkr)}</td>
+                    <td className="p-3.5 font-mono text-navy-600">{batch.ref}</td>
+                    <td className="p-3.5">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        {batch.status}
+                      </span>
+                    </td>
+                    <td className="p-3.5 text-right">
+                      <button
+                        type="button"
+                        className="text-terracotta-600 hover:text-terracotta-700 font-bold"
+                      >
+                        Download Sample PDF (Demo Action)
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -3024,14 +3638,15 @@ export function HostPayoutAccountsHistoryPage() {
               </button>
             </div>
             <p className="text-xs text-navy-600">
-              For security compliance, bank account changes undergo 24-hour compliance verification before active disbursement.
+              For security compliance, bank account changes undergo verification before active disbursement.
             </p>
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block font-bold text-navy-900 mb-1">Bank Name</label>
                 <input
                   type="text"
-                  defaultValue="Commercial Bank of Ceylon PLC"
+                  defaultValue={showDemo ? "Commercial Bank of Ceylon PLC" : ""}
+                  placeholder="Enter bank name"
                   className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
                 />
               </div>
@@ -3071,44 +3686,58 @@ export function HostPayoutAccountsHistoryPage() {
 // HD-012: Review Management (/host/reviews)
 // ============================================================================
 export function HostReviewManagementPage() {
+  const location = useLocation();
+  const { isDemoActive } = useHostVenue();
+  const { isAuthenticated } = useAuthStore();
+  const showDemo =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
   const [replyText, setReplyText] = useState("");
   const [replyPublished, setReplyPublished] = useState(false);
 
-  const reviews = [
-    {
-      id: "rev-1",
-      author: "Amaya Perera",
-      country: "Sri Lanka",
-      date: "Yesterday",
-      bookingRef: "LS-2026-8841",
-      rating: 5,
-      content:
-        "Super fast QR check-in right outside Colombo Fort Station! Loved seeing the numbered security seal placed on our backpacks.",
-      reply: "Thank you Amaya! We are delighted our Fort Station vault made your city excursion hassle-free."
-    },
-    {
-      id: "rev-2",
-      author: "Liam O'Connor",
-      country: "Ireland",
-      date: "07 Nov 2026",
-      bookingRef: "LS-2026-8842",
-      rating: 5,
-      content:
-        "Left two large suitcases before boarding the scenic train to Ella. Bags were in perfect condition with intact seals when we collected them.",
-      reply: null
-    },
-    {
-      id: "rev-3",
-      author: "Sophie Laurent",
-      country: "France",
-      date: "04 Nov 2026",
-      bookingRef: "LS-2026-8799",
-      rating: 4,
-      content:
-        "Very convenient location. Only 2 minutes walk from the station exit. Prompt service.",
-      reply: "Merci Sophie! Hope you enjoyed your holiday across the island."
-    }
-  ];
+  const reviews = showDemo
+    ? [
+        {
+          id: "rev-1",
+          author: "Amaya Perera",
+          country: "Sri Lanka",
+          date: "Yesterday",
+          bookingRef: "LS-2026-8841",
+          rating: 5,
+          content:
+            "Super fast QR check-in right outside Colombo Fort Station! Loved seeing the numbered security seal placed on our backpacks.",
+          reply:
+            "Thank you Amaya! We are delighted our Fort Station vault made your city excursion hassle-free."
+        },
+        {
+          id: "rev-2",
+          author: "Liam O'Connor",
+          country: "Ireland",
+          date: "07 Nov 2026",
+          bookingRef: "LS-2026-8842",
+          rating: 5,
+          content:
+            "Left two large suitcases before boarding the scenic train to Ella. Bags were in perfect condition with intact seals when we collected them.",
+          reply: null
+        },
+        {
+          id: "rev-3",
+          author: "Sophie Laurent",
+          country: "France",
+          date: "04 Nov 2026",
+          bookingRef: "LS-2026-8799",
+          rating: 4,
+          content:
+            "Very convenient location. Only 2 minutes walk from the station exit. Prompt service.",
+          reply: "Merci Sophie! Hope you enjoyed your holiday across the island."
+        }
+      ]
+    : [];
 
   return (
     <div className="space-y-6">
@@ -3123,20 +3752,24 @@ export function HostReviewManagementPage() {
               Read verified post-checkout traveller ratings and publish official partner responses.
             </p>
           </div>
-          <div className="flex items-center gap-2 bg-sand-100 px-3.5 py-1.5 rounded-xl">
-            <span className="text-amber-500 font-bold text-sm">★ 4.9</span>
-            <span className="text-xs text-navy-700 font-semibold">214 Verified Reviews</span>
-          </div>
+          {showDemo && (
+            <div className="flex items-center gap-2 bg-sand-100 px-3.5 py-1.5 rounded-xl">
+              <span className="text-amber-500 font-bold text-sm">★ 4.9</span>
+              <span className="text-xs text-navy-700 font-semibold">214 Verified Reviews</span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Honest Prototype Notice */}
-      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <strong className="text-navy-950">Customer Reviews (Demo Data):</strong> Sample feedback ratings and reviews shown for Fort Hub demonstration. Replies are held in local state and will connect to the live review publication endpoint in Phase 3+.
+      {showDemo && (
+        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-navy-950">Customer Reviews (Demo Data):</strong> Sample feedback ratings and reviews shown for demo preview.
+          </div>
         </div>
-      </div>
+      )}
 
       {replyPublished && (
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold flex items-center gap-2">
@@ -3147,64 +3780,70 @@ export function HostReviewManagementPage() {
 
       {/* Reviews Feed */}
       <div className="space-y-4">
-        {reviews.map((r) => (
-          <div
-            key={r.id}
-            className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm space-y-3"
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="h-9 w-9 rounded-full bg-navy-900 text-white flex items-center justify-center font-bold text-xs">
-                  {r.author.charAt(0)}
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-navy-950">{r.author} ({r.country})</p>
-                  <p className="text-[10px] text-navy-500 font-mono">Booking #{r.bookingRef} • {r.date}</p>
-                </div>
-              </div>
-              <div className="text-amber-500 text-xs font-bold">
-                {"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)} ({r.rating}.0)
-              </div>
-            </div>
-
-            <p className="text-xs text-navy-800 leading-relaxed">{r.content}</p>
-
-            {r.reply ? (
-              <div className="p-3.5 rounded-xl bg-sand-50 border-l-4 border-terracotta-500 text-xs space-y-1">
-                <span className="font-bold text-navy-900 text-[11px]">Official Host Response:</span>
-                <p className="text-navy-700 text-xs">{r.reply}</p>
-              </div>
-            ) : (
-              <div className="pt-2 border-t border-sand-100 space-y-2">
-                <label className="block text-[11px] font-bold text-navy-700">
-                  Reply to {r.author}
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Type official reply..."
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    className="flex-1 rounded-xl border border-sand-300 px-3 py-1.5 text-xs text-navy-900"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (replyText.trim()) {
-                        setReplyPublished(true);
-                        setReplyText("");
-                        setTimeout(() => setReplyPublished(false), 3000);
-                      }
-                    }}
-                    className="px-4 py-1.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
-                  >
-                    Reply
-                  </button>
-                </div>
-              </div>
-            )}
+        {reviews.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs text-navy-500 shadow-sm">
+            No traveller reviews published yet for your verified locations.
           </div>
-        ))}
+        ) : (
+          reviews.map((r) => (
+            <div
+              key={r.id}
+              className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm space-y-3"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-full bg-navy-900 text-white flex items-center justify-center font-bold text-xs">
+                    {r.author.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-navy-950">{r.author} ({r.country})</p>
+                    <p className="text-[10px] text-navy-500 font-mono">Booking #{r.bookingRef} • {r.date}</p>
+                  </div>
+                </div>
+                <div className="text-amber-500 text-xs font-bold">
+                  {"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)} ({r.rating}.0)
+                </div>
+              </div>
+
+              <p className="text-xs text-navy-800 leading-relaxed">{r.content}</p>
+
+              {r.reply ? (
+                <div className="p-3.5 rounded-xl bg-sand-50 border-l-4 border-terracotta-500 text-xs space-y-1">
+                  <span className="font-bold text-navy-900 text-[11px]">Official Host Response:</span>
+                  <p className="text-navy-700 text-xs">{r.reply}</p>
+                </div>
+              ) : (
+                <div className="pt-2 border-t border-sand-100 space-y-2">
+                  <label className="block text-[11px] font-bold text-navy-700">
+                    Reply to {r.author}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Type official reply..."
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      className="flex-1 rounded-xl border border-sand-300 px-3 py-1.5 text-xs text-navy-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (replyText.trim()) {
+                          setReplyPublished(true);
+                          setReplyText("");
+                          setTimeout(() => setReplyPublished(false), 3000);
+                        }
+                      }}
+                      className="px-4 py-1.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
+                    >
+                      Reply
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -3214,34 +3853,58 @@ export function HostReviewManagementPage() {
 // HD-013: Staff Management & RBAC (/host/staff)
 // ============================================================================
 export function HostStaffManagementRbacPage() {
+  const location = useLocation();
+  const { isDemoActive } = useHostVenue();
+  const { isAuthenticated, user } = useAuthStore();
+  const showDemo =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
   const [showInviteModal, setShowInviteModal] = useState(false);
 
-  const staffMembers = [
-    {
-      id: "usr-204",
-      name: "Roshan Fernando",
-      email: "roshan.f@ceylontransit.lk",
-      role: "HOST_STAFF",
-      assignedVenue: "Colombo Fort Station Heritage Vault",
-      status: "Active"
-    },
-    {
-      id: "usr-205",
-      name: "Nuwan Bandara",
-      email: "nuwan.b@ceylontransit.lk",
-      role: "HOST_STAFF",
-      assignedVenue: "Ella Railway & Nine Arch Trail Hub",
-      status: "Active"
-    },
-    {
-      id: "usr-201",
-      name: "Priyantha Wickramasinghe",
-      email: "priyantha@ceylontransit.lk",
-      role: "HOST_OWNER",
-      assignedVenue: "All Storage Locations",
-      status: "Active"
-    }
-  ];
+  const staffMembers = showDemo
+    ? [
+        {
+          id: "usr-204",
+          name: "Roshan Fernando",
+          email: "roshan.f@ceylontransit.lk",
+          role: "HOST_STAFF",
+          assignedVenue: "Colombo Fort Station Heritage Vault",
+          status: "Active"
+        },
+        {
+          id: "usr-205",
+          name: "Nuwan Bandara",
+          email: "nuwan.b@ceylontransit.lk",
+          role: "HOST_STAFF",
+          assignedVenue: "Ella Railway & Nine Arch Trail Hub",
+          status: "Active"
+        },
+        {
+          id: "usr-201",
+          name: "Priyantha Wickramasinghe",
+          email: "priyantha@ceylontransit.lk",
+          role: "HOST_OWNER",
+          assignedVenue: "All Storage Locations",
+          status: "Active"
+        }
+      ]
+    : isAuthenticated && user
+      ? [
+          {
+            id: user.id,
+            name: user.displayName || "Authenticated Host User",
+            email: user.email,
+            role: user.roles.includes("HOST_OWNER") ? "HOST_OWNER" : "HOST_STAFF",
+            assignedVenue: "Assigned Host Locations",
+            status: user.status
+          }
+        ]
+      : [];
 
   return (
     <div className="space-y-6">
@@ -3268,12 +3931,14 @@ export function HostStaffManagementRbacPage() {
       </div>
 
       {/* Honest Prototype Notice */}
-      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <strong className="text-navy-950">Team Management (Demo State):</strong> Staff directory is populated with demo counter supervisors for Fort Hub. Modal invitations simulate the staff onboarding journey and will connect to RBAC identity provisioning in Phase 3+.
+      {showDemo && (
+        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-navy-950">Team Management (Demo State):</strong> Staff directory is populated with demo counter supervisors for demo preview.
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Role Scopes Guide */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -3317,39 +3982,47 @@ export function HostStaffManagementRbacPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-sand-100">
-              {staffMembers.map((member) => (
-                <tr key={member.id} className="hover:bg-sand-50/70 transition">
-                  <td className="p-3.5">
-                    <p className="font-bold text-navy-950">{member.name}</p>
-                    <p className="text-[11px] text-navy-500">{member.email}</p>
-                  </td>
-                  <td className="p-3.5 text-navy-800 font-medium">{member.assignedVenue}</td>
-                  <td className="p-3.5">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        member.role === "HOST_OWNER"
-                          ? "bg-navy-900 text-white"
-                          : "bg-amber-100 text-navy-950"
-                      }`}
-                    >
-                      {member.role === "HOST_OWNER" ? "Host Owner" : "Host Staff"}
-                    </span>
-                  </td>
-                  <td className="p-3.5">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                      {member.status}
-                    </span>
-                  </td>
-                  <td className="p-3.5 text-right">
-                    <button
-                      type="button"
-                      className="text-navy-600 hover:text-navy-900 font-bold"
-                    >
-                      Edit Scope
-                    </button>
+              {staffMembers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-6 text-center text-navy-500">
+                    Sign in as a Host Owner to view and manage authorized team members.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                staffMembers.map((member) => (
+                  <tr key={member.id} className="hover:bg-sand-50/70 transition">
+                    <td className="p-3.5">
+                      <p className="font-bold text-navy-950">{member.name}</p>
+                      <p className="text-[11px] text-navy-500">{member.email}</p>
+                    </td>
+                    <td className="p-3.5 text-navy-800 font-medium">{member.assignedVenue}</td>
+                    <td className="p-3.5">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          member.role === "HOST_OWNER"
+                            ? "bg-navy-900 text-white"
+                            : "bg-amber-100 text-navy-950"
+                        }`}
+                      >
+                        {member.role === "HOST_OWNER" ? "Host Owner" : "Host Staff"}
+                      </span>
+                    </td>
+                    <td className="p-3.5">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        {member.status}
+                      </span>
+                    </td>
+                    <td className="p-3.5 text-right">
+                      <button
+                        type="button"
+                        className="text-navy-600 hover:text-navy-900 font-bold"
+                      >
+                        Edit Scope
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -3374,7 +4047,7 @@ export function HostStaffManagementRbacPage() {
                 <label className="block font-bold text-navy-900 mb-1">Full Name</label>
                 <input
                   type="text"
-                  placeholder="e.g. Dinesh Jayawardena"
+                  placeholder="Enter full name"
                   className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
                 />
               </div>
@@ -3382,7 +4055,7 @@ export function HostStaffManagementRbacPage() {
                 <label className="block font-bold text-navy-900 mb-1">Email Address</label>
                 <input
                   type="email"
-                  placeholder="dinesh@ceylontransit.lk"
+                  placeholder="name@example.com"
                   className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
                 />
               </div>
@@ -3421,8 +4094,19 @@ export function HostStaffManagementRbacPage() {
 // HD-014: Business Profile & Legal (/host/settings)
 // ============================================================================
 export function HostBusinessProfileLegalPage() {
+  const location = useLocation();
+  const { isDemoActive } = useHostVenue();
+  const { isAuthenticated } = useAuthStore();
+  const showDemo =
+    isDemoActive ||
+    (!isAuthenticated &&
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
   const [businesses, setBusinesses] = useState<HostBusiness[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(isAuthenticated);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -3439,8 +4123,13 @@ export function HostBusinessProfileLegalPage() {
   const [city, setCity] = useState("Colombo");
   const [addressLine1, setAddressLine1] = useState("");
 
-  const loadBusinesses = async () => {
+  const loadBusinesses = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setErrorMsg(null);
     try {
       const list = await marketplaceApi.getOwnedBusinesses();
       setBusinesses(list);
@@ -3449,11 +4138,11 @@ export function HostBusinessProfileLegalPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAuthenticated]);
 
   React.useEffect(() => {
     loadBusinesses();
-  }, []);
+  }, [loadBusinesses]);
 
   const handleCreateBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3494,7 +4183,7 @@ export function HostBusinessProfileLegalPage() {
               Business Profile &amp; Legal Compliance
             </h1>
             <p className="text-xs text-navy-600 mt-0.5">
-              Corporate registration certificate (BRN), Sri Lanka TIN/VAT status, and verified insurance compliance.
+              Corporate registration certificate (BRN), Sri Lanka TIN/VAT status, and compliance verification.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -3505,10 +4194,12 @@ export function HostBusinessProfileLegalPage() {
               </span>
             ) : (
               <>
-                <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-sand-100 text-navy-800 border border-sand-300 flex items-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-terracotta-600" />
-                  <span>KYC Profile Preview (Demo Simulation)</span>
-                </span>
+                {showDemo && (
+                  <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-sand-100 text-navy-800 border border-sand-300 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4 text-terracotta-600" />
+                    <span>KYC Profile Preview (Demo Simulation)</span>
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(true)}
@@ -3523,12 +4214,14 @@ export function HostBusinessProfileLegalPage() {
       </div>
 
       {/* Honest Prototype Notice */}
-      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-        <div>
-          <strong className="text-navy-950">Business Profile &amp; KYC (Demo Simulation):</strong> Corporate entities, tax identifiers (BRN/TIN), and insurance certificates displayed here are sample fixtures for Fort Hub onboarding demonstration. Production verification and document uploads will connect to Superadmin compliance workflows in Phase 3+.
+      {showDemo && (
+        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-navy-950">Business Profile &amp; KYC (Demo Simulation):</strong> Corporate entities, tax identifiers (BRN/TIN), and verification records displayed here are sample fixtures for demo preview.
+          </div>
         </div>
-      </div>
+      )}
 
       {successMsg && (
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-xl">
@@ -3537,8 +4230,18 @@ export function HostBusinessProfileLegalPage() {
       )}
 
       {errorMsg && (
-        <div className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs font-semibold rounded-xl">
-          {errorMsg}
+        <div
+          role="alert"
+          className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs font-semibold rounded-xl flex items-center justify-between gap-3"
+        >
+          <span>{errorMsg}</span>
+          <button
+            type="button"
+            onClick={() => void loadBusinesses()}
+            className="px-3 py-1 rounded-lg bg-red-700 hover:bg-red-800 text-white font-bold"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -3612,70 +4315,74 @@ export function HostBusinessProfileLegalPage() {
         </>
       ) : (
         <>
-          {/* Corporate Registration Dossier (Demo Fixture) */}
-          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
-            <h2 className="text-sm font-bold text-navy-950">Corporate Registration Certificate</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              <div>
-                <span className="text-navy-500">Registered Legal Entity:</span>
-                <p className="font-bold text-navy-950">Ceylon Transit Hospitality (Pvt) Ltd</p>
-              </div>
-              <div>
-                <span className="text-navy-500">Registrar of Companies BRN:</span>
-                <p className="font-mono font-bold text-navy-950">PV-00294812</p>
-              </div>
-              <div>
-                <span className="text-navy-500">Inland Revenue Department TIN:</span>
-                <p className="font-mono font-bold text-navy-950">TIN-10928472-0001</p>
-              </div>
-              <div>
-                <span className="text-navy-500">VAT Status:</span>
-                <p className="font-bold text-emerald-700">Registered (VAT-10928472-7000)</p>
-              </div>
-              <div className="sm:col-span-2">
-                <span className="text-navy-500">Registered Office Address:</span>
-                <p className="font-medium text-navy-900">
-                  Level 4, East Tower, World Trade Center, Colombo 01, Sri Lanka
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Verified KYC Documents (Demo Fixture) */}
-          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
-            <h2 className="text-sm font-bold text-navy-950">Verified Compliance Documentation</h2>
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50 border border-sand-200">
-                <div className="flex items-center gap-2.5">
-                  <FileText className="h-4 w-4 text-terracotta-600" />
+          {showDemo && (
+            <>
+              {/* Corporate Registration Dossier (Demo Fixture) */}
+              <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+                <h2 className="text-sm font-bold text-navy-950">Corporate Registration Certificate</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   <div>
-                    <p className="font-bold text-navy-900">Certificate of Incorporation (Form 1 / Form 20)</p>
-                    <p className="text-[10px] text-navy-500">Verified by Superadmin Compliance</p>
+                    <span className="text-navy-500">Registered Legal Entity:</span>
+                    <p className="font-bold text-navy-950">Ceylon Transit Hospitality (Pvt) Ltd</p>
+                  </div>
+                  <div>
+                    <span className="text-navy-500">Registrar of Companies BRN:</span>
+                    <p className="font-mono font-bold text-navy-950">PV-00294812</p>
+                  </div>
+                  <div>
+                    <span className="text-navy-500">Inland Revenue Department TIN:</span>
+                    <p className="font-mono font-bold text-navy-950">TIN-10928472-0001</p>
+                  </div>
+                  <div>
+                    <span className="text-navy-500">VAT Status:</span>
+                    <p className="font-bold text-emerald-700">Registered (VAT-10928472-7000)</p>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <span className="text-navy-500">Registered Office Address:</span>
+                    <p className="font-medium text-navy-900">
+                      Level 4, East Tower, World Trade Center, Colombo 01, Sri Lanka
+                    </p>
                   </div>
                 </div>
-                <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
-                  Sample Verification Status
-                </span>
               </div>
 
-              <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50 border border-sand-200">
-                <div className="flex items-center gap-2.5">
-                  <FileText className="h-4 w-4 text-terracotta-600" />
-                  <div>
-                    <p className="font-bold text-navy-900">Commercial Premises Lease &amp; Insurance Cover</p>
-                    <p className="text-[10px] text-navy-500">LKR 10,000,000 Public Liability Insurance Policy</p>
+              {/* Verified KYC Documents (Demo Fixture) */}
+              <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+                <h2 className="text-sm font-bold text-navy-950">Verified Compliance Documentation</h2>
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50 border border-sand-200">
+                    <div className="flex items-center gap-2.5">
+                      <FileText className="h-4 w-4 text-terracotta-600" />
+                      <div>
+                        <p className="font-bold text-navy-900">Certificate of Incorporation (Form 1 / Form 20)</p>
+                        <p className="text-[10px] text-navy-500">Verified by Superadmin Compliance</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
+                      Sample Verification Status
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-sand-50 border border-sand-200">
+                    <div className="flex items-center gap-2.5">
+                      <FileText className="h-4 w-4 text-terracotta-600" />
+                      <div>
+                        <p className="font-bold text-navy-900">Commercial Premises Lease &amp; Insurance Cover</p>
+                        <p className="text-[10px] text-navy-500">LKR 10,000,000 Public Liability Insurance Policy</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
+                      Sample Verification Status
+                    </span>
                   </div>
                 </div>
-                <span className="text-[10px] font-bold text-navy-700 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
-                  Sample Verification Status
-                </span>
-              </div>
-            </div>
 
-            <div className="p-3.5 rounded-xl bg-sand-100/80 text-[11px] text-navy-700">
-              <strong className="text-navy-900">Compliance Notice:</strong> Corporate registration and bank details are read-only once verified. To request changes, contact Superadmin Compliance Support at <span className="font-semibold text-terracotta-700">compliance@ceylonstorage.lk</span>.
-            </div>
-          </div>
+                <div className="p-3.5 rounded-xl bg-sand-100/80 text-[11px] text-navy-700">
+                  <strong className="text-navy-900">Compliance Notice:</strong> Corporate registration and bank details are read-only once verified. To request changes, contact Superadmin Compliance Support at <span className="font-semibold text-terracotta-700">compliance@ceylonstorage.lk</span>.
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-4 shadow-sm">
             <Building2 className="h-10 w-10 text-sand-400 mx-auto" />

@@ -500,6 +500,16 @@ export function AdminHostVerificationQueuePage() {
 // AD-003: Host Directory & Management (/admin/hosts)
 // ============================================================================
 export function AdminHostDirectoryManagementPage() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
+
   return (
     <div className="space-y-6" data-screen-id="AD-003">
       <ScreenHeaderBadge
@@ -513,22 +523,42 @@ export function AdminHostDirectoryManagementPage() {
       />
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
-        {DEMO_LOCATIONS.map((loc) => (
-          <div
-            key={loc.id}
-            className="flex flex-wrap items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200"
-          >
+        {showDemoPreview ? (
+          DEMO_LOCATIONS.map((loc) => (
+            <div
+              key={loc.id}
+              className="flex flex-wrap items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200"
+            >
+              <div>
+                <p className="font-bold text-slate-900">{loc.verifiedHost}</p>
+                <p className="text-slate-500">
+                  Primary Hub: {loc.name} ({loc.city}) • Rating ★ {loc.rating}
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 font-bold">
+                ACTIVE PARTNER
+              </span>
+            </div>
+          ))
+        ) : (
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="font-bold text-slate-900">{loc.verifiedHost}</p>
-              <p className="text-slate-500">
-                Primary Hub: {loc.name} ({loc.city}) • Rating ★ {loc.rating}
+              <p className="font-bold text-slate-900">
+                No host directory feed loaded in live mode
+              </p>
+              <p className="text-slate-500 mt-0.5">
+                Review active verification requests in Host Verification Queue or open Location
+                Moderation.
               </p>
             </div>
-            <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 font-bold">
-              ACTIVE PARTNER
-            </span>
+            <Link
+              to="/admin/hosts/verification"
+              className="px-3 py-1.5 rounded-lg bg-purple-700 text-white font-bold hover:bg-purple-800 transition"
+            >
+              Open Verification Queue
+            </Link>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
@@ -690,29 +720,42 @@ export function AdminStorageLocationModerationPage() {
 // AD-005: Global Bookings Ledger (/admin/bookings)
 // ============================================================================
 export function AdminGlobalBookingsLedgerPage() {
+  const location = useLocation();
   const effectiveAdminRole = useAdminRole();
   const { isAuthenticated, user } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   const canReadBookings = Boolean(
     isAuthenticated &&
       (user?.roles?.includes("SUPERADMIN") || user?.roles?.includes("SUPPORT"))
   );
   const [liveBookings, setLiveBookings] = useState<BookingDetail[]>([]);
+  const [bookingsError, setBookingsError] = useState<string | null>(null);
   const [selectedCustody, setSelectedCustody] = useState<CustodyRecordDetail | null>(null);
   const [adminNotice, setAdminNotice] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadAdminBookings = React.useCallback(async () => {
     if (!canReadBookings) return;
-    let active = true;
-    marketplaceApi
-      .getAdminBookings()
-      .then((res) => {
-        if (active) setLiveBookings(res.bookings);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
+    setBookingsError(null);
+    try {
+      const res = await marketplaceApi.getAdminBookings();
+      setLiveBookings(res.bookings);
+    } catch (err: unknown) {
+      setLiveBookings([]);
+      setBookingsError(
+        err instanceof Error ? err.message : "Unable to load global platform bookings."
+      );
+    }
   }, [canReadBookings]);
+
+  useEffect(() => {
+    loadAdminBookings();
+  }, [loadAdminBookings]);
 
   const handleAdminCancel = async (bookingId: string) => {
     setAdminNotice(null);
@@ -750,6 +793,22 @@ export function AdminGlobalBookingsLedgerPage() {
         backendStatus="LIVE_PHASE_1B"
         rightSlot={<MascotIllustration mascot="suitcase-hug" size="sm" caption="Global Custody" />}
       />
+
+      {bookingsError && (
+        <div
+          role="alert"
+          className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-900 flex flex-wrap items-center justify-between gap-2"
+        >
+          <span>{bookingsError}</span>
+          <button
+            type="button"
+            onClick={loadAdminBookings}
+            className="px-2.5 py-1 rounded bg-white border border-rose-300 text-rose-900 font-bold hover:bg-rose-100"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {adminNotice && (
         <div className="p-3 rounded-xl bg-purple-50 border border-purple-200 text-xs font-bold text-purple-950">
@@ -805,24 +864,30 @@ export function AdminGlobalBookingsLedgerPage() {
                 </div>
               </div>
             ))
-          : DEMO_BOOKINGS.map((b) => (
-              <div
-                key={b.id}
-                className="flex flex-wrap items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
-              >
-                <div>
-                  <span className="font-mono font-bold text-purple-700">{b.reference}</span>
-                  <span className="ml-2 font-bold text-slate-900">{b.travellerName}</span>
-                  <span className="ml-2 text-slate-500">• {b.locationName}</span>
+          : showDemoPreview
+            ? DEMO_BOOKINGS.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex flex-wrap items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+                >
+                  <div>
+                    <span className="font-mono font-bold text-purple-700">{b.reference}</span>
+                    <span className="ml-2 font-bold text-slate-900">{b.travellerName}</span>
+                    <span className="ml-2 text-slate-500">• {b.locationName}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold">{formatLkr(b.totalAmountLkr)}</span>
+                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono">
+                      {b.status}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="font-bold">{formatLkr(b.totalAmountLkr)}</span>
-                  <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-800 font-mono">
-                    {b.status}
-                  </span>
-                </div>
-              </div>
-            ))}
+              ))
+            : (
+                <p className="text-slate-500">
+                  No live platform bookings recorded yet.
+                </p>
+              )}
       </div>
 
       {selectedCustody && (
@@ -859,26 +924,39 @@ export function AdminGlobalBookingsLedgerPage() {
 // AD-006: Payment Transactions Log (/admin/payments)
 // ============================================================================
 export function AdminPaymentTransactionsLogPage() {
+  const location = useLocation();
   const { isAuthenticated, user } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   const canReadPayments = Boolean(
     isAuthenticated &&
       (user?.roles?.includes("SUPERADMIN") || user?.roles?.includes("SUPPORT"))
   );
   const [transactions, setTransactions] = useState<PaymentTransactionRecord[]>([]);
+  const [txError, setTxError] = useState<string | null>(null);
+
+  const loadTransactions = React.useCallback(async () => {
+    if (!canReadPayments) return;
+    setTxError(null);
+    try {
+      const res = await marketplaceApi.getAdminPaymentTransactions();
+      setTransactions(res.transactions);
+    } catch (err: unknown) {
+      setTransactions([]);
+      setTxError(
+        err instanceof Error ? err.message : "Unable to load payment gateway transactions."
+      );
+    }
+  }, [canReadPayments]);
 
   useEffect(() => {
-    if (!canReadPayments) return;
-    let active = true;
-    marketplaceApi
-      .getAdminPaymentTransactions()
-      .then((res) => {
-        if (active) setTransactions(res.transactions);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [canReadPayments]);
+    loadTransactions();
+  }, [loadTransactions]);
 
   return (
     <div className="space-y-6" data-screen-id="AD-006">
@@ -891,6 +969,22 @@ export function AdminPaymentTransactionsLogPage() {
         backendStatus="LIVE_PHASE_1B"
         rightSlot={<MascotIllustration mascot="phone" size="sm" caption="Gateway Webhooks" />}
       />
+
+      {txError && (
+        <div
+          role="alert"
+          className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-900 flex flex-wrap items-center justify-between gap-2"
+        >
+          <span>{txError}</span>
+          <button
+            type="button"
+            onClick={loadTransactions}
+            className="px-2.5 py-1 rounded bg-white border border-rose-300 text-rose-900 font-bold hover:bg-rose-100"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2.5 text-xs">
         {transactions.length > 0
@@ -914,22 +1008,28 @@ export function AdminPaymentTransactionsLogPage() {
                 </span>
               </div>
             ))
-          : DEMO_BOOKINGS.map((b) => (
-              <div
-                key={b.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
-              >
-                <div>
-                  <span className="font-mono font-bold text-slate-900">
-                    PAYHERE-{b.id.toUpperCase()}
+          : showDemoPreview
+            ? DEMO_BOOKINGS.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+                >
+                  <div>
+                    <span className="font-mono font-bold text-slate-900">
+                      PAYHERE-{b.id.toUpperCase()}
+                    </span>
+                    <span className="ml-2 text-slate-500">Booking {b.reference}</span>
+                  </div>
+                  <span className="font-bold text-emerald-700">
+                    CAPTURED • {formatLkr(b.totalAmountLkr)}
                   </span>
-                  <span className="ml-2 text-slate-500">Booking {b.reference}</span>
                 </div>
-                <span className="font-bold text-emerald-700">
-                  CAPTURED • {formatLkr(b.totalAmountLkr)}
-                </span>
-              </div>
-            ))}
+              ))
+            : (
+                <p className="text-slate-500">
+                  No live payment transactions recorded yet.
+                </p>
+              )}
       </div>
     </div>
   );
@@ -939,7 +1039,15 @@ export function AdminPaymentTransactionsLogPage() {
 // AD-007: Refund Management Queue (/admin/refunds)
 // ============================================================================
 export function AdminRefundManagementQueuePage() {
+  const location = useLocation();
   const { isAuthenticated, user } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   const canReadRefunds = Boolean(
     isAuthenticated &&
       (user?.roles?.includes("SUPERADMIN") || user?.roles?.includes("SUPPORT"))
@@ -951,6 +1059,7 @@ export function AdminRefundManagementQueuePage() {
       effectiveAdminRole !== "SUPPORT"
   );
   const [refunds, setRefunds] = useState<RefundRecord[]>([]);
+  const [refundsLoadError, setRefundsLoadError] = useState<string | null>(null);
   const [refundNotice, setRefundNotice] = useState<string | null>(null);
   const [refundError, setRefundError] = useState<string | null>(null);
   const [activeTransition, setActiveTransition] = useState<{
@@ -963,19 +1072,23 @@ export function AdminRefundManagementQueuePage() {
   const [auditNotesInput, setAuditNotesInput] = useState("");
   const [transitionSubmitting, setTransitionSubmitting] = useState(false);
 
-  useEffect(() => {
+  const loadAdminRefunds = React.useCallback(async () => {
     if (!canReadRefunds) return;
-    let active = true;
-    marketplaceApi
-      .getAdminRefunds()
-      .then((res) => {
-        if (active) setRefunds(res.refunds);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
+    setRefundsLoadError(null);
+    try {
+      const res = await marketplaceApi.getAdminRefunds();
+      setRefunds(res.refunds);
+    } catch (err: unknown) {
+      setRefunds([]);
+      setRefundsLoadError(
+        err instanceof Error ? err.message : "Unable to load refund settlement queue."
+      );
+    }
   }, [canReadRefunds]);
+
+  useEffect(() => {
+    loadAdminRefunds();
+  }, [loadAdminRefunds]);
 
   const nextRefundStage = (
     current: RefundStatus
@@ -1081,6 +1194,22 @@ export function AdminRefundManagementQueuePage() {
           <MascotIllustration mascot="sitting-suitcase" size="sm" caption="7-Stage Tracking" />
         }
       />
+
+      {refundsLoadError && (
+        <div
+          role="alert"
+          className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-950 flex items-center justify-between gap-3"
+        >
+          <span>{refundsLoadError}</span>
+          <button
+            type="button"
+            onClick={() => void loadAdminRefunds()}
+            className="px-3 py-1 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-bold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {refundNotice && (
         <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-950">
@@ -1265,7 +1394,7 @@ export function AdminRefundManagementQueuePage() {
             );
           })}
         </div>
-      ) : (
+      ) : showDemoPreview ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
           <p className="font-bold text-slate-900">
             Active Refund #RFD-8799 — Sophie Laurent ({formatLkr(15980)} • 100% Policy Window)
@@ -1279,6 +1408,13 @@ export function AdminRefundManagementQueuePage() {
             ))}
           </div>
         </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2 text-xs">
+          <p className="font-bold text-slate-900">No active refund settlement records.</p>
+          <p className="text-slate-500">
+            Cancelled booking refunds and gateway/manual settlements will appear here when requested.
+          </p>
+        </div>
       )}
     </div>
   );
@@ -1288,21 +1424,40 @@ export function AdminRefundManagementQueuePage() {
 // AD-008: Host Payout Batch Generation (/admin/payouts/batches)
 // ============================================================================
 export function AdminHostPayoutBatchGenerationPage() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   return (
     <div className="space-y-6" data-screen-id="AD-008">
       <ScreenHeaderBadge
         screenId="AD-008"
         title="Host Payout Batch Generation Engine"
-        subtitle="Aggregate completed bookings into weekly LKR settlement batches (85% Host Net / 15% Commission)."
+        subtitle={
+          showDemoPreview
+            ? "Aggregate completed bookings into weekly LKR settlement batches (85% Host Net / 15% Commission)."
+            : "Aggregate eligible completed bookings into LKR settlement batches using configured platform commission splits."
+        }
         workflows={["WF-034"]}
         roleScope="Superadmin"
         rightSlot={<MascotIllustration mascot="alarm-clock" size="sm" caption="Weekly Settlement" />}
       />
       <DeferredBackendNotice featureName="Automated Payout Batch Compilation" />
       <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
-        <p className="font-bold text-slate-900">
-          Batch #BATCH-2026-W45 • 5 Verified Host Entities • Net Disbursement: {formatLkr(642800)}
-        </p>
+        {showDemoPreview ? (
+          <p className="font-bold text-slate-900">
+            Batch #BATCH-2026-W45 • 5 Verified Host Entities • Net Disbursement: {formatLkr(642800)}
+          </p>
+        ) : (
+          <p className="text-slate-600">
+            No live payout batches compiled yet. Eligible host payables await automated Phase C settlement execution.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1312,6 +1467,15 @@ export function AdminHostPayoutBatchGenerationPage() {
 // AD-009: Manual Payout Disbursement (/admin/payouts/disburse)
 // ============================================================================
 export function AdminManualPayoutDisbursementPage() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   return (
     <div className="space-y-6" data-screen-id="AD-009">
       <ScreenHeaderBadge
@@ -1324,9 +1488,15 @@ export function AdminManualPayoutDisbursementPage() {
       />
       <DeferredBackendNotice featureName="Disbursement Execution & Ledger Posting" />
       <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
-        <p className="font-bold text-slate-900">
-          Awaiting Bank Reference Confirmation: Batch #BATCH-2026-W45 (Commercial Bank CEFT)
-        </p>
+        {showDemoPreview ? (
+          <p className="font-bold text-slate-900">
+            Awaiting Bank Reference Confirmation: Batch #BATCH-2026-W45 (Commercial Bank CEFT)
+          </p>
+        ) : (
+          <p className="text-slate-600">
+            No pending manual bank disbursement references recorded.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1336,25 +1506,36 @@ export function AdminManualPayoutDisbursementPage() {
 // AD-010: Double-Entry Financial Ledger (/admin/finance/ledger)
 // ============================================================================
 export function AdminDoubleEntryFinancialLedgerPage() {
+  const location = useLocation();
   const { isAuthenticated, user } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   const isSuperadmin = Boolean(isAuthenticated && user?.roles?.includes("SUPERADMIN"));
   const [liveLedger, setLiveLedger] = useState<AdminLedgerResponse | null>(null);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+
+  const loadAdminLedger = React.useCallback(async () => {
+    if (!isSuperadmin) return;
+    setLedgerError(null);
+    try {
+      const res = await marketplaceApi.getAdminLedger();
+      setLiveLedger(res);
+    } catch (err: unknown) {
+      setLiveLedger(null);
+      setLedgerError(
+        err instanceof Error ? err.message : "Unable to load double-entry financial ledger."
+      );
+    }
+  }, [isSuperadmin]);
 
   useEffect(() => {
-    if (!isSuperadmin) return;
-    let active = true;
-    marketplaceApi
-      .getAdminLedger()
-      .then((res) => {
-        if (active && res.entries.length > 0) {
-          setLiveLedger(res);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [isSuperadmin]);
+    loadAdminLedger();
+  }, [loadAdminLedger]);
 
   const demoEntries = [
     {
@@ -1381,6 +1562,28 @@ export function AdminDoubleEntryFinancialLedgerPage() {
         }
       />
 
+      {ledgerError && (
+        <div
+          role="alert"
+          className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-950 flex items-center justify-between gap-3"
+        >
+          <span>{ledgerError}</span>
+          <button
+            type="button"
+            onClick={() => void loadAdminLedger()}
+            className="px-3 py-1 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-bold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-[11px] font-mono text-slate-700">
+        Non-Escrow Settlement Chart of Accounts: PLATFORM_CLEARING_RECEIVABLE •
+        UNEARNED_BOOKING_LIABILITY • HOST_PAYABLE_LIABILITY • PLATFORM_COMMISSION_REVENUE •
+        REFUND_PAYABLE_LIABILITY
+      </div>
+
       {liveLedger && (
         <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs flex flex-wrap items-center justify-between gap-2">
           <span className="font-bold text-emerald-950">
@@ -1395,8 +1598,9 @@ export function AdminDoubleEntryFinancialLedgerPage() {
       )}
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2 text-xs font-mono">
-        {liveLedger
-          ? liveLedger.entries.map((e) => (
+        {liveLedger ? (
+          liveLedger.entries.length > 0 ? (
+            liveLedger.entries.map((e) => (
               <div
                 key={e.id}
                 className="flex flex-wrap items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
@@ -1411,19 +1615,26 @@ export function AdminDoubleEntryFinancialLedgerPage() {
                 </span>
               </div>
             ))
-          : demoEntries.map((e) => (
-              <div
-                key={e.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
-              >
-                <span>
-                  {e.id} • {e.account} ({e.ref})
-                </span>
-                <span>
-                  DR: {formatLkr(e.debit)} | CR: {formatLkr(e.credit)}
-                </span>
-              </div>
-            ))}
+          ) : (
+            <p className="font-sans text-slate-500">No ledger journal entries recorded yet.</p>
+          )
+        ) : showDemoPreview ? (
+          demoEntries.map((e) => (
+            <div
+              key={e.id}
+              className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
+            >
+              <span>
+                {e.id} • {e.account} ({e.ref})
+              </span>
+              <span>
+                DR: {formatLkr(e.debit)} | CR: {formatLkr(e.credit)}
+              </span>
+            </div>
+          ))
+        ) : (
+          <p className="font-sans text-slate-500">No ledger journal entries recorded yet.</p>
+        )}
       </div>
     </div>
   );
@@ -1467,11 +1678,20 @@ export function AdminSupportTicketTriageQueuePage() {
 // ============================================================================
 export function AdminSupportTicketResolutionViewPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   return (
     <div className="space-y-6" data-screen-id="AD-012">
       <ScreenHeaderBadge
         screenId="AD-012"
-        title={`Support Ticket Resolution Workspace — ${id || "TKT-9042"}`}
+        title={`Support Ticket Resolution Workspace${id ? ` — ${id}` : showDemoPreview ? " — TKT-9042" : ""}`}
         subtitle="Unified conversation thread with linked booking custody metadata and resolution macros."
         workflows={["WF-040"]}
         roleScope="Support / Superadmin"
@@ -1479,12 +1699,20 @@ export function AdminSupportTicketResolutionViewPage() {
       />
 
       <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
-        <p className="font-bold text-slate-900">
-          Linked Booking: #LS-2026-8841 • Traveller: Amaya Perera
-        </p>
-        <p className="text-slate-600">
-          Host notified of 2-hour scenic rail delay; grace note attached to custody record.
-        </p>
+        {showDemoPreview ? (
+          <>
+            <p className="font-bold text-slate-900">
+              Linked Booking: #LS-2026-8841 • Traveller: Amaya Perera
+            </p>
+            <p className="text-slate-600">
+              Host notified of 2-hour scenic rail delay; grace note attached to custody record.
+            </p>
+          </>
+        ) : (
+          <p className="text-slate-600">
+            No support ticket thread selected or loaded for this workspace.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -1494,6 +1722,15 @@ export function AdminSupportTicketResolutionViewPage() {
 // AD-013: Incident & Dispute Investigation (/admin/incidents)
 // ============================================================================
 export function AdminIncidentDisputeInvestigationPage() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   const effectiveAdminRole = useAdminRole();
   return (
     <div className="space-y-6" data-screen-id="AD-013">
@@ -1511,18 +1748,29 @@ export function AdminIncidentDisputeInvestigationPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
-        <p className="font-bold text-slate-900">
-          Incident #INC-2026-14 — Decoupled Overdue Release & Fee Dispute (Booking #LS-2026-8835)
-        </p>
-        <p className="text-slate-600">
-          Physical luggage custody released immediately to traveller upon QR/PIN verification and
-          bag-count reconciliation under OQ-015 & Invariant BR-035 (custody completion and financial
-          dispute handling are strictly separated). Location&apos;s disclosed, configurable late fee
-          request (illustrative demo policy: 1.5x daily rate after illustrative 30m grace window) is
-          logged for in-app review and dispute resolution—no silent charge was executed.
-        </p>
-      </div>
+      {!showDemoPreview ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
+          <p className="font-bold text-slate-900">
+            Decoupled Custody Release &amp; Overdue Dispute Investigation Policy
+          </p>
+          <p className="text-slate-600">
+            Physical luggage custody is always released upon QR or 6-digit PIN verification and bag-count reconciliation (no possessory lien). Disputed overdue fees or bag discrepancies are recorded separately for support and admin review.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
+          <p className="font-bold text-slate-900">
+            Incident #INC-2026-14 — Decoupled Overdue Release &amp; Fee Dispute (Booking #LS-2026-8835)
+          </p>
+          <p className="text-slate-600">
+            Physical luggage custody released immediately to traveller upon QR/PIN verification and
+            bag-count reconciliation under OQ-015 &amp; Invariant BR-035 (custody completion and financial
+            dispute handling are strictly separated). Location&apos;s disclosed, configurable late fee
+            request (illustrative demo policy: 1.5x daily rate after illustrative 30m grace window) is
+            logged for in-app review and dispute resolution—no silent charge was executed.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1531,6 +1779,15 @@ export function AdminIncidentDisputeInvestigationPage() {
 // AD-014: Review Moderation Queue (/admin/reviews)
 // ============================================================================
 export function AdminReviewModerationQueuePage() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   return (
     <div className="space-y-6" data-screen-id="AD-014">
       <ScreenHeaderBadge
@@ -1542,7 +1799,11 @@ export function AdminReviewModerationQueuePage() {
         rightSlot={<MascotIllustration mascot="high-five" size="sm" caption="Verified Reviews" />}
       />
       <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
-        <p className="font-bold text-slate-900">All 931 published reviews verified via completed check-out tokens.</p>
+        {showDemoPreview ? (
+          <p className="font-bold text-slate-900">All 931 published reviews verified via completed check-out tokens.</p>
+        ) : (
+          <p className="text-slate-600">No flagged or pending moderation reviews loaded in queue.</p>
+        )}
       </div>
     </div>
   );
@@ -1552,18 +1813,35 @@ export function AdminReviewModerationQueuePage() {
 // AD-015: Promotion & Marketing Engine (/admin/promotions)
 // ============================================================================
 export function AdminPromotionMarketingEnginePage() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   return (
     <div className="space-y-6" data-screen-id="AD-015">
       <ScreenHeaderBadge
         screenId="AD-015"
         title="Promotions, Discount Vouchers & Campaign Engine"
-        subtitle="Manage seasonal Sri Lanka tourism promo codes (SLWELCOME10, ELLAEXPRESS15) and redemption caps."
+        subtitle={
+          showDemoPreview
+            ? "Manage seasonal Sri Lanka tourism promo codes (SLWELCOME10, ELLAEXPRESS15) and redemption caps."
+            : "Manage promotional voucher rules and redemption caps (deferred to post-MVP release)."
+        }
         workflows={["WF-043"]}
         roleScope="Superadmin"
         rightSlot={<MascotIllustration mascot="blank-tag" size="sm" caption="Active Promo Codes" />}
       />
       <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
-        <p className="font-bold text-slate-900">Active Campaign: SLWELCOME10 (10% Off First Custody Booking)</p>
+        {showDemoPreview ? (
+          <p className="font-bold text-slate-900">Active Campaign: SLWELCOME10 (10% Off First Custody Booking)</p>
+        ) : (
+          <p className="text-slate-600">No promotional voucher campaigns active.</p>
+        )}
       </div>
     </div>
   );
@@ -1573,6 +1851,15 @@ export function AdminPromotionMarketingEnginePage() {
 // AD-016: Platform System Configuration (/admin/settings)
 // ============================================================================
 export function AdminPlatformSystemConfigurationPage() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuthStore();
+  const showDemoPreview =
+    !isAuthenticated &&
+    isDemoPreviewActive({
+      allowDemoPreview: true,
+      search: location.search,
+      isAuthenticated
+    });
   const [gracePolicyMode, setGracePolicyMode] = useState("LOCATION_CONFIGURABLE");
   const [photoPolicyMode, setPhotoPolicyMode] = useState("OPTIONAL_DEFAULT_PER_LOCATION_MANDATORY");
 
@@ -1588,7 +1875,15 @@ export function AdminPlatformSystemConfigurationPage() {
       />
       <div className="bg-white rounded-2xl border border-slate-200 p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
         <div className="p-3 rounded-xl bg-slate-50 border">
-          Platform Commission: <strong>15% (Host Net 85%)</strong>
+          {showDemoPreview ? (
+            <>
+              Platform Commission: <strong>15% (Host Net 85%)</strong>
+            </>
+          ) : (
+            <>
+              Platform Commission Split: <strong>Configured per Booking Policy</strong>
+            </>
+          )}
         </div>
         <div className="p-3 rounded-xl bg-slate-50 border">
           Host Approval SLA: <strong>15 Minutes</strong>
