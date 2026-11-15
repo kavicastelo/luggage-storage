@@ -34,7 +34,7 @@ These variables must **never** be prefixed with `VITE_` or `EXPO_PUBLIC_`, and m
 - `RATE_LIMIT_HASH_SECRET`: HMAC secret for client identifier anonymization.
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`: Cloudflare R2 object storage access keys.
 - `ZOHO_SMTP_PASSWORD` / `RESEND_API_KEY`: Transactional email credentials.
-- `PAYMENT_WEBHOOK_SECRET` / `PAYHERE_MERCHANT_SECRET`: Payment webhook HMAC signing secret and PayHere merchant verification secret.
+- `PAYMENT_WEBHOOK_SECRET` / `PAYHERE_WEB_MERCHANT_SECRET` / `PAYHERE_MOBILE_MERCHANT_SECRET`: Payment webhook HMAC signing secret and PayHere channel-specific secrets (registered Web Domain vs Android App `com.luggagestorage.app`, reflected in `PAYHERE_ANDROID_PACKAGE_NAME`).
 - `CUSTODY_TOKEN_HMAC_SECRET`: Dedicated keyed HMAC-SHA256 secret ($\ge 32$ characters, never stored in PostgreSQL or client bundles) used exclusively for single-use custody QR tokens and 6-digit PIN verification (`hmac-sha256-v2`).
 
 ### Public Client Configuration (Safe for Bundling)
@@ -129,4 +129,4 @@ The `DB_IDENTITY_SECRET` authorizes privileged role assignment and revocation op
 - [ ] `CORS_ORIGIN` contains explicit trusted domains (no wildcard `*`).
 - [ ] No secret begins with `dev_` or `test_`.
 - [ ] `VITE_ENABLE_DEMO_PREVIEW` is set to `false`.
-- [ ] When `PAYMENT_PROVIDER=payhere`, `PAYHERE_MERCHANT_ID`, `PAYHERE_MERCHANT_SECRET`, `PAYHERE_NOTIFY_URL`, `PAYHERE_RETURN_URL`, and `PAYHERE_CANCEL_URL` are all set to live HTTPS public URLs with `PAYHERE_SANDBOX_MODE=false`.
+- [ ] When `PAYMENT_PROVIDER=payhere`, `PAYHERE_MERCHANT_ID`, distinct `PAYHERE_WEB_MERCHANT_SECRET` and `PAYHERE_MOBILE_MERCHANT_SECRET`, `PAYHERE_ANDROID_PACKAGE_NAME` (`com.luggagestorage.app`), `PAYHERE_NOTIFY_URL`, `PAYHERE_RETURN_URL`, and `PAYHERE_CANCEL_URL` are all set to live HTTPS public URLs with `PAYHERE_SANDBOX_MODE=false` (and legacy `PAYHERE_MERCHANT_SECRET` is unset).

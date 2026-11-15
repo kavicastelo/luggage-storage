@@ -11,3 +11,7 @@ VITE_API_URL=http://localhost:3000/api/v1
 # Demo Preview Policy (false in production; true enables read-only sandbox fixtures)
 VITE_ENABLE_DEMO_PREVIEW=false
 
+# PayHere Web Checkout Note:
+# Keep PAYHERE_WEB_MERCHANT_SECRET strictly on the API server.
+# Register this exact web origin in PayHere Portal -> Domains & Credentials -> Domain.
+

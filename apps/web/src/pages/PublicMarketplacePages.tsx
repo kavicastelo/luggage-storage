@@ -1323,6 +1323,7 @@ export function WebCheckoutSchedulePage() {
 
         const intent = await marketplaceApi.createPaymentIntent({
           bookingId: created.id,
+          channel: "WEB",
           idempotencyKey: `web-pay-${created.id}`,
           ...(Object.keys(customerDetails).length > 0 ? { customerDetails } : {})
         });
@@ -1336,6 +1337,7 @@ export function WebCheckoutSchedulePage() {
             intentId: intent.id,
             orderId: intent.providerOrderId,
             provider: "PAYHERE",
+            channel: "WEB",
             createdAt: new Date().toISOString()
           });
           submitPayHereCheckoutForm(intent.checkoutHandoff);
@@ -1784,6 +1786,7 @@ export function WebPaymentConfirmationPage() {
       if (!targetIntentId) {
         const intent = await marketplaceApi.createPaymentIntent({
           bookingId: liveBooking.id,
+          channel: "WEB",
           idempotencyKey: `confirm-pay-${liveBooking.id}`
         });
         if (
@@ -1795,6 +1798,7 @@ export function WebPaymentConfirmationPage() {
             intentId: intent.id,
             orderId: intent.providerOrderId,
             provider: "PAYHERE",
+            channel: "WEB",
             createdAt: new Date().toISOString()
           });
           submitPayHereCheckoutForm(intent.checkoutHandoff);
@@ -1830,6 +1834,7 @@ export function WebPaymentConfirmationPage() {
       const currentIntent = checkoutStatus?.paymentIntent ?? null;
       const isReusablePendingIntent = Boolean(
         currentIntent &&
+          currentIntent.checkoutChannel === "WEB" &&
           (currentIntent.status === "INITIATED" || currentIntent.status === "PENDING_GATEWAY") &&
           new Date(currentIntent.expiresAt).getTime() > Date.now() &&
           isPayHerePostHandoff(currentIntent.checkoutHandoff)
@@ -1841,6 +1846,7 @@ export function WebPaymentConfirmationPage() {
           intentId: currentIntent.id,
           orderId: currentIntent.providerOrderId,
           provider: "PAYHERE",
+          channel: "WEB",
           createdAt: new Date().toISOString()
         });
         submitPayHereCheckoutForm(currentIntent.checkoutHandoff);
@@ -1858,6 +1864,7 @@ export function WebPaymentConfirmationPage() {
 
       const freshIntent = await marketplaceApi.createPaymentIntent({
         bookingId: liveBooking.id,
+        channel: "WEB",
         idempotencyKey: `web-retry-${liveBooking.id}-${Date.now()}`,
         ...(Object.keys(customerDetails).length > 0 ? { customerDetails } : {})
       });
@@ -1872,6 +1879,7 @@ export function WebPaymentConfirmationPage() {
           intentId: freshIntent.id,
           orderId: freshIntent.providerOrderId,
           provider: "PAYHERE",
+          channel: "WEB",
           createdAt: new Date().toISOString()
         });
         submitPayHereCheckoutForm(freshIntent.checkoutHandoff);

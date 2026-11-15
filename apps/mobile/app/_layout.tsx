@@ -36,6 +36,7 @@ export default function RootLayout() {
             <Stack.Screen name="(traveller)" />
             <Stack.Screen name="(host)" />
             <Stack.Screen name="(dev)" />
+            <Stack.Screen name="booking/confirm" />
           </Stack>
         )}
       </QueryClientProvider>

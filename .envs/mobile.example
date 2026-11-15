@@ -12,3 +12,7 @@
 # Staging/Production: https://api.luggagestorage.lk/api/v1
 EXPO_PUBLIC_API_URL=http://localhost:3000/api/v1
 
+# PayHere Native & Expo Web Checkout Note:
+# Keep PAYHERE_MOBILE_MERCHANT_SECRET and PAYHERE_WEB_MERCHANT_SECRET strictly on apps/api.
+# Android native builds use applicationId com.luggagestorage.app with expo-dev-client.
+

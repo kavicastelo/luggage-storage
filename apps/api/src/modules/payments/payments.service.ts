@@ -6,7 +6,9 @@ import {
   CheckoutStatusResponse,
   CreatePaymentIntentRequest,
   CreatePaymentIntentRequestSchema,
+  PaymentCheckoutChannel,
   PayHereCheckoutFormFieldsSchema,
+  PayHereNativeSdkPayloadSchema,
   PaymentCheckoutHandoff,
   PaymentIntent,
   PaymentNextAction,
@@ -33,6 +35,7 @@ import { quotationService } from "../bookings/quotation-availability.service.js"
 import { ledgerService } from "../finance/ledger.service.js";
 import {
   NormalizedGatewayNotification,
+  PayHereGatewayAdapter,
   PaymentGatewayPort,
   RawWebhookNotificationInput,
   resolvePayHereGatewayAdapter,
@@ -51,79 +54,6 @@ const VALID_REFUND_TRANSITIONS: Record<RefundStatus, RefundStatus[]> = {
 };
 
 const UUID_FORMAT_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const HANDOFF_TOKEN_REGEX = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const ALLOWED_PAYHERE_ACTION_URLS = new Set([
-  "https://sandbox.payhere.lk/pay/checkout",
-  "https://www.payhere.lk/pay/checkout"
-]);
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function signPayHereHandoffToken(intentId: string, expiresAt: Date): string {
-  const payload = Buffer.from(
-    JSON.stringify({
-      iid: intentId,
-      exp: Math.floor(expiresAt.getTime() / 1000)
-    }),
-    "utf8"
-  ).toString("base64url");
-  const sig = crypto
-    .createHmac("sha256", env.CUSTODY_TOKEN_HMAC_SECRET)
-    .update(`payhere-handoff-v1:${payload}`, "utf8")
-    .digest("base64url");
-  return `${payload}.${sig}`;
-}
-
-function verifyPayHereHandoffToken(token: string): { intentId: string; exp: number } {
-  const trimmed = token.trim();
-  if (!HANDOFF_TOKEN_REGEX.test(trimmed)) {
-    throw AppError.unauthorized("Invalid payment handoff token format");
-  }
-  const [payloadB64, sigB64] = trimmed.split(".");
-  const expectedSigB64 = crypto
-    .createHmac("sha256", env.CUSTODY_TOKEN_HMAC_SECRET)
-    .update(`payhere-handoff-v1:${payloadB64}`, "utf8")
-    .digest("base64url");
-
-  const providedBuf = Buffer.from(sigB64, "utf8");
-  const expectedBuf = Buffer.from(expectedSigB64, "utf8");
-  if (
-    providedBuf.length !== expectedBuf.length ||
-    !crypto.timingSafeEqual(providedBuf, expectedBuf)
-  ) {
-    throw AppError.unauthorized("Invalid payment handoff token signature");
-  }
-
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
-  } catch {
-    throw AppError.unauthorized("Malformed payment handoff token payload");
-  }
-
-  if (!decoded || typeof decoded !== "object") {
-    throw AppError.unauthorized("Invalid payment handoff token payload");
-  }
-  const candidate = decoded as { iid?: unknown; exp?: unknown };
-  if (
-    typeof candidate.iid !== "string" ||
-    !UUID_FORMAT_REGEX.test(candidate.iid) ||
-    typeof candidate.exp !== "number" ||
-    !Number.isSafeInteger(candidate.exp)
-  ) {
-    throw AppError.unauthorized("Incomplete payment handoff token claims");
-  }
-
-  return { intentId: candidate.iid, exp: candidate.exp };
-}
-
 function extractPayHereFormFields(payload: Record<string, unknown>) {
   const candidate: Record<string, unknown> = {
     merchant_id: payload.merchant_id,
@@ -152,39 +82,93 @@ function extractPayHereFormFields(payload: Record<string, unknown>) {
   return PayHereCheckoutFormFieldsSchema.safeParse(candidate);
 }
 
+function isIntentPayloadValidForChannel(
+  row: Pick<typeof schema.paymentIntents.$inferSelect, "provider" | "checkoutPayload">,
+  channel: PaymentCheckoutChannel
+): boolean {
+  if (row.provider !== "PAYHERE") {
+    return true;
+  }
+  const payload = (row.checkoutPayload as Record<string, unknown>) ?? {};
+  if (channel === "MOBILE_APP") {
+    return PayHereNativeSdkPayloadSchema.safeParse(payload.sdkPayload).success;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "mobileHandoffPath")) {
+    return false;
+  }
+  return extractPayHereFormFields(payload).success;
+}
+
 function serializeIntent(row: typeof schema.paymentIntents.$inferSelect): PaymentIntent {
   const payload = (row.checkoutPayload as Record<string, unknown>) ?? {};
   const provider = row.provider as PaymentIntent["provider"];
+  const checkoutChannel: PaymentCheckoutChannel =
+    row.checkoutChannel === "MOBILE_APP" ? "MOBILE_APP" : "WEB";
 
   let nextAction: PaymentNextAction;
   let checkoutHandoff: PaymentCheckoutHandoff;
 
   if (provider === "PAYHERE") {
-    const parsedFields = extractPayHereFormFields(payload);
-    if (!parsedFields.success) {
-      throw AppError.internal("PayHere payment intent has incomplete checkout form fields");
-    }
-    const rawActionUrl =
-      typeof payload.actionUrl === "string" ? payload.actionUrl : "https://sandbox.payhere.lk/pay/checkout";
-    const actionUrl =
-      rawActionUrl === "https://www.payhere.lk/pay/checkout"
-        ? "https://www.payhere.lk/pay/checkout"
-        : "https://sandbox.payhere.lk/pay/checkout";
-    const mode =
-      payload.mode === "PAYHERE_LIVE_REDIRECT"
-        ? "PAYHERE_LIVE_REDIRECT"
-        : "PAYHERE_SANDBOX_REDIRECT";
-    const handoffToken = signPayHereHandoffToken(row.id, row.expiresAt);
+    if (checkoutChannel === "MOBILE_APP") {
+      nextAction = "LAUNCH_NATIVE_SDK";
+      const parsedSdk = PayHereNativeSdkPayloadSchema.safeParse(payload.sdkPayload);
+      if (parsedSdk.success) {
+        checkoutHandoff = {
+          mode:
+            payload.mode === "PAYHERE_NATIVE_LIVE"
+              ? "PAYHERE_NATIVE_LIVE"
+              : "PAYHERE_NATIVE_SANDBOX",
+          provider: "PAYHERE",
+          method: "NATIVE_SDK",
+          sdkPayload: parsedSdk.data
+        };
+      } else {
+        checkoutHandoff = {
+          mode: "LEGACY_EXPIRED",
+          provider: "PAYHERE",
+          method: "EXPIRED",
+          reason:
+            "Legacy mobile payment intent expired or missing native SDK payload; create a fresh checkout intent"
+        };
+      }
+    } else {
+      nextAction = "REDIRECT_TO_PROVIDER";
+      const hasLegacyBridgeField = Object.prototype.hasOwnProperty.call(
+        payload,
+        "mobileHandoffPath"
+      );
+      const parsedFields = extractPayHereFormFields(payload);
+      if (!hasLegacyBridgeField && parsedFields.success) {
+        const rawActionUrl =
+          typeof payload.actionUrl === "string"
+            ? payload.actionUrl
+            : "https://sandbox.payhere.lk/pay/checkout";
+        const actionUrl =
+          rawActionUrl === "https://www.payhere.lk/pay/checkout"
+            ? "https://www.payhere.lk/pay/checkout"
+            : "https://sandbox.payhere.lk/pay/checkout";
+        const mode =
+          payload.mode === "PAYHERE_LIVE_REDIRECT"
+            ? "PAYHERE_LIVE_REDIRECT"
+            : "PAYHERE_SANDBOX_REDIRECT";
 
-    nextAction = "REDIRECT_TO_PROVIDER";
-    checkoutHandoff = {
-      mode,
-      provider: "PAYHERE",
-      method: "POST_FORM",
-      actionUrl,
-      fields: parsedFields.data,
-      mobileHandoffPath: `/payments/handoff/${handoffToken}`
-    };
+        checkoutHandoff = {
+          mode,
+          provider: "PAYHERE",
+          method: "POST_FORM",
+          actionUrl,
+          fields: parsedFields.data
+        };
+      } else {
+        checkoutHandoff = {
+          mode: "LEGACY_EXPIRED",
+          provider: "PAYHERE",
+          method: "EXPIRED",
+          reason:
+            "Legacy web payment intent expired during PayHere remediation; create a fresh checkout intent"
+        };
+      }
+    }
   } else {
     nextAction = "SANDBOX_SIMULATION";
     checkoutHandoff = {
@@ -203,6 +187,7 @@ function serializeIntent(row: typeof schema.paymentIntents.$inferSelect): Paymen
     bookingId: row.bookingId,
     travellerUserId: row.travellerUserId,
     provider,
+    checkoutChannel,
     providerOrderId: row.providerOrderId,
     amountMinor: row.amountMinor,
     currency: row.currency,
@@ -230,9 +215,10 @@ export class PaymentsService {
     clientInfo?: AuditClientInfo
   ): Promise<PaymentIntent> {
     const input = CreatePaymentIntentRequestSchema.parse(rawInput);
+    const requestedChannel: PaymentCheckoutChannel = input.channel ?? "WEB";
     await quotationService.sweepExpiredHolds();
 
-    const gateway = resolvePaymentGatewayAdapter();
+    const gateway = resolvePaymentGatewayAdapter(requestedChannel);
 
     type CreateIntentTxResult =
       | { kind: "EXPIRED_HOLD" }
@@ -377,9 +363,15 @@ export class PaymentsService {
             if (keyMatch.provider !== gateway.providerName) {
               throw AppError.conflict("Idempotency key is bound to a different payment provider");
             }
+            if (keyMatch.checkoutChannel !== requestedChannel) {
+              throw AppError.conflict("Idempotency key is bound to a different checkout channel");
+            }
             if (
               keyMatch.status === "PENDING_GATEWAY" &&
-              keyMatch.expiresAt.getTime() > dbNow.getTime()
+              keyMatch.expiresAt.getTime() > dbNow.getTime() &&
+              keyMatch.amountMinor === Number(bookingRow.total_amount_minor) &&
+              keyMatch.currency === bookingRow.currency &&
+              isIntentPayloadValidForChannel(keyMatch, requestedChannel)
             ) {
               return { kind: "INTENT", intent: keyMatch };
             }
@@ -407,7 +399,11 @@ export class PaymentsService {
             (i) =>
               i.status === "PENDING_GATEWAY" &&
               i.provider === gateway.providerName &&
-              i.expiresAt.getTime() > dbNow.getTime()
+              i.checkoutChannel === requestedChannel &&
+              i.expiresAt.getTime() > dbNow.getTime() &&
+              i.amountMinor === Number(bookingRow.total_amount_minor) &&
+              i.currency === bookingRow.currency &&
+              isIntentPayloadValidForChannel(i, requestedChannel)
           );
           if (activeReusable && !(gateway.providerName === "PAYHERE" && input.customerDetails)) {
             return { kind: "INTENT", intent: activeReusable };
@@ -452,6 +448,7 @@ export class PaymentsService {
           providerOrderId,
           amountMinor: Number(bookingRow.total_amount_minor),
           currency: bookingRow.currency,
+          channel: requestedChannel,
           customerEmail: bookingRow.traveller_email,
           customerName: bookingRow.traveller_display_name,
           customerDetails: {
@@ -489,6 +486,7 @@ export class PaymentsService {
             bookingId: bookingRow.id,
             travellerUserId,
             provider: gateway.providerName,
+            checkoutChannel: requestedChannel,
             idempotencyKey: input.idempotencyKey ?? null,
             providerOrderId,
             amountMinor: Number(bookingRow.total_amount_minor),
@@ -510,6 +508,7 @@ export class PaymentsService {
             referenceCode: bookingRow.reference_code,
             paymentIntentId: inserted.id,
             provider: gateway.providerName,
+            checkoutChannel: requestedChannel,
             providerOrderId,
             amountMinor: inserted.amountMinor,
             currency: inserted.currency
@@ -526,115 +525,6 @@ export class PaymentsService {
     }
 
     return serializeIntent(result.intent);
-  }
-
-  /**
-   * Verifies a short-lived HMAC-signed handoff token and renders an auto-submitting
-   * PayHere checkout POST HTML bridge using stored server-side fields only.
-   */
-  async renderPayHerePostHandoffHtml(
-    handoffToken: string
-  ): Promise<{ html: string; cspHeader: string }> {
-    const { intentId, exp } = verifyPayHereHandoffToken(handoffToken);
-    if (exp <= Math.floor(Date.now() / 1000)) {
-      throw AppError.conflict("Payment checkout handoff link has expired");
-    }
-
-    const rows = await db
-      .select({
-        intent: schema.paymentIntents,
-        bookingStatus: schema.bookings.status,
-        holdExpiresAt: schema.bookings.holdExpiresAt,
-        referenceCode: schema.bookings.referenceCode
-      })
-      .from(schema.paymentIntents)
-      .innerJoin(schema.bookings, eq(schema.paymentIntents.bookingId, schema.bookings.id))
-      .where(eq(schema.paymentIntents.id, intentId))
-      .limit(1);
-
-    const record = rows[0];
-    if (!record) {
-      throw AppError.notFound("Payment intent not found for checkout handoff");
-    }
-
-    const { intent, bookingStatus, holdExpiresAt, referenceCode } = record;
-    if (intent.provider !== "PAYHERE") {
-      throw AppError.badRequest("Checkout POST handoff is only valid for PayHere payment intents");
-    }
-    if (intent.status !== "INITIATED" && intent.status !== "PENDING_GATEWAY") {
-      throw AppError.conflict(
-        `Payment intent is in closed status ${intent.status} and cannot launch checkout`
-      );
-    }
-    if (intent.expiresAt.getTime() <= Date.now()) {
-      throw AppError.conflict("Payment intent has expired");
-    }
-    if (bookingStatus !== "PENDING_PAYMENT") {
-      throw AppError.conflict(
-        `Booking ${referenceCode} is in status ${bookingStatus} and is not awaiting payment`
-      );
-    }
-    if (holdExpiresAt && holdExpiresAt.getTime() <= Date.now()) {
-      throw AppError.conflict("Booking payment hold has expired");
-    }
-
-    const payload = (intent.checkoutPayload as Record<string, unknown>) ?? {};
-    const rawActionUrl = typeof payload.actionUrl === "string" ? payload.actionUrl : "";
-    if (!ALLOWED_PAYHERE_ACTION_URLS.has(rawActionUrl)) {
-      throw AppError.internal("PayHere checkout actionUrl is invalid");
-    }
-
-    const parsedFields = extractPayHereFormFields(payload);
-    if (!parsedFields.success) {
-      throw AppError.internal("PayHere checkout payload fields are incomplete");
-    }
-
-    const nonce = crypto.randomBytes(16).toString("base64url");
-    const hiddenInputsHtml = Object.entries(parsedFields.data)
-      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
-      .map(
-        ([name, value]) =>
-          `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}" />`
-      )
-      .join("\n      ");
-
-    const html = `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Redirecting to PayHere Checkout</title>
-    <style nonce="${nonce}">
-      body { font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; color: #0f172a; display: flex; min-height: 100vh; align-items: center; justify-content: center; margin: 0; padding: 24px; }
-      .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 24px; max-width: 420px; width: 100%; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06); }
-      h1 { font-size: 18px; margin: 0 0 8px; }
-      p { font-size: 14px; color: #475569; margin: 0 0 18px; line-height: 1.5; }
-      button { width: 100%; padding: 12px 16px; border: 0; border-radius: 10px; background: #0f172a; color: #ffffff; font-size: 14px; font-weight: 600; cursor: pointer; }
-    </style>
-  </head>
-  <body>
-    <main class="card">
-      <h1>Redirecting to PayHere</h1>
-      <p>Preparing your encrypted payment session for booking ${escapeHtml(referenceCode)}.</p>
-      <form id="payhere-checkout-form" method="POST" action="${escapeHtml(rawActionUrl)}">
-        ${hiddenInputsHtml}
-        <button type="submit">Continue to PayHere</button>
-      </form>
-    </main>
-    <script nonce="${nonce}">
-      window.addEventListener("DOMContentLoaded", function () {
-        var form = document.getElementById("payhere-checkout-form");
-        if (form) { form.submit(); }
-      });
-    </script>
-  </body>
-</html>`;
-
-    const cspHeader =
-      `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; ` +
-      `form-action https://sandbox.payhere.lk https://www.payhere.lk; base-uri 'none'; frame-ancestors 'none'`;
-
-    return { html, cspHeader };
   }
 
   /**
@@ -768,9 +658,15 @@ export class PaymentsService {
       }
     });
 
-    let adapter: PaymentGatewayPort;
+    const rawInput: RawWebhookNotificationInput = {
+      rawBody: rawPayload,
+      headers,
+      contentType
+    };
+
+    let lookup: { providerOrderId?: string; paymentIntentId?: string };
     try {
-      adapter = resolvePayHereGatewayAdapter();
+      lookup = PayHereGatewayAdapter.extractUntrustedWebhookLookup(rawInput);
     } catch (err) {
       await auditService.recordEvent({
         eventType: SecurityEventType.PAYMENT_WEBHOOK_REJECTED,
@@ -778,17 +674,65 @@ export class PaymentsService {
         clientInfo,
         metadata: {
           provider: "PAYHERE",
+          reason: err instanceof Error ? err.message : "Malformed PayHere webhook payload"
+        }
+      });
+      throw err;
+    }
+
+    let matchedChannel: PaymentCheckoutChannel = "WEB";
+    if (lookup.providerOrderId || lookup.paymentIntentId) {
+      const [intentByOrder] = lookup.providerOrderId
+        ? await db
+            .select({
+              provider: schema.paymentIntents.provider,
+              checkoutChannel: schema.paymentIntents.checkoutChannel
+            })
+            .from(schema.paymentIntents)
+            .where(eq(schema.paymentIntents.providerOrderId, lookup.providerOrderId))
+            .limit(1)
+        : [];
+
+      const matchedIntent =
+        intentByOrder ??
+        (lookup.paymentIntentId
+          ? (
+              await db
+                .select({
+                  provider: schema.paymentIntents.provider,
+                  checkoutChannel: schema.paymentIntents.checkoutChannel
+                })
+                .from(schema.paymentIntents)
+                .where(eq(schema.paymentIntents.id, lookup.paymentIntentId))
+                .limit(1)
+            )[0]
+          : undefined);
+
+      if (matchedIntent?.provider === "PAYHERE" && matchedIntent.checkoutChannel === "MOBILE_APP") {
+        matchedChannel = "MOBILE_APP";
+      }
+    }
+
+    let adapter: PaymentGatewayPort;
+    try {
+      adapter = resolvePayHereGatewayAdapter(matchedChannel);
+    } catch (err) {
+      await auditService.recordEvent({
+        eventType: SecurityEventType.PAYMENT_WEBHOOK_REJECTED,
+        userId: null,
+        clientInfo,
+        metadata: {
+          provider: "PAYHERE",
+          providerOrderId: lookup.providerOrderId,
+          paymentIntentId: lookup.paymentIntentId,
+          checkoutChannel: matchedChannel,
           reason: err instanceof Error ? err.message : "PayHere gateway is not configured"
         }
       });
       throw err;
     }
 
-    return this.processGatewayWebhookInternal(
-      adapter,
-      { rawBody: rawPayload, headers, contentType },
-      clientInfo
-    );
+    return this.processGatewayWebhookInternal(adapter, rawInput, clientInfo);
   }
 
   private async processGatewayWebhook(

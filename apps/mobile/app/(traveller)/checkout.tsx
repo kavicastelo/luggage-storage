@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, AppState, Linking } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, AppState, Platform } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   BAG_CATEGORIES,
@@ -32,12 +32,14 @@ import {
 import { useAuthStore } from "../../src/store/useAuthStore";
 import { useBookingDetailQuery, usePublicLocationDetailQuery } from "../../src/hooks";
 import { marketplaceApi } from "../../src/services/marketplace-api";
-import { getApiBaseUrl, normalizeApiError } from "../../src/services/api-client";
+import { normalizeApiError } from "../../src/services/api-client";
 import {
-  isPayHerePostHandoff,
-  openExternalPayHereHandoff,
-  resolveMobileHandoffUrl
+  isPayHereNativeSdkHandoff,
+  isPayHereWebPostHandoff,
+  saveMobilePendingCheckoutContext,
+  submitPayHereWebCheckoutForm
 } from "../../src/lib/payment-handoff";
+import { launchPayHereNativeCheckout } from "../../src/lib/payhere-native";
 import {
   mobileColors,
   mobileRadius,
@@ -113,7 +115,6 @@ export default function TravellerCheckoutScreen() {
     bookingId: string;
     referenceCode: string;
     intent: PaymentIntent;
-    handoffUrl: string;
     status: CheckoutStatusResponse | null;
   } | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
@@ -242,28 +243,32 @@ export default function TravellerCheckoutScreen() {
     billingCountry
   ]);
 
-  const checkPayHerePaymentStatus = useCallback(async () => {
-    if (!awaitingCheckout) {
-      return;
-    }
-    setIsCheckingStatus(true);
-    try {
-      const status = await marketplaceApi.getCheckoutStatus({
-        bookingId: awaitingCheckout.bookingId
-      });
-      setAwaitingCheckout((prev) => (prev ? { ...prev, status } : null));
-      if (status.bookingStatus === "CONFIRMED" || status.bookingStatus === "IN_STORAGE") {
-        router.replace({
-          pathname: "/(traveller)/pass",
-          params: { bookingId: status.bookingId, ref: status.referenceCode }
-        });
+  const checkPayHerePaymentStatus = useCallback(
+    async (overrideTarget?: { bookingId: string; referenceCode: string }) => {
+      const target = overrideTarget ?? awaitingCheckout;
+      if (!target) {
+        return;
       }
-    } catch (err: unknown) {
-      setCheckoutError(normalizeApiError(err).message);
-    } finally {
-      setIsCheckingStatus(false);
-    }
-  }, [awaitingCheckout, router]);
+      setIsCheckingStatus(true);
+      try {
+        const status = await marketplaceApi.getCheckoutStatus({
+          bookingId: target.bookingId
+        });
+        setAwaitingCheckout((prev) => (prev ? { ...prev, status } : null));
+        if (status.bookingStatus === "CONFIRMED" || status.bookingStatus === "IN_STORAGE") {
+          router.replace({
+            pathname: "/(traveller)/pass",
+            params: { bookingId: status.bookingId, ref: status.referenceCode }
+          });
+        }
+      } catch (err: unknown) {
+        setCheckoutError(normalizeApiError(err).message);
+      } finally {
+        setIsCheckingStatus(false);
+      }
+    },
+    [awaitingCheckout, router]
+  );
 
   useEffect(() => {
     if (!awaitingCheckout) {
@@ -290,42 +295,108 @@ export default function TravellerCheckoutScreen() {
     };
   }, [awaitingCheckout, checkPayHerePaymentStatus]);
 
-  const executePaymentIntentFlow = async (bookingId: string, referenceCode: string) => {
-    const intent = await marketplaceApi.createPaymentIntent({
-      bookingId,
-      idempotencyKey: `mob-pay-${bookingId}-${Date.now()}`,
-      customerDetails: buildCustomerDetails()
-    });
+  const dispatchPayHereIntent = async (
+    bookingId: string,
+    referenceCode: string,
+    intent: PaymentIntent
+  ): Promise<boolean> => {
+    const isWebRuntime = Platform.OS === "web";
 
-    if (intent.nextAction === "REDIRECT_TO_PROVIDER") {
-      if (!isPayHerePostHandoff(intent.checkoutHandoff)) {
+    if (isWebRuntime) {
+      if (
+        intent.nextAction !== "REDIRECT_TO_PROVIDER" ||
+        !isPayHereWebPostHandoff(intent.checkoutHandoff)
+      ) {
         setCheckoutError(
-          "Payment gateway returned an invalid checkout handoff payload. Your booking has not been charged."
+          "Payment gateway returned an invalid web checkout handoff payload. Your booking has not been charged."
         );
-        return;
+        return true;
       }
-      const handoffUrl = resolveMobileHandoffUrl(
-        getApiBaseUrl(),
-        intent.checkoutHandoff.mobileHandoffPath
-      );
+
       pollCountRef.current = 0;
       setAwaitingCheckout({
         bookingId,
         referenceCode,
         intent,
-        handoffUrl,
         status: null
       });
+      saveMobilePendingCheckoutContext({
+        bookingId,
+        intentId: intent.id,
+        orderId: intent.providerOrderId,
+        provider: "PAYHERE",
+        channel: "WEB",
+        createdAt: new Date().toISOString()
+      });
+
       try {
-        await openExternalPayHereHandoff(handoffUrl, (url) => Linking.openURL(url));
+        submitPayHereWebCheckoutForm(intent.checkoutHandoff);
       } catch (openErr: unknown) {
         setCheckoutError(
           openErr instanceof Error
             ? openErr.message
-            : "Unable to open external browser for PayHere checkout."
+            : "Unable to launch PayHere web checkout form."
         );
       }
+      return true;
+    }
+
+    if (
+      intent.nextAction === "LAUNCH_NATIVE_SDK" &&
+      isPayHereNativeSdkHandoff(intent.checkoutHandoff)
+    ) {
+      pollCountRef.current = 0;
+      setAwaitingCheckout({
+        bookingId,
+        referenceCode,
+        intent,
+        status: null
+      });
+
+      const outcome = await launchPayHereNativeCheckout(intent.checkoutHandoff.sdkPayload);
+      if (outcome.status === "ERROR") {
+        setCheckoutError(outcome.message);
+      }
+      await checkPayHerePaymentStatus({ bookingId, referenceCode });
+      return true;
+    }
+
+    if (intent.nextAction === "REDIRECT_TO_PROVIDER") {
+      setCheckoutError(
+        "Server returned a web redirect handoff for a native device checkout. Tap Retry PayHere Checkout to request a mobile SDK session."
+      );
+      return true;
+    }
+
+    return false;
+  };
+
+  const reopenCurrentPayHereCheckout = async () => {
+    if (!awaitingCheckout) {
       return;
+    }
+    setCheckoutError(null);
+    await dispatchPayHereIntent(
+      awaitingCheckout.bookingId,
+      awaitingCheckout.referenceCode,
+      awaitingCheckout.intent
+    );
+  };
+
+  const executePaymentIntentFlow = async (bookingId: string, referenceCode: string) => {
+    const channel = Platform.OS === "web" ? "WEB" : "MOBILE_APP";
+    const intent = await marketplaceApi.createPaymentIntent({
+      bookingId,
+      channel,
+      idempotencyKey: `mob-pay-${channel.toLowerCase()}-${bookingId}-${Date.now()}`,
+      customerDetails: buildCustomerDetails()
+    });
+
+    if (intent.provider === "PAYHERE") {
+      const handled = await dispatchPayHereIntent(bookingId, referenceCode, intent);
+      if (handled) {
+        return;
+      }
     }
 
     if (
@@ -360,29 +431,23 @@ export default function TravellerCheckoutScreen() {
     setIsProcessing(true);
     setCheckoutError(null);
     try {
+      const channel = Platform.OS === "web" ? "WEB" : "MOBILE_APP";
       const freshIntent = await marketplaceApi.createPaymentIntent({
         bookingId: awaitingCheckout.bookingId,
-        idempotencyKey: `mob-retry-${awaitingCheckout.bookingId}-${Date.now()}`,
+        channel,
+        idempotencyKey: `mob-retry-${channel.toLowerCase()}-${awaitingCheckout.bookingId}-${Date.now()}`,
         customerDetails: buildCustomerDetails()
       });
 
-      if (freshIntent.nextAction === "REDIRECT_TO_PROVIDER") {
-        if (!isPayHerePostHandoff(freshIntent.checkoutHandoff)) {
-          setCheckoutError(
-            "Invalid PayHere checkout handoff payload returned on retry. Booking remains safe."
-          );
+      if (freshIntent.provider === "PAYHERE") {
+        const handled = await dispatchPayHereIntent(
+          awaitingCheckout.bookingId,
+          awaitingCheckout.referenceCode,
+          freshIntent
+        );
+        if (handled) {
           return;
         }
-        const handoffUrl = resolveMobileHandoffUrl(
-          getApiBaseUrl(),
-          freshIntent.checkoutHandoff.mobileHandoffPath
-        );
-        pollCountRef.current = 0;
-        setAwaitingCheckout((prev) =>
-          prev ? { ...prev, intent: freshIntent, handoffUrl } : null
-        );
-        await openExternalPayHereHandoff(handoffUrl, (url) => Linking.openURL(url));
-        return;
       }
 
       if (
@@ -559,7 +624,7 @@ export default function TravellerCheckoutScreen() {
               void checkPayHerePaymentStatus();
             }}
             onReopenCheckout={() => {
-              void Linking.openURL(awaitingCheckout.handoffUrl);
+              void reopenCurrentPayHereCheckout();
             }}
             onRetryCheckout={() => {
               void handleRetryPayHereCheckout();
@@ -579,7 +644,7 @@ export default function TravellerCheckoutScreen() {
               title="Re-open PayHere Checkout"
               variant="secondary"
               onPress={() => {
-                void Linking.openURL(awaitingCheckout.handoffUrl);
+                void reopenCurrentPayHereCheckout();
               }}
             />
             <Button

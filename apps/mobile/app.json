@@ -23,6 +23,8 @@
     },
     "plugins": [
       "expo-router",
+      "expo-dev-client",
+      "./plugins/withPayHereSdk",
       [
         "expo-splash-screen",
         {

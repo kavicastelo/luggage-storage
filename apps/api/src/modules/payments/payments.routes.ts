@@ -51,29 +51,31 @@ export async function paymentRoutes(app: FastifyInstance): Promise<void> {
     }
   );
 
-  // 1b. Signed server-rendered PayHere checkout POST handoff page (for external mobile browser launch)
+  // 1b. Retired legacy server-rendered PayHere HTML handoff bridge
   app.get<{ Params: { handoffToken: string } }>(
     "/handoff/:handoffToken",
     {
       schema: {
         tags: ["Payments"],
-        summary: "Render auto-submitting PayHere checkout POST form from signed handoff token"
+        summary: "Retired legacy HTML payment handoff bridge (410 Gone)"
       }
     },
     async (request, reply) => {
-      const { html, cspHeader } = await paymentsService.renderPayHerePostHandoffHtml(
-        request.params.handoffToken
-      );
       return reply
-        .status(200)
-        .header("Content-Type", "text/html; charset=utf-8")
-        .header("Content-Security-Policy", cspHeader)
+        .status(410)
         .header("Cache-Control", "no-store, no-cache, must-revalidate, private")
-        .header("Pragma", "no-cache")
-        .header("X-Content-Type-Options", "nosniff")
-        .header("X-Frame-Options", "DENY")
-        .header("Referrer-Policy", "no-referrer")
-        .send(html);
+        .send({
+          success: false,
+          error: {
+            code: "HANDOFF_ENDPOINT_RETIRED",
+            message:
+              "The API HTML payment handoff bridge has been retired. Use direct web POST checkout or the official PayHere native mobile SDK."
+          },
+          meta: {
+            requestId: request.id,
+            timestamp: new Date().toISOString()
+          }
+        });
     }
   );
 

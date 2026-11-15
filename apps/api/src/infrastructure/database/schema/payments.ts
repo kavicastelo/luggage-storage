@@ -30,6 +30,7 @@ export const paymentIntents = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     provider: varchar("provider", { length: 32 }).notNull(),
+    checkoutChannel: varchar("checkout_channel", { length: 16 }).notNull().default("WEB"),
     idempotencyKey: varchar("idempotency_key", { length: 128 }),
     providerOrderId: varchar("provider_order_id", { length: 128 }).notNull(),
     amountMinor: integer("amount_minor").notNull(),
@@ -69,6 +70,14 @@ export const paymentIntents = pgTable(
         'EXPIRED',
         'ORPHANED_SUCCEEDED'
       )`
+    ),
+    check(
+      "payment_intents_checkout_channel_check",
+      sql`${table.checkoutChannel} IN ('WEB', 'MOBILE_APP')`
+    ),
+    check(
+      "payment_intents_payhere_channel_active_check",
+      sql`${table.provider} <> 'PAYHERE' OR ${table.status} NOT IN ('INITIATED', 'PENDING_GATEWAY') OR NOT (${table.checkoutPayload} ? 'mobileHandoffPath')`
     ),
     check("payment_intents_amount_check", sql`${table.amountMinor} > 0`)
   ]

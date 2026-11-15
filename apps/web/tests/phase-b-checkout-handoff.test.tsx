@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { PayHereCheckoutHandoff, SandboxCheckoutHandoff } from "@luggage-storage/contracts";
 import {
   ALLOWED_PAYHERE_CHECKOUT_URLS,
+  assertSafeDocumentReferrerPolicy,
   buildPayHereCheckoutForm,
   clearPendingCheckoutContext,
   isPayHerePostHandoff,
@@ -30,7 +31,6 @@ function createSamplePayHereHandoff(
     provider: "PAYHERE",
     method: "POST_FORM",
     actionUrl: "https://sandbox.payhere.lk/pay/checkout",
-    mobileHandoffPath: "/payments/handoff/abc123.sig456",
     fields: {
       merchant_id: "1219999",
       return_url: "https://web.luggagestorage.test/booking/confirm",
@@ -127,6 +127,7 @@ describe("Phase B8 — Web PayHere POST Form Handoff & Authoritative Confirmatio
     expect(form).toBe(submitted);
     expect(form.method).toBe("POST");
     expect(form.action).toBe("https://sandbox.payhere.lk/pay/checkout");
+    expect(form.attributes["referrerpolicy"]).toBe("strict-origin-when-cross-origin");
     expect(form.attributes["data-testid"]).toBe("payhere-post-form");
     expect(form.submit).toHaveBeenCalledTimes(1);
 
@@ -156,6 +157,30 @@ describe("Phase B8 — Web PayHere POST Form Handoff & Authoritative Confirmatio
       actionUrl: "http://sandbox.payhere.lk/pay/checkout" as unknown as PayHereCheckoutHandoff["actionUrl"]
     });
     expect(() => buildPayHereCheckoutForm(httpDowngrade, mockDoc)).toThrow(/Untrusted PayHere/);
+
+    // Regression: reject no-referrer / same-origin document policies on PayHere POST initiation
+    const makeReferrerDoc = (content: string) =>
+      ({
+        ...mockDoc,
+        querySelectorAll: vi.fn(() => [{ getAttribute: () => content }])
+      }) as unknown as Document;
+
+    expect(() =>
+      assertSafeDocumentReferrerPolicy(makeReferrerDoc("no-referrer"))
+    ).toThrow(/Unsafe document referrer policy/);
+    expect(() =>
+      buildPayHereCheckoutForm(createSamplePayHereHandoff(), makeReferrerDoc("no-referrer"))
+    ).toThrow(/Unsafe document referrer policy/);
+    expect(() =>
+      assertSafeDocumentReferrerPolicy(makeReferrerDoc("same-origin"))
+    ).toThrow(/Unsafe document referrer policy/);
+    expect(() =>
+      assertSafeDocumentReferrerPolicy(makeReferrerDoc("strict-origin-when-cross-origin"))
+    ).not.toThrow();
+
+    const indexHtmlSrc = fs.readFileSync(path.resolve(__dirname, "../index.html"), "utf-8");
+    expect(indexHtmlSrc).toContain('content="strict-origin-when-cross-origin"');
+    expect(indexHtmlSrc).not.toContain("no-referrer");
   });
 
   it("ignores URL query payment forgery flags (?status=paid, ?status_code=2, ?md5sig=...) and parses navigation hints safely", () => {
@@ -196,6 +221,7 @@ describe("Phase B8 — Web PayHere POST Form Handoff & Authoritative Confirmatio
         intentId: "11111111-2222-4333-8444-555555555555",
         orderId: "ORD-CTX-1",
         provider: "PAYHERE",
+        channel: "WEB",
         createdAt: "2026-11-10T10:00:00.000Z"
       },
       storageStub
@@ -205,6 +231,7 @@ describe("Phase B8 — Web PayHere POST Form Handoff & Authoritative Confirmatio
     expect(loaded).not.toBeNull();
     expect(loaded?.orderId).toBe("ORD-CTX-1");
     expect(loaded?.provider).toBe("PAYHERE");
+    expect(loaded?.channel).toBe("WEB");
 
     clearPendingCheckoutContext(storageStub);
     expect(loadPendingCheckoutContext(storageStub)).toBeNull();
@@ -339,12 +366,17 @@ describe("Phase B8 — Web PayHere POST Form Handoff & Authoritative Confirmatio
 
     for (const src of [publicPagesSrc, adminPagesSrc, handoffLibSrc]) {
       expect(src).not.toContain("PAYHERE_MERCHANT_SECRET");
+      expect(src).not.toContain("PAYHERE_WEB_MERCHANT_SECRET");
+      expect(src).not.toContain("PAYHERE_MOBILE_MERCHANT_SECRET");
       expect(src).not.toContain("PAYMENT_WEBHOOK_SECRET");
       expect(src).not.toContain('createHash("md5")');
+      expect(src).not.toContain("/payments/handoff/");
       expect(src).not.toContain("RFD-GW-");
       expect(src).not.toContain("rfnd_");
     }
 
+    expect(publicPagesSrc).toContain('channel: "WEB"');
+    expect(publicPagesSrc).toContain('currentIntent.checkoutChannel === "WEB"');
     expect(publicPagesSrc).toContain('nextAction === "REDIRECT_TO_PROVIDER"');
     expect(publicPagesSrc).toContain("submitPayHereCheckoutForm");
     expect(publicPagesSrc).toContain("parseCheckoutReturnQuery");
