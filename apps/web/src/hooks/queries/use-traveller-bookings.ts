@@ -3,6 +3,7 @@ import type {
   BookingListQuery,
   CancelBookingRequest,
   CheckoutStatusQuery,
+  CheckoutStatusResponse,
   CreateBookingRequest,
   CreatePaymentIntentRequest,
   IssueCustodyPassRequest,
@@ -44,7 +45,13 @@ export function useBookingDetailQuery(
 
 export function useCheckoutStatusQuery(
   query: CheckoutStatusQuery | null,
-  options: { enabled?: boolean; refetchInterval?: number | false } = {}
+  options: {
+    enabled?: boolean;
+    refetchInterval?:
+      | number
+      | false
+      | ((queryState: { state: { data?: CheckoutStatusResponse } }) => number | false | undefined);
+  } = {}
 ) {
   const qc = useResolvedQueryClient();
   return useQuery(

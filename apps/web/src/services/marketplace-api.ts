@@ -10,7 +10,6 @@ import {
   UpdateLocationRequest,
   ReviewLocationRequest,
   StorageLocation,
-  PublicStorageLocation,
   PublicStorageLocationDetail,
   LocationModerationQueueResponse,
   OpeningHourItemInput,

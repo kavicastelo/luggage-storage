@@ -351,10 +351,17 @@ describe("Phase B8 — Web PayHere POST Form Handoff & Authoritative Confirmatio
   });
 
   it("audits web source code: zero merchant secrets, zero client MD5 hashing, zero synthetic refund IDs, and PayHere branch isolation", () => {
-    const publicPagesSrc = fs.readFileSync(
-      path.resolve(__dirname, "../src/pages/PublicMarketplacePages.tsx"),
-      "utf-8"
-    );
+    const travellerFeatureDir = path.resolve(__dirname, "../src/features/traveller");
+    const publicPagesSrc = [
+      fs.readFileSync(
+        path.resolve(__dirname, "../src/pages/PublicMarketplacePages.tsx"),
+        "utf-8"
+      ),
+      ...fs
+        .readdirSync(travellerFeatureDir)
+        .filter((name) => name.endsWith(".ts") || name.endsWith(".tsx"))
+        .map((name) => fs.readFileSync(path.join(travellerFeatureDir, name), "utf-8"))
+    ].join("\n");
     const adminPagesSrc = fs.readFileSync(
       path.resolve(__dirname, "../src/pages/AdminDashboardPages.tsx"),
       "utf-8"

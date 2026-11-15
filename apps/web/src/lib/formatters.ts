@@ -161,6 +161,10 @@ export function formatDayOfWeek(dayOfWeek: number): string {
 
 export function formatPricingUnitLabel(unit: PricingUnit | string): string {
   switch (unit) {
+    case "CALENDAR_DAY":
+      return "per calendar day";
+    case "24_HOUR_BLOCK":
+      return "per 24-hour block";
     case "PER_HOUR":
       return "per hour";
     case "PER_DAY":
@@ -172,12 +176,16 @@ export function formatPricingUnitLabel(unit: PricingUnit | string): string {
 
 export function formatBagCategoryLabel(category: BagCategory | string): string {
   switch (category) {
+    case "BAG_SMALL":
     case "SMALL":
       return "Small";
+    case "BAG_MEDIUM":
     case "MEDIUM":
       return "Medium";
+    case "BAG_LARGE":
     case "LARGE":
       return "Large";
+    case "BAG_OVERSIZED":
     case "OVERSIZED":
       return "Oversized";
     default:

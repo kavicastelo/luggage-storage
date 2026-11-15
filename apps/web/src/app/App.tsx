@@ -93,6 +93,9 @@ function AppRoutes() {
         <Route path="checkout/:locId" element={<WebCheckoutSchedulePage />} />
         <Route element={<ProtectedRoute allowDemoPreview={true} />}>
           <Route path="booking/confirm" element={<WebPaymentConfirmationPage />} />
+          <Route path="checkout/payhere/return" element={<WebPaymentConfirmationPage />} />
+          <Route path="checkout/payhere/cancel" element={<WebPaymentConfirmationPage />} />
+          <Route path="portal" element={<TravellerWebPortalPage />} />
           <Route path="portal/bookings" element={<TravellerWebPortalPage />} />
         </Route>
         <Route path="become-a-host" element={<BecomeAHostLandingPage />} />

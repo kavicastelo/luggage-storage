@@ -128,7 +128,7 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
             <h3 className="text-lg font-extrabold tracking-tight">Digital Custody Pass</h3>
           </div>
           <p className="text-xs text-sand-300 mt-0.5">
-            Reference <span className="font-mono font-bold text-white">#{referenceCode}</span>
+            Reference <span className="font-mono font-bold text-white">{`#${referenceCode}`}</span>
             {locationName ? ` • ${locationName}` : ""}
           </p>
         </div>
