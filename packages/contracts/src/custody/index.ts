@@ -110,6 +110,7 @@ export const CompleteCollectionRequestSchema = z
       .regex(/^\d{6}$/, "Verification PIN must be a 6-digit number")
       .optional(),
     releasedBagCount: z.number().int().positive(),
+    collectionNotes: z.string().trim().max(500).optional(),
     exceptionNotes: z.string().trim().max(500).optional()
   })
   .refine((val) => Boolean(val.qrToken || val.verificationPin), {

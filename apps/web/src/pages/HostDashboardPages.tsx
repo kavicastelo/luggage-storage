@@ -2832,6 +2832,9 @@ export function HostWebCheckInOutOperationsPage() {
   const [pinInput, setPinInput] = useState(showDemoOps ? "482910" : "");
   const [reconciledBags, setReconciledBags] = useState(showDemoOps ? 3 : 1);
   const [sealInput, setSealInput] = useState(showDemoOps ? "SEAL-LK-90211" : "");
+  const [collectionNotes, setCollectionNotes] = useState("");
+  const [hasCollectionException, setHasCollectionException] = useState(false);
+  const [exceptionNotes, setExceptionNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [handoverSuccessMessage, setHandoverSuccessMessage] = useState<string | null>(null);
   const [handoverErrorMessage, setHandoverErrorMessage] = useState<string | null>(null);
@@ -2855,6 +2858,17 @@ export function HostWebCheckInOutOperationsPage() {
         );
         return;
       }
+    }
+
+    if (
+      operationMode === "CHECK_OUT" &&
+      hasCollectionException &&
+      exceptionNotes.trim().length < 3
+    ) {
+      setHandoverErrorMessage(
+        "Enter exception details (at least 3 characters) when reporting a custody discrepancy."
+      );
+      return;
     }
 
     if (isAuthenticated && isHostUuid(trimmedBookingId)) {
@@ -2899,7 +2913,8 @@ export function HostWebCheckInOutOperationsPage() {
             qrToken: verificationMethod === "QR_SCAN" ? trimmedCredential : undefined,
             verificationPin: verificationMethod === "PIN_FALLBACK" ? trimmedCredential : undefined,
             releasedBagCount: reconciledBags,
-            exceptionNotes: "Released via Host Counter Web Desk"
+            collectionNotes: collectionNotes.trim() || undefined,
+            exceptionNotes: hasCollectionException ? exceptionNotes.trim() : undefined
           });
           const overdueNote =
             collectionRes.overdueMinutes > 0
@@ -2953,6 +2968,7 @@ export function HostWebCheckInOutOperationsPage() {
               onClick={() => {
                 setOperationMode("CHECK_IN");
                 setHandoverSuccessMessage(null);
+                setHandoverErrorMessage(null);
               }}
               className={`px-3.5 py-1.5 rounded-lg transition ${
                 operationMode === "CHECK_IN"
@@ -2967,6 +2983,7 @@ export function HostWebCheckInOutOperationsPage() {
               onClick={() => {
                 setOperationMode("CHECK_OUT");
                 setHandoverSuccessMessage(null);
+                setHandoverErrorMessage(null);
               }}
               className={`px-3.5 py-1.5 rounded-lg transition ${
                 operationMode === "CHECK_OUT"
@@ -3147,6 +3164,68 @@ export function HostWebCheckInOutOperationsPage() {
             </p>
           </div>
         </div>
+
+        {operationMode === "CHECK_OUT" && (
+          <div className="rounded-xl border border-sand-200 bg-sand-50/70 p-4 space-y-3 text-xs">
+            <div>
+              <label
+                htmlFor="collection-handover-notes"
+                className="block font-bold text-navy-900 mb-1"
+              >
+                Collection Handover Notes
+              </label>
+              <input
+                id="collection-handover-notes"
+                aria-label="Collection Handover Notes"
+                type="text"
+                value={collectionNotes}
+                onChange={(e) => setCollectionNotes(e.target.value)}
+                placeholder="Optional release note (e.g., all bags verified intact at counter)"
+                className="w-full rounded-xl border border-sand-300 bg-white px-3 py-2 text-xs font-medium text-navy-900"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="inline-flex items-center gap-2 font-bold text-navy-900 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hasCollectionException}
+                  onChange={(e) => {
+                    setHasCollectionException(e.target.checked);
+                    if (!e.target.checked) {
+                      setExceptionNotes("");
+                    }
+                  }}
+                  className="h-4 w-4 rounded border-sand-300 text-amber-600 focus:ring-amber-500"
+                />
+                <span>Report custody exception or discrepancy</span>
+              </label>
+
+              {hasCollectionException && (
+                <div>
+                  <label
+                    htmlFor="custody-exception-details"
+                    className="block font-bold text-amber-950 mb-1"
+                  >
+                    Custody Exception Details
+                  </label>
+                  <input
+                    id="custody-exception-details"
+                    aria-label="Custody Exception Details"
+                    type="text"
+                    value={exceptionNotes}
+                    onChange={(e) => setExceptionNotes(e.target.value)}
+                    placeholder="Describe damaged seal, missing item, or guest discrepancy (min 3 characters)"
+                    className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-navy-900"
+                  />
+                  <p className="text-[11px] text-amber-800 mt-1">
+                    Reporting a custody exception records a disputed release and holds settlement for supervisor review.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-3 pt-2">
