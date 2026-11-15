@@ -159,7 +159,8 @@ export const PublicStorageLocationSchema = z.object({
     id: z.string().uuid(),
     url: z.string().url(),
     caption: z.string().nullable().optional(),
-    isPrimary: z.boolean()
+    isPrimary: z.boolean(),
+    sortOrder: z.number().int().nonnegative().optional()
   })).default([]),
   baseRateMinor: z.number().int().positive().optional(),
   currency: z.string().default("LKR"),

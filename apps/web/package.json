@@ -17,6 +17,7 @@
     "@tanstack/react-query": "^5.32.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.372.0",
+    "qrcode": "1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.51.3",
@@ -28,6 +29,7 @@
   "devDependencies": {
     "@luggage-storage/eslint-config": "workspace:*",
     "@luggage-storage/typescript-config": "workspace:*",
+    "@types/qrcode": "1.5.6",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.4",

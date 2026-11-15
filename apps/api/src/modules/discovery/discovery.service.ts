@@ -1,14 +1,55 @@
-import { eq, and, sql, ilike } from "drizzle-orm";
+import { eq, and, sql, asc, gte } from "drizzle-orm";
 import {
+  BAG_CATEGORIES,
+  BagCategory,
+  BookingMode,
+  DEFAULT_CATEGORY_MULTIPLIERS_BPS,
+  OpeningHoursExceptionType,
+  PricingUnit,
+  PublicLocationCapacitySummary,
+  PublicLocationPricingPolicy,
+  PublicStorageLocation,
+  PublicStorageLocationDetail,
   SearchLocationsQueryInput,
   SearchLocationsQuerySchema,
-  PublicStorageLocation,
   SearchLocationsResponse
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
+import { storageService } from "../uploads/storage.service.js";
+
+function getCurrentDateInTimezone(timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone || "Asia/Colombo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(new Date());
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Colombo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).format(new Date());
+  }
+}
 
 export class DiscoveryService {
+  private async resolvePublicImageUrl(
+    fileKey: string | null | undefined,
+    storedUrl: string
+  ): Promise<string> {
+    if (storageService.isLiveR2 && fileKey && !storageService.getPublicUrl?.(fileKey)) {
+      return storageService.generatePresignedDownloadUrl({
+        fileKey,
+        expiresInSeconds: 3600
+      });
+    }
+    return storedUrl;
+  }
+
   /**
    * Performs public location discovery with PostGIS spatial indexing.
    * Strictly enforces OQ-012 location privacy: exact address, building number, and exact
@@ -60,10 +101,19 @@ export class DiscoveryService {
 
     const whereClause = sql.join(conditions, sql` AND `);
 
-    // Order by distance from query point to coarse_coordinates, broken stably by created_at DESC
-    const orderByClause = hasGeo
-      ? sql`ST_Distance(sl.coarse_coordinates, ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography) ASC, sl.created_at DESC`
-      : sql`sl.created_at DESC`;
+    // Order by explicit sortBy option, preserving coarse-distance tie-breaking by default
+    let orderByClause: ReturnType<typeof sql>;
+    if (query.sortBy === "price_asc") {
+      orderByClause = sql`pp.base_rate_minor ASC NULLS LAST, sl.created_at DESC`;
+    } else if (query.sortBy === "price_desc") {
+      orderByClause = sql`pp.base_rate_minor DESC NULLS LAST, sl.created_at DESC`;
+    } else if (query.sortBy === "newest") {
+      orderByClause = sql`sl.created_at DESC`;
+    } else {
+      orderByClause = hasGeo
+        ? sql`ST_Distance(sl.coarse_coordinates, ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography) ASC, sl.created_at DESC`
+        : sql`sl.created_at DESC`;
+    }
 
     const distanceSelect = hasGeo
       ? sql`, (ROUND(ST_Distance(sl.coarse_coordinates, ST_SetSRID(ST_MakePoint(${query.longitude}, ${query.latitude}), 4326)::geography) / 100.0) * 100)::integer AS distance_meters`
@@ -126,27 +176,44 @@ export class DiscoveryService {
 
     // Fetch images and operating hours for matching locations
     const locationIds = rowsResult.rows.map((r) => r.id);
-    const mediaMap = new Map<string, Array<{ id: string; url: string; caption: string | null; isPrimary: boolean }>>();
+    const mediaMap = new Map<
+      string,
+      Array<{ id: string; url: string; caption: string | null; isPrimary: boolean; sortOrder: number }>
+    >();
     const hoursMap = new Map<string, Array<typeof schema.openingHours.$inferSelect>>();
 
     if (locationIds.length > 0) {
-      const mediaRows = await db
-        .select()
-        .from(schema.locationMedia)
-        .where(sql`${schema.locationMedia.locationId} IN ${locationIds}`)
-        .orderBy(schema.locationMedia.sortOrder);
+      const [mediaRows, hoursRows] = await Promise.all([
+        db
+          .select()
+          .from(schema.locationMedia)
+          .where(sql`${schema.locationMedia.locationId} IN ${locationIds}`)
+          .orderBy(schema.locationMedia.sortOrder),
+        db
+          .select()
+          .from(schema.openingHours)
+          .where(sql`${schema.openingHours.locationId} IN ${locationIds}`)
+          .orderBy(schema.openingHours.dayOfWeek)
+      ]);
 
-      for (const m of mediaRows) {
-        const list = mediaMap.get(m.locationId) || [];
-        list.push({ id: m.id, url: m.url, caption: m.caption, isPrimary: m.isPrimary });
-        mediaMap.set(m.locationId, list);
+      const resolvedMedia = await Promise.all(
+        mediaRows.map(async (m) => ({
+          locationId: m.locationId,
+          item: {
+            id: m.id,
+            url: await this.resolvePublicImageUrl(m.fileKey, m.url),
+            caption: m.caption,
+            isPrimary: m.isPrimary,
+            sortOrder: m.sortOrder
+          }
+        }))
+      );
+
+      for (const entry of resolvedMedia) {
+        const list = mediaMap.get(entry.locationId) || [];
+        list.push(entry.item);
+        mediaMap.set(entry.locationId, list);
       }
-
-      const hoursRows = await db
-        .select()
-        .from(schema.openingHours)
-        .where(sql`${schema.openingHours.locationId} IN ${locationIds}`)
-        .orderBy(schema.openingHours.dayOfWeek);
 
       for (const h of hoursRows) {
         const list = hoursMap.get(h.locationId) || [];
@@ -160,13 +227,21 @@ export class DiscoveryService {
       const primaryImage = images.find((i) => i.isPrimary) || images[0];
       const hours = hoursMap.get(r.id) || [];
 
-      // Determine hours summary
-      const is24Hours = hours.length > 0 && hours.every((h) => !h.isClosed && h.openTime === "00:00:00" && (h.closeTime === "23:59:59" || h.closeTime === "24:00:00"));
+      const is24Hours =
+        hours.length > 0 &&
+        hours.every(
+          (h) =>
+            !h.isClosed &&
+            h.openTime === "00:00:00" &&
+            (h.closeTime === "23:59:59" || h.closeTime === "24:00:00")
+        );
       const firstOpen = hours.find((h) => !h.isClosed);
       const operatingHoursSummary = is24Hours
         ? "24/7 Open"
         : firstOpen
         ? `${firstOpen.openTime.slice(0, 5)} - ${firstOpen.closeTime.slice(0, 5)}`
+        : hours.length > 0
+        ? "Closed"
         : "08:00 - 20:00";
 
       // OQ-012: Privacy-preserving coarse coordinates from DB (exact coordinates are never queried)
@@ -189,13 +264,13 @@ export class DiscoveryService {
         approximateLongitude,
         distanceMeters,
         timezone: r.timezone,
-        bookingMode: r.booking_mode as any,
+        bookingMode: r.booking_mode as BookingMode,
         acceptsOversized: r.accepts_oversized,
         amenities: r.amenities || [],
         status: "ACTIVE",
         primaryImageUrl: primaryImage?.url || null,
         images,
-        baseRateMinor: r.base_rate_minor || 100000,
+        baseRateMinor: r.base_rate_minor ?? undefined,
         currency: r.currency || "LKR",
         averageRating: null,
         reviewCount: 0,
@@ -216,10 +291,11 @@ export class DiscoveryService {
   }
 
   /**
-   * Retrieves single public storage location details.
+   * Retrieves single public storage location details including weekly hours,
+   * upcoming schedule exceptions, active bag pricing tiers, and coarse capacity.
    * Strictly enforces OQ-012 privacy: exact address and entrance coordinates are omitted.
    */
-  async getPublicLocationDetails(locationId: string): Promise<PublicStorageLocation> {
+  async getPublicLocationDetails(locationId: string): Promise<PublicStorageLocationDetail> {
     const [row] = await db
       .select({
         id: schema.storageLocations.id,
@@ -235,6 +311,8 @@ export class DiscoveryService {
         amenities: schema.storageLocations.amenities,
         locationStatus: schema.storageLocations.status,
         businessStatus: schema.hostBusinesses.status,
+        policyId: schema.pricingPolicies.id,
+        pricingUnit: schema.pricingPolicies.pricingUnit,
         baseRateMinor: schema.pricingPolicies.baseRateMinor,
         currency: schema.pricingPolicies.currency
       })
@@ -257,7 +335,9 @@ export class DiscoveryService {
       throw AppError.notFound("Storage location not found or is currently not active");
     }
 
-    const [images, hours] = await Promise.all([
+    const todayDateStr = getCurrentDateInTimezone(row.timezone);
+
+    const [images, hours, upcomingExceptionRows, tierRateRows, activePools] = await Promise.all([
       db
         .select()
         .from(schema.locationMedia)
@@ -267,24 +347,133 @@ export class DiscoveryService {
         .select()
         .from(schema.openingHours)
         .where(eq(schema.openingHours.locationId, locationId))
-        .orderBy(schema.openingHours.dayOfWeek)
+        .orderBy(schema.openingHours.dayOfWeek),
+      db
+        .select()
+        .from(schema.openingHoursExceptions)
+        .where(
+          and(
+            eq(schema.openingHoursExceptions.locationId, locationId),
+            gte(schema.openingHoursExceptions.exceptionDate, todayDateStr)
+          )
+        )
+        .orderBy(asc(schema.openingHoursExceptions.exceptionDate))
+        .limit(30),
+      row.policyId
+        ? db
+            .select()
+            .from(schema.pricingTierRates)
+            .where(eq(schema.pricingTierRates.policyId, row.policyId))
+        : Promise.resolve([]),
+      db
+        .select({
+          poolType: schema.storageCapacityPools.poolType,
+          dedicatedBagCategory: schema.storageCapacityPools.dedicatedBagCategory,
+          totalUnits: schema.storageCapacityPools.totalUnits
+        })
+        .from(schema.storageCapacityPools)
+        .where(
+          and(
+            eq(schema.storageCapacityPools.locationId, locationId),
+            eq(schema.storageCapacityPools.isActive, true)
+          )
+        )
     ]);
 
-    const formattedImages = images.map((i) => ({
-      id: i.id,
-      url: i.url,
-      caption: i.caption,
-      isPrimary: i.isPrimary
-    }));
+    const formattedImages = await Promise.all(
+      images.map(async (i) => ({
+        id: i.id,
+        url: await this.resolvePublicImageUrl(i.fileKey, i.url),
+        caption: i.caption,
+        isPrimary: i.isPrimary,
+        sortOrder: i.sortOrder
+      }))
+    );
     const primaryImage = formattedImages.find((i) => i.isPrimary) || formattedImages[0];
 
-    const is24Hours = hours.length > 0 && hours.every((h) => !h.isClosed && h.openTime === "00:00:00" && (h.closeTime === "23:59:59" || h.closeTime === "24:00:00"));
+    const is24Hours =
+      hours.length > 0 &&
+      hours.every(
+        (h) =>
+          !h.isClosed &&
+          h.openTime === "00:00:00" &&
+          (h.closeTime === "23:59:59" || h.closeTime === "24:00:00")
+      );
     const firstOpen = hours.find((h) => !h.isClosed);
     const operatingHoursSummary = is24Hours
       ? "24/7 Open"
       : firstOpen
       ? `${firstOpen.openTime.slice(0, 5)} - ${firstOpen.closeTime.slice(0, 5)}`
+      : hours.length > 0
+      ? "Closed"
       : "08:00 - 20:00";
+
+    const openingHours = hours.map((h) => ({
+      dayOfWeek: h.dayOfWeek,
+      openTime: h.openTime,
+      closeTime: h.closeTime,
+      allowsDropoff: h.allowsDropoff,
+      allowsCollection: h.allowsCollection,
+      isClosed: h.isClosed
+    }));
+
+    const upcomingExceptions = upcomingExceptionRows.map((e) => ({
+      exceptionDate: e.exceptionDate,
+      exceptionType: e.exceptionType as OpeningHoursExceptionType,
+      openTime: e.openTime,
+      closeTime: e.closeTime,
+      reason: e.reason
+    }));
+
+    let pricingPolicy: PublicLocationPricingPolicy | null = null;
+    if (row.policyId && row.baseRateMinor) {
+      const tierByCat = new Map(tierRateRows.map((t) => [t.bagCategory, t]));
+      const visibleCategories = row.acceptsOversized
+        ? BAG_CATEGORIES
+        : BAG_CATEGORIES.filter((cat) => cat !== "BAG_OVERSIZED");
+      const tierRates = visibleCategories.map((bagCategory) => {
+        const existing = tierByCat.get(bagCategory);
+        const categoryMultiplierBps =
+          existing?.categoryMultiplierBps ?? DEFAULT_CATEGORY_MULTIPLIERS_BPS[bagCategory];
+        const rateMinor =
+          existing?.rateMinor ?? Math.round((row.baseRateMinor! * categoryMultiplierBps) / 10000);
+        return {
+          bagCategory,
+          rateMinor,
+          categoryMultiplierBps
+        };
+      });
+
+      pricingPolicy = {
+        currency: row.currency || "LKR",
+        pricingUnit: (row.pricingUnit as PricingUnit) || "CALENDAR_DAY",
+        baseRateMinor: row.baseRateMinor,
+        tierRates
+      };
+    }
+
+    const supportedSet = new Set<BagCategory>();
+    for (const pool of activePools) {
+      if (pool.poolType === "SHARED") {
+        supportedSet.add("BAG_SMALL");
+        supportedSet.add("BAG_MEDIUM");
+        supportedSet.add("BAG_LARGE");
+        if (row.acceptsOversized) {
+          supportedSet.add("BAG_OVERSIZED");
+        }
+      } else if (pool.poolType === "DEDICATED" && pool.dedicatedBagCategory) {
+        const cat = pool.dedicatedBagCategory as BagCategory;
+        if (cat !== "BAG_OVERSIZED" || row.acceptsOversized) {
+          supportedSet.add(cat);
+        }
+      }
+    }
+
+    const capacitySummary: PublicLocationCapacitySummary = {
+      activePoolCount: activePools.length,
+      totalMaxCapacityUnits: activePools.reduce((sum, pool) => sum + pool.totalUnits, 0),
+      supportedBagCategories: BAG_CATEGORIES.filter((cat) => supportedSet.has(cat))
+    };
 
     return {
       id: row.id,
@@ -296,18 +485,22 @@ export class DiscoveryService {
       approximateLatitude: Number(Number(row.approximateLatitude).toFixed(2)),
       approximateLongitude: Number(Number(row.approximateLongitude).toFixed(2)),
       timezone: row.timezone,
-      bookingMode: row.bookingMode as any,
+      bookingMode: row.bookingMode as BookingMode,
       acceptsOversized: row.acceptsOversized,
       amenities: (row.amenities as string[]) || [],
       status: "ACTIVE",
       primaryImageUrl: primaryImage?.url || null,
       images: formattedImages,
-      baseRateMinor: row.baseRateMinor || 100000,
+      baseRateMinor: row.baseRateMinor ?? undefined,
       currency: row.currency || "LKR",
       averageRating: null,
       reviewCount: 0,
       is24Hours,
-      operatingHoursSummary
+      operatingHoursSummary,
+      openingHours,
+      upcomingExceptions,
+      pricingPolicy,
+      capacitySummary
     };
   }
 }
