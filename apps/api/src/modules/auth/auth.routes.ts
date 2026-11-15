@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyPluginAsync, FastifyRequest } from "fastify";
+import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -37,6 +37,18 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         : "/api/v1/auth";
     const maxAge = env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60;
     return { isSecure, cookiePath, maxAge };
+  };
+
+  const clearRefreshCookies = (reply: FastifyReply, requestUrl: string) => {
+    const { isSecure } = getCookieConfig(requestUrl);
+    for (const path of ["/api/v1/auth", "/"]) {
+      reply.clearCookie("refresh_token", {
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: "strict",
+        path
+      });
+    }
   };
 
   const getClientInfo = (request: FastifyRequest) => ({
@@ -376,16 +388,18 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
 
       let sessionId: string | undefined = undefined;
 
-      // Extract sessionId from bearer token if present
+      // Extract verified sessionId from bearer token if present (ignore expiration on logout)
       if (request.headers.authorization?.startsWith("Bearer ")) {
         try {
           const token = request.headers.authorization.slice(7);
-          const decoded = app.jwt.decode<{ sessionId?: string }>(token);
-          if (decoded?.sessionId) {
-            sessionId = decoded.sessionId;
+          const verified = app.jwt.verify<{ sessionId?: string }>(token, {
+            ignoreExpiration: true
+          });
+          if (verified?.sessionId) {
+            sessionId = verified.sessionId;
           }
         } catch {
-          // Ignore decode errors on logout
+          // Ignore invalid/forged token signature errors on logout
         }
       }
 
@@ -395,9 +409,8 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
         clientInfo: getClientInfo(request)
       });
 
-      // Clear cookie for all possible paths
-      reply.clearCookie("refresh_token", { path: "/api/v1/auth" });
-      reply.clearCookie("refresh_token", { path: "/" });
+      // Clear cookie for all possible paths with matching security attributes
+      clearRefreshCookies(reply, request.url);
 
       return reply
         .status(200)
@@ -446,8 +459,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       const userId = request.user.sub;
       const count = await sessionService.logoutAll(userId, getClientInfo(request));
 
-      reply.clearCookie("refresh_token", { path: "/api/v1/auth" });
-      reply.clearCookie("refresh_token", { path: "/" });
+      clearRefreshCookies(reply, request.url);
 
       return reply.status(200).send(
         createSuccessResponse(
@@ -659,8 +671,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
 
       // If user revoked their own current session, clear cookie
       if (sessionId === request.user.sessionId) {
-        reply.clearCookie("refresh_token", { path: "/api/v1/auth" });
-        reply.clearCookie("refresh_token", { path: "/" });
+        clearRefreshCookies(reply, request.url);
       }
 
       return reply

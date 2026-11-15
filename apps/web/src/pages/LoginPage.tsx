@@ -17,7 +17,12 @@ export function LoginPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || "/profile";
+  const fromLocation = (location.state as {
+    from?: { pathname?: string; search?: string; hash?: string };
+  })?.from;
+  const from = fromLocation
+    ? `${fromLocation.pathname || "/profile"}${fromLocation.search || ""}${fromLocation.hash || ""}`
+    : "/profile";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

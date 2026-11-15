@@ -17,7 +17,12 @@ export function PublicOnlyRoute() {
   }
 
   if (isAuthenticated) {
-    const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || "/profile";
+    const fromLocation = (location.state as {
+      from?: { pathname?: string; search?: string; hash?: string };
+    })?.from;
+    const from = fromLocation
+      ? `${fromLocation.pathname || "/profile"}${fromLocation.search || ""}${fromLocation.hash || ""}`
+      : "/profile";
     return <Navigate to={from} replace />;
   }
 

@@ -1,6 +1,20 @@
 import { ApiResponse, ApiErrorResponse } from "@luggage-storage/contracts";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api/v1";
+const DEFAULT_API_BASE = "http://localhost:3000/api/v1";
+
+export function normalizeApiBaseUrl(rawUrl?: string): string {
+  const trimmed = rawUrl?.trim();
+  if (!trimmed) {
+    return DEFAULT_API_BASE;
+  }
+  const withoutTrailingSlashes = trimmed.replace(/\/+$/, "");
+  if (withoutTrailingSlashes.endsWith("/api/v1")) {
+    return withoutTrailingSlashes;
+  }
+  return `${withoutTrailingSlashes}/api/v1`;
+}
+
+const API_BASE = normalizeApiBaseUrl(import.meta.env.VITE_API_URL);
 
 /**
  * Custom error class for API errors preserving HTTP status, error code, and validation details.
@@ -85,6 +99,9 @@ export async function refreshAccessToken(): Promise<string | null> {
       }
 
       clearAccessToken();
+      if (onAuthFailure) {
+        onAuthFailure();
+      }
       return null;
     } catch {
       clearAccessToken();
@@ -100,6 +117,96 @@ export async function refreshAccessToken(): Promise<string | null> {
   return refreshPromise;
 }
 
+const AUTH_NO_REFRESH_ENDPOINTS = new Set([
+  "/auth/login",
+  "/auth/register",
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/change-password",
+  "/auth/verify-email",
+  "/auth/resend-verification",
+  "/auth/forgot-password",
+  "/auth/reset-password"
+]);
+
+function normalizeEndpointPath(endpoint: string): string {
+  const withLeadingSlash = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  if (API_BASE.endsWith("/api/v1")) {
+    if (withLeadingSlash === "/api/v1") {
+      return "";
+    }
+    if (withLeadingSlash.startsWith("/api/v1/")) {
+      return withLeadingSlash.slice("/api/v1".length);
+    }
+  }
+  return withLeadingSlash;
+}
+
+function isNoRefreshAuthEndpoint(normalizedEndpoint: string): boolean {
+  const pathOnly = normalizedEndpoint.split("?")[0].replace(/\/+$/, "");
+  return AUTH_NO_REFRESH_ENDPOINTS.has(pathOnly);
+}
+
+function buildRequestHeaders(options?: RequestInit): Record<string, string> {
+  const headers: Record<string, string> = {};
+
+  if (options?.headers) {
+    if (options.headers instanceof Headers) {
+      options.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+    } else if (Array.isArray(options.headers)) {
+      for (const [key, value] of options.headers) {
+        headers[key] = value;
+      }
+    } else {
+      Object.assign(headers, options.headers);
+    }
+  }
+
+  const body = options?.body;
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  const isBlob = typeof Blob !== "undefined" && body instanceof Blob;
+  const isUrlSearchParams =
+    typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams;
+  const isBinary =
+    typeof ArrayBuffer !== "undefined" &&
+    (body instanceof ArrayBuffer || ArrayBuffer.isView(body));
+
+  const existingContentTypeKey = Object.keys(headers).find(
+    (key) => key.toLowerCase() === "content-type"
+  );
+
+  if (isFormData) {
+    if (existingContentTypeKey) {
+      delete headers[existingContentTypeKey];
+    }
+    return headers;
+  }
+
+  const hasJsonCandidateBody =
+    body !== undefined &&
+    body !== null &&
+    !isBlob &&
+    !isUrlSearchParams &&
+    !isBinary &&
+    !(typeof body === "string" && body.length === 0);
+
+  if (hasJsonCandidateBody && !existingContentTypeKey) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
+}
+
+async function parseResponseBody(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Centralized fetch wrapper with credentials: 'include', Authorization header injection,
  * and automatic 401 retry with refresh token rotation.
@@ -108,11 +215,9 @@ export async function fetchApi<T>(
   endpoint: string,
   options?: RequestInit & { skipAuthRefresh?: boolean }
 ): Promise<ApiResponse<T>> {
-  const url = `${API_BASE}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...((options?.headers as Record<string, string>) || {})
-  };
+  const normalizedEndpoint = normalizeEndpointPath(endpoint);
+  const url = `${API_BASE}${normalizedEndpoint}`;
+  const headers = buildRequestHeaders(options);
 
   const currentToken = getAccessToken();
   if (currentToken && !headers.Authorization && !headers.authorization) {
@@ -126,10 +231,7 @@ export async function fetchApi<T>(
   });
 
   // Handle 401 Unauthorized with token refresh if not already refreshing/auth endpoint
-  const isAuthEndpoint =
-    endpoint.includes("/auth/login") ||
-    endpoint.includes("/auth/register") ||
-    endpoint.includes("/auth/refresh");
+  const isAuthEndpoint = isNoRefreshAuthEndpoint(normalizedEndpoint);
 
   if (response.status === 401 && !options?.skipAuthRefresh && !isAuthEndpoint) {
     const newToken = await refreshAccessToken();
@@ -142,26 +244,28 @@ export async function fetchApi<T>(
         headers
       });
 
-      const retryBody = await retryResponse.json();
+      const retryBody = await parseResponseBody(retryResponse);
       if (!retryResponse.ok) {
-        const errorBody = retryBody as ApiErrorResponse;
+        const errorBody = retryBody as ApiErrorResponse | null;
         throw new ApiClientError(
-          errorBody.error?.message || `HTTP error ${retryResponse.status}`,
+          errorBody?.error?.message || `HTTP error ${retryResponse.status}`,
           retryResponse.status,
-          errorBody.error?.code || "HTTP_ERROR",
-          errorBody.error?.details
+          errorBody?.error?.code || "HTTP_ERROR",
+          errorBody?.error?.details
         );
       }
-      return retryBody as ApiResponse<T>;
+      if (retryBody === null && retryResponse.status !== 204) {
+        throw new ApiClientError(
+          "Invalid JSON response from server",
+          retryResponse.status,
+          "INVALID_RESPONSE"
+        );
+      }
+      return (retryBody ?? { success: true, data: undefined }) as ApiResponse<T>;
     }
   }
 
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    body = null;
-  }
+  const body = await parseResponseBody(response);
 
   if (!response.ok) {
     const errorBody = body as ApiErrorResponse | null;
@@ -173,5 +277,13 @@ export async function fetchApi<T>(
     );
   }
 
-  return body as ApiResponse<T>;
+  if (body === null && response.status !== 204) {
+    throw new ApiClientError(
+      "Invalid JSON response from server",
+      response.status,
+      "INVALID_RESPONSE"
+    );
+  }
+
+  return (body ?? { success: true, data: undefined }) as ApiResponse<T>;
 }

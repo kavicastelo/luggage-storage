@@ -6,9 +6,11 @@ import {
 } from "@luggage-storage/contracts";
 import { validateWithZod } from "../lib/validation";
 import { authApi } from "../services/auth-api";
+import { useAuthStore } from "../store/useAuthStore";
 import { Mail, CheckCircle2, AlertCircle, Loader2, ArrowLeft, KeyRound } from "lucide-react";
 
 export function VerifyEmailPage() {
+  const { isAuthenticated, refreshUser } = useAuthStore();
   const [searchParams] = useSearchParams();
   const initialToken = searchParams.get("token") || "";
   const initialEmail = searchParams.get("email") || "";
@@ -43,6 +45,9 @@ export function VerifyEmailPage() {
     setIsVerifying(true);
     try {
       await authApi.verifyEmail(validation.data);
+      if (useAuthStore.getState().isAuthenticated) {
+        await refreshUser();
+      }
       setIsVerified(true);
     } catch (err) {
       setServerError(
@@ -95,14 +100,16 @@ export function VerifyEmailPage() {
         </div>
         <h1 className="text-2xl font-bold text-slate-900">Email Verified</h1>
         <p className="text-sm text-slate-600 mt-3 leading-relaxed">
-          Your email address has been verified and your account is now active. You may now sign in.
+          {isAuthenticated
+            ? "Your email address has been verified and your account profile is up to date."
+            : "Your email address has been verified and your account is now active. You may now sign in."}
         </p>
         <div className="mt-8">
           <Link
-            to="/login"
+            to={isAuthenticated ? "/profile" : "/login"}
             className="inline-block w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm text-center"
           >
-            Continue to Sign In
+            {isAuthenticated ? "Continue to Profile" : "Continue to Sign In"}
           </Link>
         </div>
       </div>

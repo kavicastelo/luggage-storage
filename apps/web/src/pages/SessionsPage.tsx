@@ -18,7 +18,7 @@ import {
 
 export function SessionsPage() {
   const navigate = useNavigate();
-  const { logout, logoutAll, sessionId: currentSessionId } = useAuthStore();
+  const { clearAuth, logoutAll, sessionId: currentSessionId } = useAuthStore();
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,8 +50,8 @@ export function SessionsPage() {
     try {
       await authApi.revokeSession(sessionId);
       if (sessionId === currentSessionId) {
-        // Current session revoked -> clear state and redirect to login
-        await logout();
+        // Current session already revoked by DELETE endpoint -> clear local state and redirect to login
+        clearAuth();
         navigate("/login", { replace: true });
         return;
       }
