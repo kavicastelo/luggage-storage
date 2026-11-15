@@ -1,12 +1,18 @@
-import { eq, and, desc, sql, count, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, sql, count, inArray } from "drizzle-orm";
 import {
   CreateLocationRequest,
   UpdateLocationRequest,
   StorageLocation,
   OpeningHourItemInput,
+  OpeningHours,
   CreateOpeningHoursExceptionRequest,
+  OpeningHoursException,
   CreateStorageZoneRequest,
+  UpdateStorageZoneRequest,
+  StorageZone,
   AddLocationMediaRequest,
+  UpdateLocationMediaRequest,
+  LocationMedia,
   ReviewLocationRequest,
   LocationModerationQueueItem,
   SecurityEventType,
@@ -446,6 +452,57 @@ export class LocationsService {
       throw AppError.badRequest("This storage location is already approved and active");
     }
 
+    const openHours = await db
+      .select({ id: schema.openingHours.id })
+      .from(schema.openingHours)
+      .where(
+        and(
+          eq(schema.openingHours.locationId, locationId),
+          eq(schema.openingHours.isClosed, false)
+        )
+      )
+      .limit(1);
+
+    if (openHours.length === 0) {
+      throw AppError.badRequest(
+        "Configure at least one open day in weekly opening hours before submitting for review"
+      );
+    }
+
+    const activePools = await db
+      .select({ id: schema.storageCapacityPools.id })
+      .from(schema.storageCapacityPools)
+      .where(
+        and(
+          eq(schema.storageCapacityPools.locationId, locationId),
+          eq(schema.storageCapacityPools.isActive, true)
+        )
+      )
+      .limit(1);
+
+    if (activePools.length === 0) {
+      throw AppError.badRequest(
+        "Configure at least one active capacity pool before submitting for review"
+      );
+    }
+
+    const activePricing = await db
+      .select({ id: schema.pricingPolicies.id })
+      .from(schema.pricingPolicies)
+      .where(
+        and(
+          eq(schema.pricingPolicies.locationId, locationId),
+          eq(schema.pricingPolicies.status, "ACTIVE")
+        )
+      )
+      .limit(1);
+
+    if (activePricing.length === 0) {
+      throw AppError.badRequest(
+        "Configure an active pricing policy before submitting for review"
+      );
+    }
+
     await db
       .update(schema.storageLocations)
       .set({
@@ -544,37 +601,166 @@ export class LocationsService {
     locationId: string,
     request: CreateOpeningHoursExceptionRequest,
     context: LocationCallerContext
-  ): Promise<void> {
+  ): Promise<OpeningHoursException> {
     await this.assertLocationOwnerOrSuperadmin(locationId, context);
     await this.getLocationById(locationId, context);
 
-    await db
+    const [exception] = await db
       .insert(schema.openingHoursExceptions)
       .values({
         locationId,
         exceptionDate: request.exceptionDate,
         exceptionType: request.exceptionType || "CLOSURE",
-        openTime: request.openTime || null,
-        closeTime: request.closeTime || null,
+        openTime: request.exceptionType === "CLOSURE" ? null : request.openTime || null,
+        closeTime: request.exceptionType === "CLOSURE" ? null : request.closeTime || null,
         reason: request.reason || null
       })
       .onConflictDoUpdate({
         target: [schema.openingHoursExceptions.locationId, schema.openingHoursExceptions.exceptionDate],
         set: {
           exceptionType: request.exceptionType || "CLOSURE",
-          openTime: request.openTime || null,
-          closeTime: request.closeTime || null,
+          openTime: request.exceptionType === "CLOSURE" ? null : request.openTime || null,
+          closeTime: request.exceptionType === "CLOSURE" ? null : request.closeTime || null,
           reason: request.reason || null,
           updatedAt: new Date()
         }
-      });
+      })
+      .returning();
 
     await auditService.recordEvent({
       eventType: SecurityEventType.STORAGE_LOCATION_CONFIG_UPDATED,
       userId: context.userId,
       clientInfo: context.clientInfo,
-      metadata: { locationId, configType: "EXCEPTION", date: request.exceptionDate }
+      metadata: {
+        locationId,
+        configType: "EXCEPTION",
+        exceptionId: exception.id,
+        date: request.exceptionDate
+      }
     });
+
+    return {
+      id: exception.id,
+      locationId: exception.locationId,
+      exceptionDate: exception.exceptionDate,
+      exceptionType: exception.exceptionType as OpeningHoursException["exceptionType"],
+      openTime: exception.openTime,
+      closeTime: exception.closeTime,
+      reason: exception.reason,
+      createdAt: exception.createdAt.toISOString(),
+      updatedAt: exception.updatedAt.toISOString()
+    };
+  }
+
+  /**
+   * Retrieves weekly recurring opening hours for a location.
+   */
+  async getOpeningHours(
+    locationId: string,
+    context: LocationCallerContext
+  ): Promise<OpeningHours[]> {
+    await this.assertLocationReadAccess(locationId, context);
+
+    const rows = await db
+      .select()
+      .from(schema.openingHours)
+      .where(eq(schema.openingHours.locationId, locationId))
+      .orderBy(asc(schema.openingHours.dayOfWeek));
+
+    return rows.map((row) => ({
+      id: row.id,
+      locationId: row.locationId,
+      dayOfWeek: row.dayOfWeek,
+      openTime: row.openTime,
+      closeTime: row.closeTime,
+      allowsDropoff: row.allowsDropoff,
+      allowsCollection: row.allowsCollection,
+      isClosed: row.isClosed,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString()
+    }));
+  }
+
+  /**
+   * Retrieves date-specific opening hours exceptions for a location.
+   */
+  async getOpeningHoursExceptions(
+    locationId: string,
+    context: LocationCallerContext
+  ): Promise<OpeningHoursException[]> {
+    await this.assertLocationReadAccess(locationId, context);
+
+    const rows = await db
+      .select()
+      .from(schema.openingHoursExceptions)
+      .where(eq(schema.openingHoursExceptions.locationId, locationId))
+      .orderBy(asc(schema.openingHoursExceptions.exceptionDate));
+
+    return rows.map((row) => ({
+      id: row.id,
+      locationId: row.locationId,
+      exceptionDate: row.exceptionDate,
+      exceptionType: row.exceptionType as OpeningHoursException["exceptionType"],
+      openTime: row.openTime,
+      closeTime: row.closeTime,
+      reason: row.reason,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString()
+    }));
+  }
+
+  /**
+   * Deletes an opening hour exception from a location.
+   */
+  async deleteOpeningHoursException(
+    locationId: string,
+    exceptionId: string,
+    context: LocationCallerContext
+  ): Promise<void> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
+
+    const [deleted] = await db
+      .delete(schema.openingHoursExceptions)
+      .where(
+        and(
+          eq(schema.openingHoursExceptions.id, exceptionId),
+          eq(schema.openingHoursExceptions.locationId, locationId)
+        )
+      )
+      .returning();
+
+    if (!deleted) {
+      throw AppError.notFound("Opening hours exception not found");
+    }
+
+    await auditService.recordEvent({
+      eventType: SecurityEventType.STORAGE_LOCATION_CONFIG_UPDATED,
+      userId: context.userId,
+      clientInfo: context.clientInfo,
+      metadata: {
+        locationId,
+        exceptionId,
+        configType: "EXCEPTION_DELETED"
+      }
+    });
+  }
+
+  /**
+   * Retrieves storage zones for a location.
+   */
+  async getStorageZones(
+    locationId: string,
+    context: LocationCallerContext
+  ): Promise<StorageZone[]> {
+    await this.assertLocationReadAccess(locationId, context);
+
+    const rows = await db
+      .select()
+      .from(schema.storageZones)
+      .where(eq(schema.storageZones.locationId, locationId))
+      .orderBy(asc(schema.storageZones.createdAt));
+
+    return rows.map((row) => this.formatStorageZone(row));
   }
 
   /**
@@ -668,6 +854,13 @@ export class LocationsService {
         return existingMedia;
       }
 
+      if (request.isPrimary) {
+        await tx
+          .update(schema.locationMedia)
+          .set({ isPrimary: false, updatedAt: new Date() })
+          .where(eq(schema.locationMedia.locationId, locationId));
+      }
+
       const [media] = await tx
         .insert(schema.locationMedia)
         .values({
@@ -691,6 +884,358 @@ export class LocationsService {
 
       return media;
     });
+  }
+
+  /**
+   * Updates an existing storage zone (rejects deactivation when active custody exists).
+   */
+  async updateStorageZone(
+    locationId: string,
+    zoneId: string,
+    request: UpdateStorageZoneRequest,
+    context: LocationCallerContext
+  ): Promise<StorageZone> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
+
+    const [existing] = await db
+      .select()
+      .from(schema.storageZones)
+      .where(
+        and(
+          eq(schema.storageZones.id, zoneId),
+          eq(schema.storageZones.locationId, locationId)
+        )
+      )
+      .limit(1);
+
+    if (!existing) {
+      throw AppError.notFound("Storage zone not found");
+    }
+
+    if (request.isActive === false) {
+      await this.assertActiveCustodyFreeForZone(zoneId);
+    }
+
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (request.name !== undefined) updateData.name = request.name;
+    if (request.zoneType !== undefined) updateData.zoneType = request.zoneType;
+    if (request.securityTier !== undefined) updateData.securityTier = request.securityTier;
+    if (request.isActive !== undefined) updateData.isActive = request.isActive;
+
+    const [updated] = await db
+      .update(schema.storageZones)
+      .set(updateData)
+      .where(
+        and(
+          eq(schema.storageZones.id, zoneId),
+          eq(schema.storageZones.locationId, locationId)
+        )
+      )
+      .returning();
+
+    await auditService.recordEvent({
+      eventType: SecurityEventType.STORAGE_LOCATION_CONFIG_UPDATED,
+      userId: context.userId,
+      clientInfo: context.clientInfo,
+      metadata: {
+        locationId,
+        zoneId,
+        configType: "ZONE_UPDATED",
+        isActive: updated.isActive
+      }
+    });
+
+    return this.formatStorageZone(updated);
+  }
+
+  /**
+   * Deletes a storage zone (rejects when active custody holds bags in the zone).
+   */
+  async deleteStorageZone(
+    locationId: string,
+    zoneId: string,
+    context: LocationCallerContext
+  ): Promise<void> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
+
+    const [existing] = await db
+      .select()
+      .from(schema.storageZones)
+      .where(
+        and(
+          eq(schema.storageZones.id, zoneId),
+          eq(schema.storageZones.locationId, locationId)
+        )
+      )
+      .limit(1);
+
+    if (!existing) {
+      throw AppError.notFound("Storage zone not found");
+    }
+
+    await this.assertActiveCustodyFreeForZone(zoneId);
+
+    await db
+      .delete(schema.storageZones)
+      .where(
+        and(
+          eq(schema.storageZones.id, zoneId),
+          eq(schema.storageZones.locationId, locationId)
+        )
+      );
+
+    await auditService.recordEvent({
+      eventType: SecurityEventType.STORAGE_LOCATION_CONFIG_UPDATED,
+      userId: context.userId,
+      clientInfo: context.clientInfo,
+      metadata: {
+        locationId,
+        zoneId,
+        configType: "ZONE_DELETED"
+      }
+    });
+  }
+
+  /**
+   * Lists media items attached to a storage location.
+   */
+  async getLocationMedia(
+    locationId: string,
+    context: LocationCallerContext
+  ): Promise<LocationMedia[]> {
+    await this.assertLocationReadAccess(locationId, context);
+
+    const rows = await db
+      .select()
+      .from(schema.locationMedia)
+      .where(eq(schema.locationMedia.locationId, locationId))
+      .orderBy(
+        desc(schema.locationMedia.isPrimary),
+        asc(schema.locationMedia.sortOrder),
+        asc(schema.locationMedia.createdAt)
+      );
+
+    return rows.map((row) => this.formatLocationMedia(row));
+  }
+
+  /**
+   * Updates media item metadata or atomically sets it as the primary location photo.
+   */
+  async updateLocationMedia(
+    locationId: string,
+    mediaId: string,
+    request: UpdateLocationMediaRequest,
+    context: LocationCallerContext
+  ): Promise<LocationMedia> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
+
+    const updated = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.locationMedia)
+        .where(
+          and(
+            eq(schema.locationMedia.id, mediaId),
+            eq(schema.locationMedia.locationId, locationId)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        throw AppError.notFound("Location media item not found");
+      }
+
+      if (request.isPrimary === true) {
+        await tx
+          .update(schema.locationMedia)
+          .set({ isPrimary: false, updatedAt: new Date() })
+          .where(eq(schema.locationMedia.locationId, locationId));
+      }
+
+      const updateData: Record<string, unknown> = { updatedAt: new Date() };
+      if (request.caption !== undefined) updateData.caption = request.caption;
+      if (request.isPrimary !== undefined) updateData.isPrimary = request.isPrimary;
+      if (request.sortOrder !== undefined) updateData.sortOrder = request.sortOrder;
+
+      const [saved] = await tx
+        .update(schema.locationMedia)
+        .set(updateData)
+        .where(
+          and(
+            eq(schema.locationMedia.id, mediaId),
+            eq(schema.locationMedia.locationId, locationId)
+          )
+        )
+        .returning();
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.STORAGE_LOCATION_CONFIG_UPDATED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        tx,
+        metadata: {
+          locationId,
+          mediaId,
+          configType: "MEDIA_UPDATED"
+        }
+      });
+
+      return saved;
+    });
+
+    return this.formatLocationMedia(updated);
+  }
+
+  /**
+   * Deletes a media item from a location (promoting another image if primary was deleted).
+   */
+  async deleteLocationMedia(
+    locationId: string,
+    mediaId: string,
+    context: LocationCallerContext
+  ): Promise<void> {
+    await this.assertLocationOwnerOrSuperadmin(locationId, context);
+
+    await db.transaction(async (tx) => {
+      const [deleted] = await tx
+        .delete(schema.locationMedia)
+        .where(
+          and(
+            eq(schema.locationMedia.id, mediaId),
+            eq(schema.locationMedia.locationId, locationId)
+          )
+        )
+        .returning();
+
+      if (!deleted) {
+        throw AppError.notFound("Location media item not found");
+      }
+
+      if (deleted.isPrimary) {
+        const [nextImage] = await tx
+          .select()
+          .from(schema.locationMedia)
+          .where(eq(schema.locationMedia.locationId, locationId))
+          .orderBy(asc(schema.locationMedia.sortOrder), asc(schema.locationMedia.createdAt))
+          .limit(1);
+
+        if (nextImage) {
+          await tx
+            .update(schema.locationMedia)
+            .set({ isPrimary: true, updatedAt: new Date() })
+            .where(eq(schema.locationMedia.id, nextImage.id));
+        }
+      }
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.STORAGE_LOCATION_CONFIG_UPDATED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        tx,
+        metadata: {
+          locationId,
+          mediaId,
+          configType: "MEDIA_DELETED"
+        }
+      });
+    });
+  }
+
+  private async assertLocationReadAccess(
+    locationId: string,
+    context: LocationCallerContext
+  ): Promise<void> {
+    const [loc] = await db
+      .select({ id: schema.storageLocations.id })
+      .from(schema.storageLocations)
+      .where(eq(schema.storageLocations.id, locationId))
+      .limit(1);
+
+    if (!loc) {
+      throw AppError.notFound("Storage location not found");
+    }
+
+    if (context.roles.includes("SUPERADMIN") || context.roles.includes("SUPPORT")) {
+      return;
+    }
+
+    await assertHostLocationAccess(db, context.userId, context.roles, locationId);
+  }
+
+  private async assertActiveCustodyFreeForZone(zoneId: string): Promise<void> {
+    const activeStatuses = [
+      "CHECKED_IN",
+      "IN_STORAGE",
+      "OVERDUE",
+      "DISPUTED_RELEASE",
+      "ABANDONED"
+    ];
+
+    const [activeRecord] = await db
+      .select({ id: schema.custodyRecords.id })
+      .from(schema.custodyRecords)
+      .where(
+        and(
+          eq(schema.custodyRecords.zoneId, zoneId),
+          inArray(schema.custodyRecords.status, activeStatuses)
+        )
+      )
+      .limit(1);
+
+    if (activeRecord) {
+      throw AppError.conflict(
+        "Cannot deactivate or delete a storage zone with active checked-in custody records"
+      );
+    }
+
+    const [activeBagItem] = await db
+      .select({ id: schema.bagCustodyItems.id })
+      .from(schema.bagCustodyItems)
+      .innerJoin(
+        schema.custodyRecords,
+        eq(schema.bagCustodyItems.custodyRecordId, schema.custodyRecords.id)
+      )
+      .where(
+        and(
+          eq(schema.bagCustodyItems.zoneId, zoneId),
+          inArray(schema.custodyRecords.status, activeStatuses)
+        )
+      )
+      .limit(1);
+
+    if (activeBagItem) {
+      throw AppError.conflict(
+        "Cannot deactivate or delete a storage zone with bags currently held in custody"
+      );
+    }
+  }
+
+  private formatStorageZone(zone: typeof schema.storageZones.$inferSelect): StorageZone {
+    return {
+      id: zone.id,
+      locationId: zone.locationId,
+      name: zone.name,
+      zoneType: zone.zoneType as StorageZone["zoneType"],
+      securityTier: zone.securityTier as StorageZone["securityTier"],
+      isActive: zone.isActive,
+      createdAt: zone.createdAt.toISOString(),
+      updatedAt: zone.updatedAt.toISOString()
+    };
+  }
+
+  private formatLocationMedia(media: typeof schema.locationMedia.$inferSelect): LocationMedia {
+    return {
+      id: media.id,
+      locationId: media.locationId,
+      fileKey: media.fileKey,
+      url: media.url,
+      mediaType: media.mediaType as LocationMedia["mediaType"],
+      caption: media.caption,
+      isPrimary: media.isPrimary,
+      sortOrder: media.sortOrder,
+      createdAt: media.createdAt.toISOString(),
+      updatedAt: media.updatedAt.toISOString()
+    };
   }
 
   // ============================================================================

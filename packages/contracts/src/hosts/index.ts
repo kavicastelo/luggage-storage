@@ -122,6 +122,13 @@ export const HostStaffMembershipSchema = z.object({
 });
 export type HostStaffMembership = z.infer<typeof HostStaffMembershipSchema>;
 
+export const HostStaffMemberDetailSchema = HostStaffMembershipSchema.extend({
+  email: z.string().email(),
+  displayName: z.string(),
+  userStatus: z.string()
+});
+export type HostStaffMemberDetail = z.infer<typeof HostStaffMemberDetailSchema>;
+
 // ============================================================================
 // Request Schemas
 // ============================================================================
@@ -148,6 +155,31 @@ export type CreateHostBusinessRequest = z.infer<typeof CreateHostBusinessRequest
 
 export const UpdateHostBusinessRequestSchema = CreateHostBusinessRequestSchema.partial();
 export type UpdateHostBusinessRequest = z.infer<typeof UpdateHostBusinessRequestSchema>;
+
+export const AddHostStaffRequestSchema = z.object({
+  email: z.string().trim().email("Valid user email is required"),
+  staffRole: z.enum(HOST_STAFF_ROLES).default("ATTENDANT"),
+  assignedLocationIds: z.array(z.string().uuid("Each assigned location ID must be a valid UUID")).default([])
+});
+export type AddHostStaffRequest = z.infer<typeof AddHostStaffRequestSchema>;
+
+export const UpdateHostStaffRequestSchema = z
+  .object({
+    staffRole: z.enum(HOST_STAFF_ROLES).optional(),
+    assignedLocationIds: z.array(z.string().uuid("Each assigned location ID must be a valid UUID")).optional(),
+    isActive: z.boolean().optional()
+  })
+  .refine(
+    (data) =>
+      data.staffRole !== undefined ||
+      data.assignedLocationIds !== undefined ||
+      data.isActive !== undefined,
+    {
+      message: "At least one field (staffRole, assignedLocationIds, or isActive) must be provided",
+      path: ["staffRole"]
+    }
+  );
+export type UpdateHostStaffRequest = z.infer<typeof UpdateHostStaffRequestSchema>;
 
 export const SubmitVerificationDocumentItemSchema = z
   .object({
@@ -218,4 +250,9 @@ export const HostVerificationQueueResponseSchema = z.object({
   total: z.number().int()
 });
 export type HostVerificationQueueResponse = z.infer<typeof HostVerificationQueueResponseSchema>;
+
+export const HostStaffListResponseSchema = z.object({
+  staff: z.array(HostStaffMemberDetailSchema)
+});
+export type HostStaffListResponse = z.infer<typeof HostStaffListResponseSchema>;
 

@@ -120,4 +120,40 @@ export async function capacityRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(200).send(createSuccessResponse(pool, request.id));
     }
   );
+
+  // 4. Delete capacity pool
+  app.delete<{ Params: { poolId: string } }>(
+    "/capacity-pools/:poolId",
+    {
+      preHandler: [
+        app.authenticate,
+        app.requirePermission(SYSTEM_PERMISSIONS.HOSTS_LOCATION_CONFIGURE)
+      ],
+      schema: {
+        description: "Delete a capacity pool from a storage location",
+        tags: ["Capacity"],
+        params: {
+          type: "object",
+          required: ["poolId"],
+          properties: {
+            poolId: { type: "string", format: "uuid" }
+          }
+        }
+      }
+    },
+    async (request, reply) => {
+      const { poolId } = request.params;
+      await capacityService.deleteCapacityPool(poolId, {
+        userId: request.user!.sub,
+        roles: request.user!.roles,
+        clientInfo: {
+          ip: request.ip,
+          userAgent: request.headers["user-agent"] as string,
+          correlationId: (request.headers["x-correlation-id"] as string) || request.id
+        }
+      });
+
+      return reply.status(200).send(createSuccessResponse({ removed: true, poolId }, request.id));
+    }
+  );
 }

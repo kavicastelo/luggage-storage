@@ -3,8 +3,11 @@ import {
   CreateHostBusinessRequest,
   UpdateHostBusinessRequest,
   SubmitHostVerificationRequest,
+  AddHostStaffRequest,
+  UpdateHostStaffRequest,
   HostBusiness,
   HostVerification,
+  HostStaffMemberDetail,
   SecurityEventType
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
@@ -326,11 +329,36 @@ export class HostsService {
       throw AppError.badRequest("This host business is already verified and active");
     }
 
-    if (business.status === "SUSPENDED" || business.status === "REJECTED") {
-      throw AppError.badRequest(`Cannot submit verification for a ${business.status.toLowerCase()} business`);
+    if (business.status === "SUSPENDED") {
+      throw AppError.badRequest("Cannot submit verification for a suspended business");
     }
 
     const verification = await db.transaction(async (tx) => {
+      // Mark any prior pending/info-requested verification rows superseded (REJECTED) and re-open rejected business
+      await tx
+        .update(schema.hostVerifications)
+        .set({
+          status: "REJECTED",
+          adminNotes: "Superseded by newer verification submission",
+          updatedAt: new Date()
+        })
+        .where(
+          and(
+            eq(schema.hostVerifications.businessId, businessId),
+            inArray(schema.hostVerifications.status, ["PENDING_REVIEW", "INFORMATION_REQUESTED"])
+          )
+        );
+
+      if (business.status === "REJECTED") {
+        await tx
+          .update(schema.hostBusinesses)
+          .set({
+            status: "PENDING_VERIFICATION",
+            updatedAt: new Date()
+          })
+          .where(eq(schema.hostBusinesses.id, businessId));
+      }
+
       // 1. Create verification submission record
       const [verif] = await tx
         .insert(schema.hostVerifications)
@@ -629,6 +657,395 @@ export class HostsService {
         updatedAt: d.updatedAt.toISOString()
       }))
     };
+  }
+
+  private async assertHostOwnerOrSuperadminForBusiness(
+    businessId: string,
+    context: HostContext,
+    allowSupportRead = false
+  ): Promise<typeof schema.hostBusinesses.$inferSelect> {
+    const [business] = await db
+      .select()
+      .from(schema.hostBusinesses)
+      .where(eq(schema.hostBusinesses.id, businessId))
+      .limit(1);
+
+    if (!business) {
+      throw AppError.notFound("Host business not found");
+    }
+
+    const isOwner = business.ownerUserId === context.userId;
+    const isSuperadmin = context.roles.includes("SUPERADMIN");
+    const isSupport = context.roles.includes("SUPPORT");
+
+    if (!isOwner && !isSuperadmin && !(allowSupportRead && isSupport)) {
+      await auditService.recordEvent({
+        eventType: SecurityEventType.AUTH_ACCESS_DENIED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        metadata: { businessId, reason: "Non-owner attempted host business staff access" }
+      });
+      throw AppError.forbidden("Access denied: You do not own this host business");
+    }
+
+    return business;
+  }
+
+  private formatStaffMemberDetail(
+    membership: typeof schema.hostStaffMemberships.$inferSelect,
+    user: { email: string; displayName: string; status: string }
+  ): HostStaffMemberDetail {
+    return {
+      id: membership.id,
+      businessId: membership.businessId,
+      userId: membership.userId,
+      staffRole: membership.staffRole as HostStaffMemberDetail["staffRole"],
+      assignedLocationIds: Array.isArray(membership.assignedLocationIds)
+        ? (membership.assignedLocationIds as string[])
+        : [],
+      isActive: membership.isActive,
+      invitedAt: membership.invitedAt.toISOString(),
+      acceptedAt: membership.acceptedAt ? membership.acceptedAt.toISOString() : null,
+      createdAt: membership.createdAt.toISOString(),
+      updatedAt: membership.updatedAt.toISOString(),
+      email: user.email,
+      displayName: user.displayName,
+      userStatus: user.status
+    };
+  }
+
+  async listBusinessStaff(
+    businessId: string,
+    context: HostContext
+  ): Promise<HostStaffMemberDetail[]> {
+    await this.assertHostOwnerOrSuperadminForBusiness(businessId, context, true);
+
+    const rows = await db
+      .select({
+        membership: schema.hostStaffMemberships,
+        email: schema.users.email,
+        displayName: schema.users.displayName,
+        userStatus: schema.users.status
+      })
+      .from(schema.hostStaffMemberships)
+      .innerJoin(schema.users, eq(schema.hostStaffMemberships.userId, schema.users.id))
+      .where(eq(schema.hostStaffMemberships.businessId, businessId))
+      .orderBy(desc(schema.hostStaffMemberships.createdAt));
+
+    return rows.map((row) =>
+      this.formatStaffMemberDetail(row.membership, {
+        email: row.email,
+        displayName: row.displayName,
+        status: row.userStatus
+      })
+    );
+  }
+
+  async addBusinessStaff(
+    businessId: string,
+    request: AddHostStaffRequest,
+    context: HostContext
+  ): Promise<HostStaffMemberDetail> {
+    const business = await this.assertHostOwnerOrSuperadminForBusiness(businessId, context, false);
+
+    if (business.status === "SUSPENDED") {
+      throw AppError.badRequest("Cannot manage staff on a suspended business");
+    }
+
+    const normalizedEmail = request.email.trim().toLowerCase();
+    const [targetUser] = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${normalizedEmail}`)
+      .limit(1);
+
+    if (!targetUser) {
+      throw AppError.notFound(
+        "No registered user account matches that email address. Ask your staff member to register first."
+      );
+    }
+
+    if (targetUser.status === "DEACTIVATED") {
+      throw AppError.badRequest("Cannot assign a deactivated account as host staff");
+    }
+
+    if (targetUser.id === business.ownerUserId) {
+      throw AppError.badRequest("The business owner already has full access and cannot be added as staff");
+    }
+
+    const locationIds = [...new Set(request.assignedLocationIds ?? [])];
+    if (locationIds.length > 0) {
+      const ownedLocs = await db
+        .select({ id: schema.storageLocations.id })
+        .from(schema.storageLocations)
+        .where(
+          and(
+            eq(schema.storageLocations.businessId, businessId),
+            inArray(schema.storageLocations.id, locationIds)
+          )
+        );
+      if (ownedLocs.length !== locationIds.length) {
+        throw AppError.badRequest("One or more assigned locations do not belong to this host business");
+      }
+    }
+
+    const membership = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.hostStaffMemberships)
+        .where(
+          and(
+            eq(schema.hostStaffMemberships.businessId, businessId),
+            eq(schema.hostStaffMemberships.userId, targetUser.id)
+          )
+        )
+        .limit(1);
+
+      if (existing && existing.isActive) {
+        throw AppError.conflict("User is already an active staff member of this host business");
+      }
+
+      let savedMembership: typeof schema.hostStaffMemberships.$inferSelect;
+      if (existing) {
+        const [updated] = await tx
+          .update(schema.hostStaffMemberships)
+          .set({
+            staffRole: request.staffRole,
+            assignedLocationIds: locationIds,
+            isActive: true,
+            acceptedAt: existing.acceptedAt ?? new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(schema.hostStaffMemberships.id, existing.id))
+          .returning();
+        savedMembership = updated;
+      } else {
+        const [inserted] = await tx
+          .insert(schema.hostStaffMemberships)
+          .values({
+            businessId,
+            userId: targetUser.id,
+            staffRole: request.staffRole,
+            assignedLocationIds: locationIds,
+            isActive: true,
+            acceptedAt: new Date()
+          })
+          .returning();
+        savedMembership = inserted;
+      }
+
+      await tx.execute(sql`SELECT set_config('app.current_user_id', ${context.userId}, true)`);
+      const assertion = createDatabaseIdentityAssertion({
+        actorId: context.userId,
+        action: "ASSIGN_HOST_STAFF_ROLE",
+        targetId: targetUser.id,
+        roleCode: "HOST_STAFF"
+      });
+      await tx.execute(
+        sql`SELECT public.assign_host_staff_role(${businessId}::uuid, ${targetUser.id}::uuid, ${JSON.stringify(assertion)}::jsonb)`
+      );
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.HOST_STAFF_INVITED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        tx,
+        metadata: {
+          businessId,
+          membershipId: savedMembership.id,
+          staffUserId: targetUser.id,
+          staffRole: savedMembership.staffRole,
+          assignedLocationIds: locationIds
+        }
+      });
+
+      return savedMembership;
+    });
+
+    return this.formatStaffMemberDetail(membership, {
+      email: targetUser.email,
+      displayName: targetUser.displayName,
+      status: targetUser.status
+    });
+  }
+
+  async updateBusinessStaff(
+    businessId: string,
+    membershipId: string,
+    request: UpdateHostStaffRequest,
+    context: HostContext
+  ): Promise<HostStaffMemberDetail> {
+    await this.assertHostOwnerOrSuperadminForBusiness(businessId, context, false);
+
+    const [existingRow] = await db
+      .select({
+        membership: schema.hostStaffMemberships,
+        email: schema.users.email,
+        displayName: schema.users.displayName,
+        userStatus: schema.users.status
+      })
+      .from(schema.hostStaffMemberships)
+      .innerJoin(schema.users, eq(schema.hostStaffMemberships.userId, schema.users.id))
+      .where(
+        and(
+          eq(schema.hostStaffMemberships.id, membershipId),
+          eq(schema.hostStaffMemberships.businessId, businessId)
+        )
+      )
+      .limit(1);
+
+    if (!existingRow) {
+      throw AppError.notFound("Host staff membership not found");
+    }
+
+    let nextLocationIds = Array.isArray(existingRow.membership.assignedLocationIds)
+      ? (existingRow.membership.assignedLocationIds as string[])
+      : [];
+
+    if (request.assignedLocationIds !== undefined) {
+      nextLocationIds = [...new Set(request.assignedLocationIds)];
+      if (nextLocationIds.length > 0) {
+        const ownedLocs = await db
+          .select({ id: schema.storageLocations.id })
+          .from(schema.storageLocations)
+          .where(
+            and(
+              eq(schema.storageLocations.businessId, businessId),
+              inArray(schema.storageLocations.id, nextLocationIds)
+            )
+          );
+        if (ownedLocs.length !== nextLocationIds.length) {
+          throw AppError.badRequest("One or more assigned locations do not belong to this host business");
+        }
+      }
+    }
+
+    const updatedMembership = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(schema.hostStaffMemberships)
+        .set({
+          staffRole: request.staffRole ?? existingRow.membership.staffRole,
+          assignedLocationIds:
+            request.assignedLocationIds !== undefined
+              ? nextLocationIds
+              : existingRow.membership.assignedLocationIds,
+          isActive: request.isActive ?? existingRow.membership.isActive,
+          updatedAt: new Date()
+        })
+        .where(
+          and(
+            eq(schema.hostStaffMemberships.id, membershipId),
+            eq(schema.hostStaffMemberships.businessId, businessId)
+          )
+        )
+        .returning();
+
+      if (request.isActive !== undefined) {
+        await tx.execute(sql`SELECT set_config('app.current_user_id', ${context.userId}, true)`);
+        if (request.isActive === false) {
+          const assertion = createDatabaseIdentityAssertion({
+            actorId: context.userId,
+            action: "REVOKE_HOST_STAFF_ROLE",
+            targetId: existingRow.membership.userId,
+            roleCode: "HOST_STAFF"
+          });
+          await tx.execute(
+            sql`SELECT public.revoke_host_staff_role_if_unassigned(${businessId}::uuid, ${existingRow.membership.userId}::uuid, ${JSON.stringify(assertion)}::jsonb)`
+          );
+        } else {
+          const assertion = createDatabaseIdentityAssertion({
+            actorId: context.userId,
+            action: "ASSIGN_HOST_STAFF_ROLE",
+            targetId: existingRow.membership.userId,
+            roleCode: "HOST_STAFF"
+          });
+          await tx.execute(
+            sql`SELECT public.assign_host_staff_role(${businessId}::uuid, ${existingRow.membership.userId}::uuid, ${JSON.stringify(assertion)}::jsonb)`
+          );
+        }
+      }
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.HOST_STAFF_UPDATED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        tx,
+        metadata: {
+          businessId,
+          membershipId,
+          staffUserId: existingRow.membership.userId,
+          staffRole: updated.staffRole,
+          isActive: updated.isActive,
+          assignedLocationIds: nextLocationIds
+        }
+      });
+
+      return updated;
+    });
+
+    return this.formatStaffMemberDetail(updatedMembership, {
+      email: existingRow.email,
+      displayName: existingRow.displayName,
+      status: existingRow.userStatus
+    });
+  }
+
+  async removeBusinessStaff(
+    businessId: string,
+    membershipId: string,
+    context: HostContext
+  ): Promise<void> {
+    await this.assertHostOwnerOrSuperadminForBusiness(businessId, context, false);
+
+    const [existing] = await db
+      .select()
+      .from(schema.hostStaffMemberships)
+      .where(
+        and(
+          eq(schema.hostStaffMemberships.id, membershipId),
+          eq(schema.hostStaffMemberships.businessId, businessId)
+        )
+      )
+      .limit(1);
+
+    if (!existing) {
+      throw AppError.notFound("Host staff membership not found");
+    }
+
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.hostStaffMemberships)
+        .where(
+          and(
+            eq(schema.hostStaffMemberships.id, membershipId),
+            eq(schema.hostStaffMemberships.businessId, businessId)
+          )
+        );
+
+      await tx.execute(sql`SELECT set_config('app.current_user_id', ${context.userId}, true)`);
+      const assertion = createDatabaseIdentityAssertion({
+        actorId: context.userId,
+        action: "REVOKE_HOST_STAFF_ROLE",
+        targetId: existing.userId,
+        roleCode: "HOST_STAFF"
+      });
+      await tx.execute(
+        sql`SELECT public.revoke_host_staff_role_if_unassigned(${businessId}::uuid, ${existing.userId}::uuid, ${JSON.stringify(assertion)}::jsonb)`
+      );
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.HOST_STAFF_REMOVED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        tx,
+        metadata: {
+          businessId,
+          membershipId,
+          staffUserId: existing.userId,
+          staffRole: existing.staffRole
+        }
+      });
+    });
   }
 }
 

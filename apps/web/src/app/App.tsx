@@ -37,6 +37,7 @@ import {
 
 import {
   HostDashboardLayout,
+  HostOnboardingPage,
   HostOverviewDashboardPage,
   HostLocationManagementPage,
   HostLocationProfileEditorPage,
@@ -97,6 +98,7 @@ function AppRoutes() {
           <Route path="checkout/payhere/cancel" element={<WebPaymentConfirmationPage />} />
           <Route path="portal" element={<TravellerWebPortalPage />} />
           <Route path="portal/bookings" element={<TravellerWebPortalPage />} />
+          <Route path="host/onboarding" element={<HostOnboardingPage />} />
         </Route>
         <Route path="become-a-host" element={<BecomeAHostLandingPage />} />
         <Route path="how-it-works" element={<HowItWorksPage />} />

@@ -72,8 +72,8 @@ export class UploadsService {
         throw AppError.badRequest("Host business is already verified and active; new verification uploads are not permitted");
       }
 
-      if (business.status === "SUSPENDED" || business.status === "REJECTED") {
-        throw AppError.badRequest(`Cannot submit verification documents for a ${business.status.toLowerCase()} business`);
+      if (business.status === "SUSPENDED") {
+        throw AppError.badRequest("Cannot submit verification documents for a suspended business");
       }
 
       resourceType = "HOST_BUSINESS";
@@ -444,6 +444,13 @@ export class UploadsService {
           mediaId = existingMedia.id;
           mediaUrl = existingMedia.url;
         } else {
+          if (request.isPrimary) {
+            await tx
+              .update(schema.locationMedia)
+              .set({ isPrimary: false, updatedAt: new Date() })
+              .where(eq(schema.locationMedia.locationId, intent.resourceId));
+          }
+
           const [inserted] = await tx
             .insert(schema.locationMedia)
             .values({

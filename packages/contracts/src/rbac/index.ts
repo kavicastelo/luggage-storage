@@ -52,6 +52,8 @@ export const SYSTEM_PERMISSIONS = {
   HOSTS_BUSINESS_CREATE: "hosts.business.create",
   HOSTS_BUSINESS_READ_OWN: "hosts.business.read_own",
   HOSTS_BUSINESS_UPDATE_OWN: "hosts.business.update_own",
+  HOSTS_STAFF_READ_OWN: "hosts.staff.read_own",
+  HOSTS_STAFF_MANAGE_OWN: "hosts.staff.manage_own",
   HOSTS_VERIFICATION_SUBMIT: "hosts.verification.submit",
   HOSTS_VERIFICATION_READ_OWN: "hosts.verification.read_own",
   HOSTS_LOCATION_CREATE: "hosts.location.create",

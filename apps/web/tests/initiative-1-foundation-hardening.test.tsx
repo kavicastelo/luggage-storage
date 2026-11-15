@@ -623,10 +623,21 @@ describe("Initiative 1 — Foundation Hardening & Regression Suite", () => {
           .filter((name) => name.endsWith(".ts") || name.endsWith(".tsx"))
           .map((name) => fs.readFileSync(path.join(travellerFeatureDir, name), "utf-8"))
       ].join("\n");
-      const hostSrc = fs.readFileSync(
-        path.resolve(__dirname, "../src/pages/HostDashboardPages.tsx"),
-        "utf-8"
-      );
+      const hostDir = path.resolve(__dirname, "../src/features/host");
+      const featureHostSrc = fs.existsSync(hostDir)
+        ? fs
+            .readdirSync(hostDir)
+            .filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
+            .map((f) => fs.readFileSync(path.join(hostDir, f), "utf-8"))
+            .join("\n")
+        : "";
+      const hostSrc =
+        fs.readFileSync(
+          path.resolve(__dirname, "../src/pages/HostDashboardPages.tsx"),
+          "utf-8"
+        ) +
+        "\n" +
+        featureHostSrc;
       const adminSrc = fs.readFileSync(
         path.resolve(__dirname, "../src/pages/AdminDashboardPages.tsx"),
         "utf-8"
