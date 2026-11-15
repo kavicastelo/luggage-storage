@@ -50,7 +50,12 @@ export async function uploadFileToR2(params: UploadToR2Params): Promise<Uploaded
 
   const initiated = await marketplaceApi.initiateUpload({
     purpose,
-    resourceType: purpose === "HOST_VERIFICATION" ? "HOST_BUSINESS" : "STORAGE_LOCATION",
+    resourceType:
+      purpose === "HOST_VERIFICATION"
+        ? "HOST_BUSINESS"
+        : purpose === "CUSTODY_EVIDENCE"
+          ? "BOOKING"
+          : "STORAGE_LOCATION",
     resourceId,
     fileName: file.name,
     fileSize: file.size,

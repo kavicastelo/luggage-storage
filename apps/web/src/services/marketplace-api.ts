@@ -49,6 +49,7 @@ import {
   IssueCustodyPassRequest,
   CustodyPassResponse,
   VerifyCustodyPassRequest,
+  VerifyCustodyPassResponse,
   CompleteCheckInRequest,
   CompleteCollectionRequest,
   CustodyRecordDetail,
@@ -732,6 +733,13 @@ export const marketplaceApi = {
     };
   },
 
+  async getHostBookingDetail(bookingId: string): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/hosts/bookings/${bookingId}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
   async acceptHostBooking(
     bookingId: string,
     data: HostDecisionBookingRequest = {}
@@ -762,24 +770,8 @@ export const marketplaceApi = {
     return res.data;
   },
 
-  async verifyCustodyPass(data: VerifyCustodyPassRequest): Promise<{
-    verified: boolean;
-    bookingId: string;
-    referenceCode: string;
-    operation: "CHECK_IN" | "COLLECTION";
-    expectedBagCount: number;
-    checkedInBagCount: number | null;
-    custodyStatus: string;
-  }> {
-    const res = await fetchApi<{
-      verified: boolean;
-      bookingId: string;
-      referenceCode: string;
-      operation: "CHECK_IN" | "COLLECTION";
-      expectedBagCount: number;
-      checkedInBagCount: number | null;
-      custodyStatus: string;
-    }>("/hosts/custody/verify", {
+  async verifyCustodyPass(data: VerifyCustodyPassRequest): Promise<VerifyCustodyPassResponse> {
+    const res = await fetchApi<VerifyCustodyPassResponse>("/hosts/custody/verify", {
       method: "POST",
       body: JSON.stringify(data)
     });
@@ -791,6 +783,17 @@ export const marketplaceApi = {
       method: "GET"
     });
     return res.data;
+  },
+
+  async getCustodyDetailOrNull(bookingId: string): Promise<CustodyRecordDetail | null> {
+    try {
+      return await this.getCustodyDetail(bookingId);
+    } catch (err) {
+      if (err instanceof ApiClientError && err.statusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
   },
 
   async completeCheckIn(
