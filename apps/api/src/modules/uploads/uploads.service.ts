@@ -11,6 +11,7 @@ import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { storageService, StoragePort } from "./storage.service.js";
 import { auditService } from "../audit/audit.service.js";
+import { assertHostLocationAccess } from "../bookings/host-access.helper.js";
 
 export interface UploadContext {
   userId: string;
@@ -44,7 +45,7 @@ export class UploadsService {
     const sanitizedFileName = request.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
     const intentId = randomUUID();
     let fileKey: string;
-    let resourceType: "HOST_BUSINESS" | "STORAGE_LOCATION";
+    let resourceType: "HOST_BUSINESS" | "STORAGE_LOCATION" | "BOOKING";
 
     if (request.purpose === "HOST_VERIFICATION") {
       // 1. Authorize: Only HOST_OWNER or SUPERADMIN can upload verification documents
@@ -110,6 +111,33 @@ export class UploadsService {
 
       resourceType = "STORAGE_LOCATION";
       fileKey = `locations/${location.id}/${intentId}-${sanitizedFileName}`;
+    } else if (request.purpose === "CUSTODY_EVIDENCE") {
+      const [booking] = await db
+        .select({
+          id: schema.bookings.id,
+          locationId: schema.bookings.locationId,
+          status: schema.bookings.status
+        })
+        .from(schema.bookings)
+        .where(eq(schema.bookings.id, targetResourceId))
+        .limit(1);
+
+      if (!booking) {
+        throw AppError.notFound("Booking not found");
+      }
+
+      if (!isSuperadmin) {
+        await assertHostLocationAccess(db, context.userId, context.roles, booking.locationId);
+      }
+
+      if (booking.status !== "CONFIRMED" && booking.status !== "IN_STORAGE") {
+        throw AppError.badRequest(
+          "Custody evidence uploads are only permitted for confirmed or active storage bookings"
+        );
+      }
+
+      resourceType = "BOOKING";
+      fileKey = `custody/${booking.id}/${intentId}-${sanitizedFileName}`;
     } else {
       throw AppError.badRequest("Unsupported upload purpose");
     }
@@ -226,6 +254,16 @@ export class UploadsService {
         if (!loc || loc.ownerUserId !== context.userId) {
           throw AppError.forbidden("Access denied: You no longer own the target storage location for this upload");
         }
+      } else if (intent.purpose === "CUSTODY_EVIDENCE") {
+        const [booking] = await db
+          .select({ locationId: schema.bookings.locationId })
+          .from(schema.bookings)
+          .where(eq(schema.bookings.id, intent.resourceId))
+          .limit(1);
+        if (!booking) {
+          throw AppError.forbidden("Access denied: Target booking for this upload was not found");
+        }
+        await assertHostLocationAccess(db, context.userId, context.roles, booking.locationId);
       }
     }
 
@@ -526,7 +564,10 @@ export class UploadsService {
         success: true,
         intentId: intent.id,
         fileKey: intent.fileKey,
-        message: "Verification document upload confirmed successfully"
+        message:
+          intent.purpose === "CUSTODY_EVIDENCE"
+            ? "Custody evidence photo upload confirmed successfully"
+            : "Verification document upload confirmed successfully"
       };
     });
   }

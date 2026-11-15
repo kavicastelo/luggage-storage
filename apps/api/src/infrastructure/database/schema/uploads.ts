@@ -46,7 +46,7 @@ export const uploadIntents = pgTable(
     uniqueIndex("upload_intents_file_key_unique").on(table.fileKey),
     check(
       "upload_intents_purpose_check",
-      sql`${table.purpose} IN ('HOST_VERIFICATION', 'LOCATION_IMAGE')`
+      sql`${table.purpose} IN ('HOST_VERIFICATION', 'LOCATION_IMAGE', 'CUSTODY_EVIDENCE')`
     ),
     check(
       "upload_intents_status_check",

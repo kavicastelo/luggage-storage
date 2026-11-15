@@ -70,6 +70,17 @@ export const VerifyCustodyPassRequestSchema = z
   });
 export type VerifyCustodyPassRequest = z.infer<typeof VerifyCustodyPassRequestSchema>;
 
+export const VerifyCustodyPassResponseSchema = z.object({
+  verified: z.boolean(),
+  bookingId: z.string().uuid(),
+  referenceCode: z.string(),
+  operation: CustodyOperationSchema,
+  expectedBagCount: z.number().int().positive(),
+  checkedInBagCount: z.number().int().nullable(),
+  custodyStatus: CustodyStatusSchema
+});
+export type VerifyCustodyPassResponse = z.infer<typeof VerifyCustodyPassResponseSchema>;
+
 export const BagCustodyItemInputSchema = z.object({
   bagTagCode: z.string().trim().min(2).max(64),
   bagCategory: z.enum(BAG_CATEGORIES),
@@ -126,6 +137,7 @@ export const BagCustodyItemSchema = z.object({
   securitySealNumber: z.string().nullable(),
   zoneId: z.string().uuid().nullable(),
   photoFileKey: z.string().nullable(),
+  photoDownloadUrl: z.string().url().nullable().optional(),
   conditionNotes: z.string().nullable(),
   checkedInAt: z.string(),
   releasedAt: z.string().nullable()

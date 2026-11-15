@@ -179,8 +179,11 @@ export async function uploadRoutes(app: FastifyInstance): Promise<void> {
             throw AppError.badRequest("Invalid storage key");
           }
 
-          if (fileKey.startsWith("verifications/") && request.query?.token !== "mock-read-token") {
-            throw AppError.forbidden("Valid download token required for verification documents");
+          if (
+            (fileKey.startsWith("verifications/") || fileKey.startsWith("custody/")) &&
+            request.query?.token !== "mock-read-token"
+          ) {
+            throw AppError.forbidden("Valid download token required for protected storage documents");
           }
 
           const obj = storageService.getObjectBuffer?.(fileKey);
