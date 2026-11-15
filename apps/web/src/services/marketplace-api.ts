@@ -10,7 +10,7 @@ import {
   UpdateLocationRequest,
   ReviewLocationRequest,
   StorageLocation,
-  PublicStorageLocation,
+  PublicStorageLocationDetail,
   LocationModerationQueueResponse,
   OpeningHourItemInput,
   CreateOpeningHoursExceptionRequest,
@@ -359,6 +359,10 @@ export const marketplaceApi = {
     if (params.radiusMeters !== undefined) query.set("radiusMeters", String(params.radiusMeters));
     if (params.city) query.set("city", params.city);
     if (params.searchTerm) query.set("searchTerm", params.searchTerm);
+    if (typeof params.acceptsOversized === "boolean") {
+      query.set("acceptsOversized", String(params.acceptsOversized));
+    }
+    if (params.sortBy) query.set("sortBy", params.sortBy);
     if (params.page !== undefined) query.set("page", String(params.page));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     if (params.amenities) {
@@ -375,8 +379,8 @@ export const marketplaceApi = {
     return res.data;
   },
 
-  async getPublicLocationDetails(locationId: string): Promise<PublicStorageLocation> {
-    const res = await fetchApi<PublicStorageLocation>(`/discovery/locations/${locationId}`, {
+  async getPublicLocationDetails(locationId: string): Promise<PublicStorageLocationDetail> {
+    const res = await fetchApi<PublicStorageLocationDetail>(`/discovery/locations/${locationId}`, {
       method: "GET"
     });
     return res.data;
@@ -428,6 +432,7 @@ export const marketplaceApi = {
   }> {
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
+    if (params.search) query.set("search", params.search);
     if (params.page !== undefined) query.set("page", String(params.page));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     const qs = query.toString();

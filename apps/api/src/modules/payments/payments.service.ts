@@ -592,7 +592,7 @@ export class PaymentsService {
 
     const holdNotExpired =
       !booking.holdExpiresAt || booking.holdExpiresAt.getTime() > Date.now();
-    const custodyReady = ["CONFIRMED", "CHECKED_IN", "IN_STORAGE"].includes(booking.status);
+    const custodyReady = ["CONFIRMED", "IN_STORAGE"].includes(booking.status);
 
     return {
       bookingId: booking.id,

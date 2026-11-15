@@ -559,6 +559,9 @@ export class BookingsService {
     if (query.status) {
       conditions.push(eq(schema.bookings.status, query.status));
     }
+    if (query.search) {
+      conditions.push(ilike(schema.bookings.referenceCode, `%${query.search}%`));
+    }
 
     const whereClause = and(...conditions);
 
