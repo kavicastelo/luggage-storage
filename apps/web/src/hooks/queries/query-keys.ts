@@ -43,5 +43,10 @@ export const hostQueryKeys = {
   zones: (locationId: string) => ["host", "locations", "zones", locationId] as const,
   media: (locationId: string) => ["host", "locations", "media", locationId] as const,
   capacityPools: (locationId: string) => ["host", "locations", "capacity-pools", locationId] as const,
-  pricingPolicy: (locationId: string) => ["host", "locations", "pricing", locationId] as const
+  pricingPolicy: (locationId: string) => ["host", "locations", "pricing", locationId] as const,
+  bookings: (params: Partial<BookingListQuery> = {}) => ["host", "bookings", "list", params] as const,
+  bookingDetail: (bookingId: string) => ["host", "bookings", "detail", bookingId] as const,
+  custodyDetail: (bookingId: string) => ["host", "custody", "detail", bookingId] as const,
+  financeSummary: (businessId?: string) =>
+    ["host", "finance", "summary", businessId ?? "all"] as const
 };

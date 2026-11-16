@@ -28,6 +28,7 @@ import { auditService, SecurityEventType, AuditClientInfo } from "../audit/audit
 import { rateLimitService } from "../auth/rate-limit.service.js";
 import { assertHostLocationAccess } from "../bookings/host-access.helper.js";
 import { ledgerService } from "../finance/ledger.service.js";
+import { storageService } from "../uploads/storage.service.js";
 
 const CUSTODY_PASS_TTL_MINUTES = 15;
 const OVERDUE_GRACE_MINUTES = 30;
@@ -465,6 +466,53 @@ export class CustodyService {
         );
       }
 
+      // Ensure per-bag tag codes are unique within check-in submission
+      const seenTags = new Set<string>();
+      for (const bag of input.bags) {
+        const normalizedTag = bag.bagTagCode.trim().toUpperCase();
+        if (seenTags.has(normalizedTag)) {
+          throw AppError.badRequest(
+            `Duplicate bag tag code '${bag.bagTagCode.trim()}' in check-in submission`
+          );
+        }
+        seenTags.add(normalizedTag);
+      }
+
+      // Validate any supplied custody evidence photoFileKey values against confirmed upload intents
+      const photoFileKeys = input.bags
+        .map((b) => b.photoFileKey?.trim())
+        .filter((k): k is string => Boolean(k));
+      if (photoFileKeys.length > 0) {
+        if (new Set(photoFileKeys).size !== photoFileKeys.length) {
+          throw AppError.badRequest(
+            "Each bag evidence photo fileKey must be unique within the check-in submission"
+          );
+        }
+        const matchedIntents = await tx
+          .select({
+            id: schema.uploadIntents.id,
+            purpose: schema.uploadIntents.purpose,
+            resourceId: schema.uploadIntents.resourceId,
+            fileKey: schema.uploadIntents.fileKey,
+            status: schema.uploadIntents.status
+          })
+          .from(schema.uploadIntents)
+          .where(inArray(schema.uploadIntents.fileKey, photoFileKeys))
+          .for("update");
+
+        const validIntents = matchedIntents.filter(
+          (row) =>
+            row.purpose === "CUSTODY_EVIDENCE" &&
+            row.resourceId === bookingId &&
+            row.status === "CONFIRMED"
+        );
+        if (validIntents.length !== photoFileKeys.length) {
+          throw AppError.badRequest(
+            "Bag photo evidence must reference a confirmed custody upload intent for this booking"
+          );
+        }
+      }
+
       // Verify zone ownership if zoneId is specified
       const zoneIdsToCheck = new Set<string>();
       if (input.zoneId) zoneIdsToCheck.add(input.zoneId);
@@ -519,15 +567,27 @@ export class CustodyService {
       const now = new Date();
       const handoverCondition = input.bagCountExceptionReason ? "EXCEPTION_RECORDED" : "NORMAL";
 
+      if (photoFileKeys.length > 0) {
+        await tx
+          .update(schema.uploadIntents)
+          .set({ status: "CONSUMED", updatedAt: now })
+          .where(
+            and(
+              inArray(schema.uploadIntents.fileKey, photoFileKeys),
+              eq(schema.uploadIntents.status, "CONFIRMED")
+            )
+          );
+      }
+
       await tx.insert(schema.bagCustodyItems).values(
         input.bags.map((bag) => ({
           custodyRecordId: custodyRow.id,
-          bagTagCode: bag.bagTagCode,
+          bagTagCode: bag.bagTagCode.trim(),
           bagCategory: bag.bagCategory,
-          securitySealNumber: bag.securitySealNumber ?? null,
+          securitySealNumber: bag.securitySealNumber?.trim() || null,
           zoneId: bag.zoneId ?? input.zoneId ?? null,
-          photoFileKey: bag.photoFileKey ?? null,
-          conditionNotes: bag.conditionNotes ?? null,
+          photoFileKey: bag.photoFileKey?.trim() || null,
+          conditionNotes: bag.conditionNotes?.trim() || null,
           checkedInAt: now
         }))
       );
@@ -682,10 +742,13 @@ export class CustodyService {
         );
       }
 
+      const trimmedCollectionNotes = input.collectionNotes?.trim() || undefined;
+      const trimmedExceptionNotes = input.exceptionNotes?.trim() || undefined;
+
       const expectedReleaseCount = Number(
         custodyRow.checked_in_bag_count ?? custodyRow.expected_bag_count
       );
-      if (input.releasedBagCount !== expectedReleaseCount && !input.exceptionNotes) {
+      if (input.releasedBagCount !== expectedReleaseCount && !trimmedExceptionNotes) {
         throw AppError.badRequest(
           `Released bag count (${input.releasedBagCount}) does not match checked-in count (${expectedReleaseCount}). Provide exceptionNotes to record a disputed handover.`
         );
@@ -745,7 +808,7 @@ export class CustodyService {
       }
 
       const hasDisputeException =
-        Boolean(input.exceptionNotes) || bookingRow.status === "DISPUTED";
+        Boolean(trimmedExceptionNotes) || bookingRow.status === "DISPUTED";
       const nextCustodyStatus = hasDisputeException
         ? "DISPUTED_RELEASE"
         : "RELEASED_TO_TRAVELLER";
@@ -771,7 +834,7 @@ export class CustodyService {
           handoverCondition,
           overdueMinutes,
           overdueFeeMinor,
-          exceptionNotes: input.exceptionNotes ?? custodyRow.exception_notes,
+          exceptionNotes: trimmedExceptionNotes ?? custodyRow.exception_notes,
           updatedAt: now
         })
         .where(eq(schema.custodyRecords.id, custodyRow.id));
@@ -781,7 +844,7 @@ export class CustodyService {
         .set({
           status: nextBookingStatus,
           completedAt: now,
-          ...(input.exceptionNotes ? { exceptionReason: input.exceptionNotes } : {}),
+          ...(trimmedExceptionNotes ? { exceptionReason: trimmedExceptionNotes } : {}),
           updatedAt: now
         })
         .where(eq(schema.bookings.id, bookingId));
@@ -826,15 +889,15 @@ export class CustodyService {
         newStatus: nextCustodyStatus,
         actorUserId,
         actorRole: access.actorRole,
-        metadata: {
-          releasedBagCount: input.releasedBagCount,
-          overdueMinutes,
-          overdueFeeMinor,
-          handoverCondition,
-          zeroPossessoryLienEnforced: overdueMinutes > 0,
-          ...(input.collectionNotes ? { collectionNotes: input.collectionNotes } : {})
-        }
-      });
+          metadata: {
+            releasedBagCount: input.releasedBagCount,
+            overdueMinutes,
+            overdueFeeMinor,
+            handoverCondition,
+            zeroPossessoryLienEnforced: overdueMinutes > 0,
+            ...(trimmedCollectionNotes ? { collectionNotes: trimmedCollectionNotes } : {})
+          }
+        });
 
       await tx.insert(schema.bookingStatusHistory).values({
         bookingId,
@@ -850,7 +913,7 @@ export class CustodyService {
           releasedBagCount: input.releasedBagCount,
           overdueMinutes,
           overdueFeeMinor,
-          ...(input.collectionNotes ? { collectionNotes: input.collectionNotes } : {})
+          ...(trimmedCollectionNotes ? { collectionNotes: trimmedCollectionNotes } : {})
         }
       });
 
@@ -868,7 +931,7 @@ export class CustodyService {
           payableId,
           transactionGroupId: txGroupId,
           handoverCondition,
-          ...(input.collectionNotes ? { collectionNotes: input.collectionNotes } : {})
+          ...(trimmedCollectionNotes ? { collectionNotes: trimmedCollectionNotes } : {})
         },
         tx
       });
@@ -939,6 +1002,27 @@ export class CustodyService {
         .orderBy(schema.custodyEvents.createdAt)
     ]);
 
+    const bagsWithUrls = await Promise.all(
+      bags.map(async (b) => ({
+        id: b.id,
+        custodyRecordId: b.custodyRecordId,
+        bagTagCode: b.bagTagCode,
+        bagCategory: b.bagCategory as CustodyRecordDetail["bags"][number]["bagCategory"],
+        securitySealNumber: b.securitySealNumber,
+        zoneId: b.zoneId,
+        photoFileKey: b.photoFileKey,
+        photoDownloadUrl: b.photoFileKey
+          ? await storageService.generatePresignedDownloadUrl({
+              fileKey: b.photoFileKey,
+              expiresInSeconds: 900
+            })
+          : null,
+        conditionNotes: b.conditionNotes,
+        checkedInAt: b.checkedInAt.toISOString(),
+        releasedAt: b.releasedAt ? b.releasedAt.toISOString() : null
+      }))
+    );
+
     return {
       id: row.custody.id,
       bookingId: row.custody.bookingId,
@@ -960,18 +1044,7 @@ export class CustodyService {
       exceptionNotes: row.custody.exceptionNotes,
       createdAt: row.custody.createdAt.toISOString(),
       updatedAt: row.custody.updatedAt.toISOString(),
-      bags: bags.map((b) => ({
-        id: b.id,
-        custodyRecordId: b.custodyRecordId,
-        bagTagCode: b.bagTagCode,
-        bagCategory: b.bagCategory as CustodyRecordDetail["bags"][number]["bagCategory"],
-        securitySealNumber: b.securitySealNumber,
-        zoneId: b.zoneId,
-        photoFileKey: b.photoFileKey,
-        conditionNotes: b.conditionNotes,
-        checkedInAt: b.checkedInAt.toISOString(),
-        releasedAt: b.releasedAt ? b.releasedAt.toISOString() : null
-      })),
+      bags: bagsWithUrls,
       events: events.map((e) => ({
         id: e.id,
         custodyRecordId: e.custodyRecordId,

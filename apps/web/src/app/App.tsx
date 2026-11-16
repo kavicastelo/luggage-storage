@@ -124,6 +124,7 @@ function AppRoutes() {
             <Route path="locations/:id/capacity" element={<HostCapacityPoolsZonesPage />} />
             <Route path="locations/:id/pricing" element={<HostPricingRulesMultipliersPage />} />
             <Route path="bookings" element={<HostBookingManagementHubPage />} />
+            <Route path="bookings/:id" element={<HostBookingManagementHubPage />} />
             <Route path="operations" element={<HostWebCheckInOutOperationsPage />} />
             <Route path="finance" element={<HostFinancialRevenueLedgerPage />} />
             <Route path="payouts" element={<HostPayoutAccountsHistoryPage />} />

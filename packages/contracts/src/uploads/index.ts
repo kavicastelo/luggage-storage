@@ -5,10 +5,10 @@ import { HOST_DOCUMENT_TYPES } from "../hosts/index.js";
 // Enums & Constants
 // ============================================================================
 
-export const UPLOAD_PURPOSES = ["HOST_VERIFICATION", "LOCATION_IMAGE"] as const;
+export const UPLOAD_PURPOSES = ["HOST_VERIFICATION", "LOCATION_IMAGE", "CUSTODY_EVIDENCE"] as const;
 export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
 
-export const UPLOAD_RESOURCE_TYPES = ["HOST_BUSINESS", "STORAGE_LOCATION"] as const;
+export const UPLOAD_RESOURCE_TYPES = ["HOST_BUSINESS", "STORAGE_LOCATION", "BOOKING"] as const;
 export type UploadResourceType = (typeof UPLOAD_RESOURCE_TYPES)[number];
 
 export const UPLOAD_INTENT_STATUSES = ["PENDING", "CONFIRMED", "CONSUMED", "EXPIRED", "CANCELLED"] as const;
@@ -25,12 +25,18 @@ export const ALLOWED_MIME_TYPES = {
     "image/jpeg",
     "image/png",
     "image/webp"
+  ],
+  CUSTODY_EVIDENCE: [
+    "image/jpeg",
+    "image/png",
+    "image/webp"
   ]
 } as const;
 
 export const MAX_FILE_SIZE_BYTES = {
   HOST_VERIFICATION: 15 * 1024 * 1024, // 15 MB
-  LOCATION_IMAGE: 10 * 1024 * 1024     // 10 MB
+  LOCATION_IMAGE: 10 * 1024 * 1024,    // 10 MB
+  CUSTODY_EVIDENCE: 10 * 1024 * 1024   // 10 MB
 } as const;
 
 // ============================================================================

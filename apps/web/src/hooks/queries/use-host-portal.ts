@@ -1,13 +1,18 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import type {
   AddHostStaffRequest,
+  BookingListQuery,
+  CancelBookingRequest,
   ConfigurePricingPolicyRequest,
   CreateCapacityPoolRequest,
   CreateHostBusinessRequest,
   CreateLocationRequest,
   CreateOpeningHoursExceptionRequest,
   CreateStorageZoneRequest,
+  HostDecisionBookingRequest,
+  HostRejectBookingRequest,
   OpeningHourItemInput,
+  RecordBookingExceptionRequest,
   SubmitHostVerificationRequest,
   UpdateCapacityPoolRequest,
   UpdateHostBusinessRequest,
@@ -207,6 +212,71 @@ export function usePricingPolicyQuery(
       queryKey: hostQueryKeys.pricingPolicy(locationId ?? ""),
       queryFn: () => marketplaceApi.getPricingPolicyOrNull(locationId!),
       enabled: isAuthenticated && isHostResourceUuid(locationId) && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useHostBookingsQuery(
+  params: Partial<BookingListQuery> = {},
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  return useQuery(
+    {
+      queryKey: hostQueryKeys.bookings(params),
+      queryFn: () => marketplaceApi.getHostBookings(params),
+      enabled: isAuthenticated && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useHostBookingDetailQuery(
+  bookingId: string | undefined,
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  return useQuery(
+    {
+      queryKey: hostQueryKeys.bookingDetail(bookingId ?? ""),
+      queryFn: () => marketplaceApi.getHostBookingDetail(bookingId!),
+      enabled: isAuthenticated && isHostResourceUuid(bookingId) && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useHostCustodyDetailQuery(
+  bookingId: string | undefined,
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  return useQuery(
+    {
+      queryKey: hostQueryKeys.custodyDetail(bookingId ?? ""),
+      queryFn: () => marketplaceApi.getCustodyDetailOrNull(bookingId!),
+      enabled: isAuthenticated && isHostResourceUuid(bookingId) && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useHostFinanceSummaryQuery(
+  businessId?: string,
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const normalizedBusinessId = isHostResourceUuid(businessId) ? businessId : undefined;
+  return useQuery(
+    {
+      queryKey: hostQueryKeys.financeSummary(normalizedBusinessId),
+      queryFn: () => marketplaceApi.getHostFinanceSummary(normalizedBusinessId),
+      enabled: isAuthenticated && (options.enabled ?? true)
     },
     qc
   );
@@ -527,6 +597,72 @@ export function useConfigurePricingPolicyMutation() {
         marketplaceApi.configurePricingPolicy(args.locationId, args.data),
       onSuccess: (_, args) => {
         qc.invalidateQueries({ queryKey: hostQueryKeys.pricingPolicy(args.locationId) });
+      }
+    },
+    qc
+  );
+}
+
+function invalidateHostOperationalQueries(qc: ReturnType<typeof useResolvedQueryClient>, bookingId?: string) {
+  qc.invalidateQueries({ queryKey: ["host", "bookings"] });
+  qc.invalidateQueries({ queryKey: ["host", "custody"] });
+  qc.invalidateQueries({ queryKey: ["host", "finance"] });
+  if (bookingId) {
+    qc.invalidateQueries({ queryKey: hostQueryKeys.bookingDetail(bookingId) });
+    qc.invalidateQueries({ queryKey: hostQueryKeys.custodyDetail(bookingId) });
+  }
+}
+
+export function useAcceptHostBookingMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: (args: { bookingId: string; data?: HostDecisionBookingRequest }) =>
+        marketplaceApi.acceptHostBooking(args.bookingId, args.data),
+      onSuccess: (_, args) => {
+        invalidateHostOperationalQueries(qc, args.bookingId);
+      }
+    },
+    qc
+  );
+}
+
+export function useRejectHostBookingMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: (args: { bookingId: string; data: HostRejectBookingRequest }) =>
+        marketplaceApi.rejectHostBooking(args.bookingId, args.data),
+      onSuccess: (_, args) => {
+        invalidateHostOperationalQueries(qc, args.bookingId);
+      }
+    },
+    qc
+  );
+}
+
+export function useCancelHostBookingMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: (args: { bookingId: string; data: CancelBookingRequest }) =>
+        marketplaceApi.cancelHostBooking(args.bookingId, args.data),
+      onSuccess: (_, args) => {
+        invalidateHostOperationalQueries(qc, args.bookingId);
+      }
+    },
+    qc
+  );
+}
+
+export function useReportHostBookingExceptionMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: (args: { bookingId: string; data: RecordBookingExceptionRequest }) =>
+        marketplaceApi.reportBookingException(args.bookingId, args.data),
+      onSuccess: (_, args) => {
+        invalidateHostOperationalQueries(qc, args.bookingId);
       }
     },
     qc
