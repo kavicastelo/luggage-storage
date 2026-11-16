@@ -134,10 +134,10 @@ export function AdminPlatformSystemConfigurationPage() {
                 Commercial Fee Split
               </span>
               <p className="text-lg font-extrabold text-slate-950">
-                {commissionPercent}% Commission / {hostSharePercent}% Host Share
+                {`${commissionPercent}% Commission / ${hostSharePercent}% Host Share`}
               </p>
               <p className="text-slate-600">
-                Standard platform fee rate: <strong>{DEFAULT_COMMISSION_RATE_BPS} bps</strong>{" "}
+                Standard platform fee rate: <strong>{`${DEFAULT_COMMISSION_RATE_BPS} bps`}</strong>{" "}
                 applied to storage subtotal in integer minor units (LKR).
               </p>
             </div>
@@ -174,7 +174,7 @@ export function AdminPlatformSystemConfigurationPage() {
                 Custody Release &amp; Grace Policy
               </span>
               <p className="text-sm font-extrabold text-slate-950">
-                {DEFAULT_OVERDUE_GRACE_MINUTES}-Minute Grace • Zero Possessory Lien
+                {`${DEFAULT_OVERDUE_GRACE_MINUTES}-Minute Grace • Zero Possessory Lien`}
               </p>
               <p className="text-slate-600">
                 Valid COLLECTION credentials always release stored luggage; overdue durations past
