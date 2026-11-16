@@ -362,10 +362,19 @@ describe("Phase B8 — Web PayHere POST Form Handoff & Authoritative Confirmatio
         .filter((name) => name.endsWith(".ts") || name.endsWith(".tsx"))
         .map((name) => fs.readFileSync(path.join(travellerFeatureDir, name), "utf-8"))
     ].join("\n");
-    const adminPagesSrc = fs.readFileSync(
-      path.resolve(__dirname, "../src/pages/AdminDashboardPages.tsx"),
-      "utf-8"
-    );
+    const adminDir = path.resolve(__dirname, "../src/features/admin");
+    const adminPagesSrc = [
+      fs.readFileSync(
+        path.resolve(__dirname, "../src/pages/AdminDashboardPages.tsx"),
+        "utf-8"
+      ),
+      ...(fs.existsSync(adminDir)
+        ? fs
+            .readdirSync(adminDir)
+            .filter((name) => name.endsWith(".ts") || name.endsWith(".tsx"))
+            .map((name) => fs.readFileSync(path.join(adminDir, name), "utf-8"))
+        : [])
+    ].join("\n");
     const handoffLibSrc = fs.readFileSync(
       path.resolve(__dirname, "../src/lib/payment-handoff.ts"),
       "utf-8"
