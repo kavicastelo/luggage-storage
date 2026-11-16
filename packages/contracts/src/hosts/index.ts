@@ -231,11 +231,20 @@ export const HostBusinessListResponseSchema = z.object({
 });
 export type HostBusinessListResponse = z.infer<typeof HostBusinessListResponseSchema>;
 
+export const HostVerificationQueueQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  status: z.enum([...HOST_VERIFICATION_STATUSES, "ALL"]).optional()
+});
+export type HostVerificationQueueQuery = z.infer<typeof HostVerificationQueueQuerySchema>;
+
 export const HostVerificationQueueItemSchema = z.object({
   verificationId: z.string().uuid(),
   businessId: z.string().uuid(),
   legalBusinessName: z.string(),
   tradeName: z.string(),
+  businessRegistrationNumber: z.string().nullable().optional(),
+  businessStatus: z.enum(HOST_BUSINESS_STATUSES).optional(),
   entityType: z.enum(HOST_ENTITY_TYPES),
   ownerEmail: z.string(),
   ownerDisplayName: z.string(),
@@ -255,4 +264,68 @@ export const HostStaffListResponseSchema = z.object({
   staff: z.array(HostStaffMemberDetailSchema)
 });
 export type HostStaffListResponse = z.infer<typeof HostStaffListResponseSchema>;
+
+// ============================================================================
+// Admin Host Directory & Lifecycle Contracts
+// ============================================================================
+
+export const AdminHostListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  status: z.enum(HOST_BUSINESS_STATUSES).optional(),
+  search: z.string().trim().max(100).optional()
+});
+export type AdminHostListQuery = z.infer<typeof AdminHostListQuerySchema>;
+
+export const AdminHostLocationBriefSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  city: z.string(),
+  status: z.string(),
+  bookingMode: z.string(),
+  updatedAt: z.string()
+});
+export type AdminHostLocationBrief = z.infer<typeof AdminHostLocationBriefSchema>;
+
+export const AdminHostDirectoryItemSchema = z.object({
+  id: z.string().uuid(),
+  ownerUserId: z.string().uuid(),
+  ownerEmail: z.string(),
+  ownerDisplayName: z.string(),
+  legalBusinessName: z.string(),
+  tradeName: z.string(),
+  businessRegistrationNumber: z.string().nullable(),
+  entityType: z.enum(HOST_ENTITY_TYPES),
+  city: z.string().nullable(),
+  contactEmail: z.string(),
+  contactPhone: z.string(),
+  status: z.enum(HOST_BUSINESS_STATUSES),
+  verificationStatus: z.enum(HOST_VERIFICATION_STATUSES).nullable(),
+  locationCount: z.number().int().min(0),
+  activeLocationCount: z.number().int().min(0),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type AdminHostDirectoryItem = z.infer<typeof AdminHostDirectoryItemSchema>;
+
+export const AdminHostDirectoryDetailSchema = AdminHostDirectoryItemSchema.extend({
+  taxIdentifier: z.string().nullable(),
+  addressLine1: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  postalCode: z.string().nullable(),
+  countryCode: z.string(),
+  latestVerification: HostVerificationSchema.nullable(),
+  locations: z.array(AdminHostLocationBriefSchema)
+});
+export type AdminHostDirectoryDetail = z.infer<typeof AdminHostDirectoryDetailSchema>;
+
+export const AdminSuspendHostBusinessRequestSchema = z.object({
+  reason: z.string().trim().min(3, "Suspension reason must be at least 3 characters").max(500)
+});
+export type AdminSuspendHostBusinessRequest = z.infer<typeof AdminSuspendHostBusinessRequestSchema>;
+
+export const AdminReinstateHostBusinessRequestSchema = z.object({
+  reason: z.string().trim().min(3, "Reinstatement reason must be at least 3 characters").max(500).optional()
+});
+export type AdminReinstateHostBusinessRequest = z.infer<typeof AdminReinstateHostBusinessRequestSchema>;
 

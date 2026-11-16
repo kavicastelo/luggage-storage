@@ -20,6 +20,29 @@ export interface RoleManagementContext {
   };
 }
 
+/**
+ * Concurrency-safe database check ensuring removing or disabling `excludedUserId`
+ * will not leave zero ACTIVE SUPERADMIN accounts on the platform.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function assertAnotherActiveSuperadminRemains(tx: any, excludedUserId: string): Promise<void> {
+  const activeAdmins = await tx.execute(sql`
+    SELECT u.id
+    FROM users u
+    INNER JOIN user_roles ur ON ur.user_id = u.id
+    INNER JOIN roles r ON r.id = ur.role_id
+    WHERE r.code = 'SUPERADMIN'
+      AND u.status = 'ACTIVE'
+    FOR UPDATE OF u;
+  `);
+  const remaining = (activeAdmins.rows as Array<{ id: string }>).filter(
+    (row) => row.id !== excludedUserId
+  );
+  if (remaining.length === 0) {
+    throw AppError.conflict("Cannot remove or disable the last active Superadmin account");
+  }
+}
+
 export class RbacService {
   /**
    * Resolves all effective permissions for a user across all assigned roles.
@@ -294,6 +317,9 @@ export class RbacService {
 
     // Execute role revocation via SECURITY DEFINER function inside transaction setting session actor
     await db.transaction(async (tx) => {
+      if (normalizedRoleCode === "SUPERADMIN") {
+        await assertAnotherActiveSuperadminRemains(tx, context.targetUserId);
+      }
       await tx.execute(
         sql`SELECT set_config('app.current_user_id', ${context.adminId}, true);`
       );

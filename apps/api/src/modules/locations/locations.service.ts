@@ -15,6 +15,7 @@ import {
   LocationMedia,
   ReviewLocationRequest,
   LocationModerationQueueItem,
+  LocationModerationQueueQuery,
   SecurityEventType,
   DEFAULT_CATEGORY_MULTIPLIERS_BPS,
   BAG_CATEGORIES
@@ -1243,17 +1244,30 @@ export class LocationsService {
   // ============================================================================
 
   /**
-   * Retrieves pending storage locations requiring Superadmin review.
+   * Retrieves storage locations for Superadmin/Support moderation queue (defaults to PENDING_REVIEW).
    */
-  async getPendingLocationsQueue(limit = 20, offset = 0): Promise<{
+  async getPendingLocationsQueue(
+    limit = 20,
+    offset = 0,
+    status: LocationModerationQueueQuery["status"] = "PENDING_REVIEW"
+  ): Promise<{
     queue: LocationModerationQueueItem[];
     total: number;
   }> {
+    const statusWhere =
+      status === "ALL"
+        ? undefined
+        : eq(schema.storageLocations.status, status ?? "PENDING_REVIEW");
+
     const rows = await db
       .select({
         locationId: schema.storageLocations.id,
         businessId: schema.storageLocations.businessId,
         businessName: schema.hostBusinesses.tradeName,
+        legalBusinessName: schema.hostBusinesses.legalBusinessName,
+        businessStatus: schema.hostBusinesses.status,
+        ownerEmail: schema.users.email,
+        ownerDisplayName: schema.users.displayName,
         name: schema.storageLocations.name,
         city: schema.storageLocations.city,
         addressLine1: schema.storageLocations.addressLine1,
@@ -1265,7 +1279,11 @@ export class LocationsService {
         schema.hostBusinesses,
         eq(schema.storageLocations.businessId, schema.hostBusinesses.id)
       )
-      .where(eq(schema.storageLocations.status, "PENDING_REVIEW"))
+      .innerJoin(
+        schema.users,
+        eq(schema.hostBusinesses.ownerUserId, schema.users.id)
+      )
+      .where(statusWhere)
       .orderBy(desc(schema.storageLocations.updatedAt))
       .limit(limit)
       .offset(offset);
@@ -1273,7 +1291,7 @@ export class LocationsService {
     const [totalRes] = await db
       .select({ val: count() })
       .from(schema.storageLocations)
-      .where(eq(schema.storageLocations.status, "PENDING_REVIEW"));
+      .where(statusWhere);
 
     const queue: LocationModerationQueueItem[] = [];
     for (const r of rows) {
@@ -1286,10 +1304,14 @@ export class LocationsService {
         locationId: r.locationId,
         businessId: r.businessId,
         businessName: r.businessName,
+        legalBusinessName: r.legalBusinessName,
+        businessStatus: r.businessStatus,
+        ownerEmail: r.ownerEmail,
+        ownerDisplayName: r.ownerDisplayName,
         name: r.name,
         city: r.city,
         addressLine1: r.addressLine1,
-        status: r.status as any,
+        status: r.status as LocationModerationQueueItem["status"],
         imageCount: imgRes?.val ?? 0,
         submittedAt: r.submittedAt.toISOString()
       });

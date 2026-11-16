@@ -1,10 +1,14 @@
 import { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  AdminHostListQuerySchema,
   AdminLedgerQuerySchema,
   AdminRefundListQuerySchema,
+  AdminReinstateHostBusinessRequestSchema,
+  AdminSuspendHostBusinessRequestSchema,
   AdminTransitionRefundRequestSchema,
   BookingListQuerySchema,
   CancelBookingRequestSchema,
+  SYSTEM_PERMISSIONS,
   createPaginatedResponse,
   createSuccessResponse
 } from "@luggage-storage/contracts";
@@ -13,6 +17,7 @@ import { bookingsService } from "../bookings/bookings.service.js";
 import { paymentsService } from "../payments/payments.service.js";
 import { custodyService } from "../custody/custody.service.js";
 import { ledgerService } from "../finance/ledger.service.js";
+import { hostsService } from "../hosts/hosts.service.js";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -211,6 +216,111 @@ export async function adminPhaseBRoutes(app: FastifyInstance): Promise<void> {
       const query = AdminLedgerQuerySchema.parse(request.query);
       const ledger = await ledgerService.listAdminLedger(query);
       return reply.status(200).send(createSuccessResponse(ledger, request.id));
+    }
+  );
+
+  // 9. Role-Scoped Platform Governance Metrics Summary (AD-001)
+  app.get(
+    "/metrics/summary",
+    {
+      preHandler: [
+        app.authenticate,
+        app.requireAnyPermission([
+          SYSTEM_PERMISSIONS.ADMIN_BOOKING_READ,
+          SYSTEM_PERMISSIONS.ADMIN_FINANCIAL_MANAGE
+        ])
+      ],
+      schema: {
+        tags: ["Admin Governance"],
+        summary: "Retrieve live operational metrics and role-scoped platform financial summary",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const metrics = await ledgerService.getAdminMetricsSummary(request.user.sub);
+      return reply.status(200).send(createSuccessResponse(metrics, request.id));
+    }
+  );
+
+  // 10. Global Host Businesses Directory (AD-003, SUPERADMIN & SUPPORT read)
+  app.get(
+    "/hosts",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_HOST_READ)],
+      schema: {
+        tags: ["Admin Governance"],
+        summary: "List platform host businesses with search and status filtering",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request) => {
+      const query = AdminHostListQuerySchema.parse(request.query ?? {});
+      const { items, total, page, limit } = await hostsService.listAdminHostBusinesses(query);
+      return createPaginatedResponse(items, page, limit, total, request.id);
+    }
+  );
+
+  // 11. Inspect single Host Business Detail for Admin/Support Directory (AD-003)
+  app.get<{ Params: { businessId: string } }>(
+    "/hosts/:businessId",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_HOST_READ)],
+      schema: {
+        tags: ["Admin Governance"],
+        summary: "Inspect host business details, latest KYC verification, and storage locations",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const businessId = validateUuid(request.params.businessId, "business ID");
+      const detail = await hostsService.getAdminHostBusinessDetail(businessId);
+      return reply.status(200).send(createSuccessResponse(detail, request.id));
+    }
+  );
+
+  // 12. Suspend Host Business (SUPERADMIN only — admin.host.verify)
+  app.post<{ Params: { businessId: string } }>(
+    "/hosts/:businessId/suspend",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_HOST_VERIFY)],
+      schema: {
+        tags: ["Admin Governance"],
+        summary: "Suspend a host business and hide its locations from public discovery and quotes",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const businessId = validateUuid(request.params.businessId, "business ID");
+      const body = AdminSuspendHostBusinessRequestSchema.parse(request.body);
+      const updated = await hostsService.adminSuspendBusiness(businessId, body.reason, {
+        userId: request.user.sub,
+        roles: request.user.roles,
+        clientInfo: getClientInfo(request)
+      });
+      return reply.status(200).send(createSuccessResponse(updated, request.id));
+    }
+  );
+
+  // 13. Reinstate Suspended Host Business (SUPERADMIN only — admin.host.verify)
+  app.post<{ Params: { businessId: string } }>(
+    "/hosts/:businessId/reinstate",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_HOST_VERIFY)],
+      schema: {
+        tags: ["Admin Governance"],
+        summary: "Reinstate a suspended host business according to its KYC verification state",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const businessId = validateUuid(request.params.businessId, "business ID");
+      const body = AdminReinstateHostBusinessRequestSchema.parse(request.body ?? {});
+      const updated = await hostsService.adminReinstateBusiness(businessId, body.reason, {
+        userId: request.user.sub,
+        roles: request.user.roles,
+        clientInfo: getClientInfo(request)
+      });
+      return reply.status(200).send(createSuccessResponse(updated, request.id));
     }
   );
 }

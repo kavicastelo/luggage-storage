@@ -6,10 +6,13 @@ import {
   HostPayableRecord,
   HostFinanceSummaryResponse,
   AdminLedgerQuery,
-  AdminLedgerResponse
+  AdminLedgerResponse,
+  AdminMetricsSummary,
+  SYSTEM_PERMISSIONS
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
+import { rbacService } from "../auth/rbac.service.js";
 
 const PG_INT_MAX = 2_147_483_647;
 
@@ -588,6 +591,118 @@ export class LedgerService {
         total,
         totalPages: Math.ceil(total / limit)
       }
+    };
+  }
+
+  /**
+   * Role-scoped platform command metrics (AD-001).
+   * Operational queue & status counts are returned to SUPPORT & SUPERADMIN;
+   * financial totals are populated strictly when caller holds admin.financial.manage.
+   */
+  async getAdminMetricsSummary(callerUserId: string): Promise<AdminMetricsSummary> {
+    const canViewFinancials = await rbacService.hasPermission(
+      callerUserId,
+      SYSTEM_PERMISSIONS.ADMIN_FINANCIAL_MANAGE
+    );
+
+    const [
+      userCountRes,
+      businessCountsRes,
+      locationCountsRes,
+      verifCountRes,
+      bookingCountsRes,
+      refundCountRes
+    ] = await Promise.all([
+      db.execute(sql`SELECT count(*)::int AS active_users FROM users WHERE status = 'ACTIVE';`),
+      db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'ACTIVE')::int AS active_businesses,
+          COUNT(*) FILTER (WHERE status = 'SUSPENDED')::int AS suspended_businesses
+        FROM host_businesses;
+      `),
+      db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'ACTIVE')::int AS active_locations,
+          COUNT(*) FILTER (WHERE status = 'PENDING_REVIEW')::int AS pending_locations
+        FROM storage_locations;
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS pending_verifications
+        FROM host_verifications
+        WHERE status IN ('PENDING_REVIEW', 'INFORMATION_REQUESTED');
+      `),
+      db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status IN ('CONFIRMED', 'IN_STORAGE'))::int AS active_bookings,
+          COUNT(*) FILTER (WHERE status = 'DISPUTED')::int AS disputed_bookings
+        FROM bookings;
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS open_refunds
+        FROM refund_records
+        WHERE status IN ('REQUESTED', 'AUTHORIZED', 'INITIATED', 'PROCESSING', 'MANUAL_REVIEW_REQUIRED');
+      `)
+    ]);
+
+    let grossCapturedVolumeMinor: number | null = null;
+    let platformCommissionMinor: number | null = null;
+    let unearnedBookingLiabilityMinor: number | null = null;
+    let eligibleHostPayablesMinor: number | null = null;
+
+    if (canViewFinancials) {
+      const [ledgerAggRes, payableAggRes] = await Promise.all([
+        db.execute(sql`
+          SELECT
+            COALESCE(SUM(CASE WHEN account_code = '2010' AND entry_type = 'CREDIT' THEN amount_minor ELSE 0 END), 0)::bigint AS captured_minor,
+            GREATEST(
+              0,
+              COALESCE(SUM(CASE WHEN account_code = '4010' AND entry_type = 'CREDIT' THEN amount_minor ELSE 0 END), 0) -
+              COALESCE(SUM(CASE WHEN account_code = '4010' AND entry_type = 'DEBIT' THEN amount_minor ELSE 0 END), 0)
+            )::bigint AS commission_minor,
+            GREATEST(
+              0,
+              COALESCE(SUM(CASE WHEN account_code = '2010' AND entry_type = 'CREDIT' THEN amount_minor ELSE 0 END), 0) -
+              COALESCE(SUM(CASE WHEN account_code = '2010' AND entry_type = 'DEBIT' THEN amount_minor ELSE 0 END), 0)
+            )::bigint AS unearned_minor
+          FROM financial_ledger_entries;
+        `),
+        db.execute(sql`
+          SELECT COALESCE(SUM(CASE WHEN status = 'ELIGIBLE' THEN net_payable_minor ELSE 0 END), 0)::bigint AS eligible_minor
+          FROM host_payables;
+        `)
+      ]);
+
+      const lRow = (ledgerAggRes.rows[0] ?? {}) as Record<string, unknown>;
+      const pRow = (payableAggRes.rows[0] ?? {}) as Record<string, unknown>;
+
+      grossCapturedVolumeMinor = Number(lRow.captured_minor ?? 0);
+      platformCommissionMinor = Number(lRow.commission_minor ?? 0);
+      unearnedBookingLiabilityMinor = Number(lRow.unearned_minor ?? 0);
+      eligibleHostPayablesMinor = Number(pRow.eligible_minor ?? 0);
+    }
+
+    const uRow = (userCountRes.rows[0] ?? {}) as Record<string, unknown>;
+    const bRow = (businessCountsRes.rows[0] ?? {}) as Record<string, unknown>;
+    const locRow = (locationCountsRes.rows[0] ?? {}) as Record<string, unknown>;
+    const vRow = (verifCountRes.rows[0] ?? {}) as Record<string, unknown>;
+    const bkRow = (bookingCountsRes.rows[0] ?? {}) as Record<string, unknown>;
+    const rfRow = (refundCountRes.rows[0] ?? {}) as Record<string, unknown>;
+
+    return {
+      currency: "LKR",
+      activeUsersCount: Number(uRow.active_users ?? 0),
+      activeBusinessesCount: Number(bRow.active_businesses ?? 0),
+      suspendedBusinessesCount: Number(bRow.suspended_businesses ?? 0),
+      activeLocationsCount: Number(locRow.active_locations ?? 0),
+      pendingVerificationsCount: Number(vRow.pending_verifications ?? 0),
+      pendingLocationsCount: Number(locRow.pending_locations ?? 0),
+      activeBookingsCount: Number(bkRow.active_bookings ?? 0),
+      disputedBookingsCount: Number(bkRow.disputed_bookings ?? 0),
+      openRefundsCount: Number(rfRow.open_refunds ?? 0),
+      grossCapturedVolumeMinor,
+      platformCommissionMinor,
+      unearnedBookingLiabilityMinor,
+      eligibleHostPayablesMinor
     };
   }
 }

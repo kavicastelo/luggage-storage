@@ -14,6 +14,7 @@ import {
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { auditService, SecurityEventType } from "../audit/audit.service.js";
+import { assertAnotherActiveSuperadminRemains } from "../auth/rbac.service.js";
 
 export interface AdminActionContext {
   adminId: string;
@@ -268,6 +269,9 @@ export class AdminService {
     }
 
     const { updatedUser, revokedCount } = await db.transaction(async (tx) => {
+      if (targetUser.roles.includes("SUPERADMIN")) {
+        await assertAnotherActiveSuperadminRemains(tx, context.targetUserId);
+      }
       const [updated] = await tx
         .update(schema.users)
         .set({
@@ -425,6 +429,9 @@ export class AdminService {
     }
 
     const { updatedUser, revokedCount } = await db.transaction(async (tx) => {
+      if (targetUser.roles.includes("SUPERADMIN")) {
+        await assertAnotherActiveSuperadminRemains(tx, context.targetUserId);
+      }
       const [updated] = await tx
         .update(schema.users)
         .set({
