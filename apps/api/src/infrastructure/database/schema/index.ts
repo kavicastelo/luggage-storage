@@ -8,3 +8,4 @@ export * from "./bookings.js";
 export * from "./payments.js";
 export * from "./finance.js";
 export * from "./custody.js";
+export * from "./support.js";

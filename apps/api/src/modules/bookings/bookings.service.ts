@@ -14,6 +14,8 @@ import {
   HostRejectBookingRequestSchema,
   RecordBookingExceptionRequest,
   RecordBookingExceptionRequestSchema,
+  ResolveBookingDisputeRequest,
+  ResolveBookingDisputeRequestSchema,
   DEFAULT_HOST_APPROVAL_HOLD_MINUTES,
   DEFAULT_PAYMENT_HOLD_MINUTES,
   QuotedLineItem
@@ -1297,6 +1299,403 @@ export class BookingsService {
         tx
       });
     });
+
+    return this.getBookingDetail(bookingId, actorUserId, actorRoles);
+  }
+
+  /**
+   * Superadmin-only adjudication of a DISPUTED booking:
+   * - UPHOLD_HOST: releases ON_HOLD host payable to ELIGIBLE (or posts settlement split if pre-collection),
+   *   completes custody record / booking status, and logs BOOKING_DISPUTE_RESOLVED.
+   * - REFUND_TRAVELLER: cancels booking under platform authority, issues full/partial DISPUTE_RESOLUTION refund,
+   *   reclassifies or claws back host_payables atomically, and posts balanced ledger adjustments.
+   */
+  async resolveDispute(
+    bookingId: string,
+    actorUserId: string,
+    actorRoles: string[],
+    rawInput: ResolveBookingDisputeRequest,
+    clientInfo?: AuditClientInfo
+  ): Promise<BookingDetail> {
+    const input = ResolveBookingDisputeRequestSchema.parse(rawInput);
+
+    if (!actorRoles.includes("SUPERADMIN")) {
+      throw AppError.forbidden("Dispute resolution requires SUPERADMIN authority");
+    }
+
+    await withSerializableOrDeadlockRetry(() =>
+      db.transaction(async (tx) => {
+        // Tier 2 Lock: bookings
+        const lockedBookingRes = await tx.execute(sql`
+          SELECT id, traveller_user_id, business_id, location_id, status, completed_at, currency, reference_code, NOW() AS db_now
+          FROM bookings
+          WHERE id = ${bookingId}
+          FOR UPDATE;
+        `);
+        const bookingRow = lockedBookingRes.rows[0] as
+          | {
+              id: string;
+              traveller_user_id: string;
+              business_id: string;
+              location_id: string;
+              status: BookingStatus;
+              completed_at: Date | string | null;
+              currency: string;
+              reference_code: string;
+              db_now: Date | string;
+            }
+          | undefined;
+
+        if (!bookingRow) {
+          throw AppError.notFound("Booking not found");
+        }
+
+        if (bookingRow.status !== "DISPUTED") {
+          throw AppError.conflict(
+            `Booking ${bookingRow.reference_code} is in status ${bookingRow.status}; only DISPUTED bookings can be adjudicated`
+          );
+        }
+
+        // Tier 3 Lock: payment_intents ORDER BY id ASC
+        const lockedIntentsRes = await tx.execute(sql`
+          SELECT id, status, amount_minor, currency
+          FROM payment_intents
+          WHERE booking_id = ${bookingId}
+          ORDER BY id ASC
+          FOR UPDATE;
+        `);
+        const lockedIntents = lockedIntentsRes.rows as Array<{
+          id: string;
+          status: string;
+          amount_minor: number;
+          currency: string;
+        }>;
+
+        // Tier 4 Lock: refund_records, custody_records, custody_tokens ORDER BY id ASC
+        const lockedRefundsRes = await tx.execute(sql`
+          SELECT id, payment_intent_id, status
+          FROM refund_records
+          WHERE booking_id = ${bookingId}
+          ORDER BY id ASC
+          FOR UPDATE;
+        `);
+        const existingRefunds = lockedRefundsRes.rows as Array<{
+          id: string;
+          payment_intent_id: string | null;
+          status: string;
+        }>;
+
+        const lockedCustodyRes = await tx.execute(sql`
+          SELECT id, status, expected_bag_count, checked_in_bag_count, released_bag_count, check_out_at
+          FROM custody_records
+          WHERE booking_id = ${bookingId}
+          ORDER BY id ASC
+          FOR UPDATE;
+        `);
+        const custodyRow = lockedCustodyRes.rows[0] as
+          | {
+              id: string;
+              status: string;
+              expected_bag_count: number;
+              checked_in_bag_count: number | null;
+              released_bag_count: number | null;
+              check_out_at: Date | string | null;
+            }
+          | undefined;
+
+        const lockedTokensRes = await tx.execute(sql`
+          SELECT id
+          FROM custody_tokens
+          WHERE booking_id = ${bookingId}
+            AND consumed_at IS NULL
+            AND revoked_at IS NULL
+          ORDER BY id ASC
+          FOR UPDATE;
+        `);
+        const openTokenIds = (lockedTokensRes.rows as Array<{ id: string }>).map((r) => r.id);
+
+        // Tier 5 Lock: host_payables
+        const [existingPayable] = await tx
+          .select()
+          .from(schema.hostPayables)
+          .where(eq(schema.hostPayables.bookingId, bookingId))
+          .for("update")
+          .limit(1);
+
+        const [snap] = await tx
+          .select()
+          .from(schema.bookingPricingSnapshots)
+          .where(eq(schema.bookingPricingSnapshots.bookingId, bookingId))
+          .limit(1);
+
+        const now = new Date(bookingRow.db_now);
+        const paidIntent = lockedIntents.find((i) => i.status === "SUCCEEDED");
+        const openIntentIds = lockedIntents
+          .filter((i) => i.status === "INITIATED" || i.status === "PENDING_GATEWAY")
+          .map((i) => i.id);
+
+        if (openIntentIds.length > 0) {
+          await tx
+            .update(schema.paymentIntents)
+            .set({
+              status: "EXPIRED",
+              failureReason: `Closed on dispute adjudication (${input.outcome})`,
+              updatedAt: now
+            })
+            .where(inArray(schema.paymentIntents.id, openIntentIds));
+        }
+
+        if (openTokenIds.length > 0) {
+          await tx
+            .update(schema.custodyTokens)
+            .set({ revokedAt: now })
+            .where(inArray(schema.custodyTokens.id, openTokenIds));
+        }
+
+        await tx
+          .update(schema.capacityReservations)
+          .set({
+            status: "RELEASED",
+            releasedAt: now,
+            releaseReason: `DISPUTE_RESOLVED_${input.outcome}`,
+            updatedAt: now
+          })
+          .where(
+            and(
+              eq(schema.capacityReservations.bookingId, bookingId),
+              inArray(schema.capacityReservations.status, [
+                "HELD_FOR_HOST_APPROVAL",
+                "HELD_FOR_PAYMENT",
+                "CONFIRMED"
+              ])
+            )
+          );
+
+        let createdRefundId: string | null = null;
+        let resolvedRefundAmountMinor = 0;
+        let resolvedRefundPercentage = 0;
+
+        if (input.outcome === "UPHOLD_HOST") {
+          if (existingRefunds.length > 0) {
+            throw AppError.conflict(
+              "Cannot uphold host settlement when a refund record already exists for this booking"
+            );
+          }
+
+          if (custodyRow && custodyRow.status !== "RELEASED_TO_TRAVELLER") {
+            const releasedCount =
+              custodyRow.released_bag_count ??
+              custodyRow.checked_in_bag_count ??
+              custodyRow.expected_bag_count;
+
+            await tx
+              .update(schema.bagCustodyItems)
+              .set({ releasedAt: now })
+              .where(
+                and(
+                  eq(schema.bagCustodyItems.custodyRecordId, custodyRow.id),
+                  sql`${schema.bagCustodyItems.releasedAt} IS NULL`
+                )
+              );
+
+            await tx
+              .update(schema.custodyRecords)
+              .set({
+                status: "RELEASED_TO_TRAVELLER",
+                releasedBagCount: releasedCount,
+                checkOutAt: custodyRow.check_out_at ? new Date(custodyRow.check_out_at) : now,
+                updatedAt: now
+              })
+              .where(eq(schema.custodyRecords.id, custodyRow.id));
+
+            await tx.insert(schema.custodyEvents).values({
+              custodyRecordId: custodyRow.id,
+              bookingId,
+              eventType: "DISPUTE_ADJUDICATED_RELEASE_CONFIRMED",
+              previousStatus: custodyRow.status,
+              newStatus: "RELEASED_TO_TRAVELLER",
+              actorUserId,
+              actorRole: "SUPERADMIN",
+              metadata: { outcome: input.outcome, notes: input.notes }
+            });
+          }
+
+          if (existingPayable) {
+            if (existingPayable.status !== "PAID" && existingPayable.status !== "CANCELLED_CLAWBACK") {
+              await tx
+                .update(schema.hostPayables)
+                .set({
+                  status: "ELIGIBLE",
+                  eligibleAt: now,
+                  updatedAt: now
+                })
+                .where(eq(schema.hostPayables.id, existingPayable.id));
+            }
+          } else if (paidIntent && snap && snap.storageSubtotalMinor > 0) {
+            await ledgerService.recordBookingCompletedSettlement(tx, {
+              bookingId,
+              businessId: bookingRow.business_id,
+              storageSubtotalMinor: snap.storageSubtotalMinor,
+              commissionMinor: snap.platformCommissionMinor,
+              hostPayableMinor: snap.hostPayableMinor,
+              currency: snap.currency,
+              referenceCode: bookingRow.reference_code,
+              holdPayable: false
+            });
+          }
+
+          assertValidBookingTransition(bookingRow.status, "COMPLETED");
+          await tx
+            .update(schema.bookings)
+            .set({
+              status: "COMPLETED",
+              completedAt: bookingRow.completed_at ? new Date(bookingRow.completed_at) : now,
+              updatedAt: now
+            })
+            .where(eq(schema.bookings.id, bookingId));
+
+          await tx.insert(schema.bookingStatusHistory).values({
+            bookingId,
+            previousStatus: bookingRow.status,
+            newStatus: "COMPLETED",
+            actorUserId,
+            actorRole: "SUPERADMIN",
+            reason: input.notes,
+            metadata: { outcome: input.outcome }
+          });
+        } else {
+          // REFUND_TRAVELLER
+          if (existingRefunds.length > 0) {
+            throw AppError.conflict("A refund record already exists for this disputed booking");
+          }
+
+          if (existingPayable) {
+            if (existingPayable.status === "PAID") {
+              throw AppError.conflict(
+                "Host settlement payable has already been disbursed in a payout batch and cannot be clawed back automatically"
+              );
+            }
+            const [batchedItem] = await tx
+              .select({ id: schema.payoutBatchItems.id })
+              .from(schema.payoutBatchItems)
+              .where(eq(schema.payoutBatchItems.payableId, existingPayable.id))
+              .limit(1);
+            if (batchedItem) {
+              throw AppError.conflict(
+                "Host settlement payable is already locked inside a generated payout batch"
+              );
+            }
+          }
+
+          resolvedRefundPercentage = input.refundPercentage ?? 100;
+
+          if (paidIntent) {
+            const paidAmountMinor = Number(paidIntent.amount_minor);
+            resolvedRefundAmountMinor = Math.floor(
+              (paidAmountMinor * resolvedRefundPercentage) / 100
+            );
+
+            const [refundRow] = await tx
+              .insert(schema.refundRecords)
+              .values({
+                bookingId,
+                paymentIntentId: paidIntent.id,
+                amountMinor: resolvedRefundAmountMinor,
+                currency: paidIntent.currency,
+                refundPercentage: resolvedRefundPercentage,
+                reasonCategory: "DISPUTE_RESOLUTION",
+                status: resolvedRefundAmountMinor > 0 ? "AUTHORIZED" : "SUCCEEDED",
+                requestedByUserId: actorUserId,
+                authorizedByUserId: actorUserId,
+                notes: input.notes,
+                completedAt: resolvedRefundAmountMinor === 0 ? now : null,
+                createdAt: now,
+                updatedAt: now
+              })
+              .returning({ id: schema.refundRecords.id });
+
+            createdRefundId = refundRow.id;
+
+            if (existingPayable) {
+              await ledgerService.recordPostSettlementDisputeRefund(tx, {
+                bookingId,
+                businessId: bookingRow.business_id,
+                existingPayable: {
+                  id: existingPayable.id,
+                  grossSubtotalMinor: existingPayable.grossSubtotalMinor,
+                  commissionMinor: existingPayable.commissionMinor,
+                  netPayableMinor: existingPayable.netPayableMinor
+                },
+                refundId: resolvedRefundAmountMinor > 0 ? refundRow.id : null,
+                paidAmountMinor,
+                refundAmountMinor: resolvedRefundAmountMinor,
+                commissionRateBps: snap?.commissionRateBps ?? 1500,
+                currency: paidIntent.currency,
+                referenceCode: bookingRow.reference_code
+              });
+            } else {
+              await ledgerService.recordCancellationSettlement(tx, {
+                bookingId,
+                businessId: bookingRow.business_id,
+                refundId: resolvedRefundAmountMinor > 0 ? refundRow.id : null,
+                paidAmountMinor,
+                refundAmountMinor: resolvedRefundAmountMinor,
+                commissionRateBps: snap?.commissionRateBps ?? 1500,
+                currency: paidIntent.currency,
+                referenceCode: bookingRow.reference_code
+              });
+            }
+          }
+
+          assertValidBookingTransition(bookingRow.status, "CANCELLED_BY_PLATFORM");
+          await tx
+            .update(schema.bookings)
+            .set({
+              status: "CANCELLED_BY_PLATFORM",
+              cancelledAt: now,
+              cancelledByUserId: actorUserId,
+              cancellationReason: input.notes,
+              holdExpiresAt: null,
+              updatedAt: now
+            })
+            .where(eq(schema.bookings.id, bookingId));
+
+          await tx.insert(schema.bookingStatusHistory).values({
+            bookingId,
+            previousStatus: bookingRow.status,
+            newStatus: "CANCELLED_BY_PLATFORM",
+            actorUserId,
+            actorRole: "SUPERADMIN",
+            reason: input.notes,
+            metadata: {
+              outcome: input.outcome,
+              refundPercentage: resolvedRefundPercentage,
+              refundAmountMinor: resolvedRefundAmountMinor,
+              refundId: createdRefundId
+            }
+          });
+        }
+
+        await auditService.recordEvent({
+          eventType: SecurityEventType.BOOKING_DISPUTE_RESOLVED,
+          userId: actorUserId,
+          clientInfo,
+          metadata: {
+            bookingId,
+            referenceCode: bookingRow.reference_code,
+            businessId: bookingRow.business_id,
+            locationId: bookingRow.location_id,
+            outcome: input.outcome,
+            refundId: createdRefundId,
+            refundPercentage: resolvedRefundPercentage,
+            refundAmountMinor: resolvedRefundAmountMinor,
+            currency: bookingRow.currency,
+            notes: input.notes
+          },
+          tx
+        });
+      })
+    );
 
     return this.getBookingDetail(bookingId, actorUserId, actorRoles);
   }

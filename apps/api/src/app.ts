@@ -29,6 +29,7 @@ import {
 import { paymentRoutes } from "./modules/payments/payments.routes.js";
 import { hostCustodyRoutes } from "./modules/custody/custody.routes.js";
 import { adminPhaseBRoutes } from "./modules/admin/admin-phase-b.routes.js";
+import { adminSupportRoutes, supportRoutes } from "./modules/support/support.routes.js";
 import { sessionService } from "./modules/auth/session.service.js";
 import { rbacService } from "./modules/auth/rbac.service.js";
 import { auditService, SecurityEventType } from "./modules/audit/audit.service.js";
@@ -385,6 +386,12 @@ export function buildApp(): FastifyInstance {
   app.register(hostCustodyRoutes, { prefix: "/hosts" });
   app.register(adminPhaseBRoutes, { prefix: `${env.API_PREFIX}/admin` });
   app.register(adminPhaseBRoutes, { prefix: "/admin" });
+
+  // Initiative 6: Public/Customer & Admin Support Ticket routes
+  app.register(supportRoutes, { prefix: `${env.API_PREFIX}/support` });
+  app.register(supportRoutes, { prefix: "/support" });
+  app.register(adminSupportRoutes, { prefix: `${env.API_PREFIX}/admin` });
+  app.register(adminSupportRoutes, { prefix: "/admin" });
 
   return app;
 }

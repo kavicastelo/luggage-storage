@@ -4,22 +4,29 @@ import type {
   AdminDeactivateUserRequest,
   AdminHostListQuery,
   AdminLedgerQuery,
+  AdminPayoutBatchQuery,
   AdminReactivateUserRequest,
   AdminRefundListQuery,
   AdminReinstateHostBusinessRequest,
   AdminReinstateUserRequest,
+  AdminSupportTicketQuery,
   AdminSuspendHostBusinessRequest,
   AdminSuspendUserRequest,
   AdminTransitionRefundRequest,
+  AdminUpdateSupportTicketRequest,
   AdminUserQuery,
   AdminVerifyEmailRequest,
   AssignUserRoleRequest,
   BookingListQuery,
   CancelBookingRequest,
+  CreatePayoutBatchRequest,
+  DisbursePayoutBatchRequest,
   HostVerificationQueueQuery,
   LocationModerationQueueQuery,
+  ResolveBookingDisputeRequest,
   ReviewHostVerificationRequest,
-  ReviewLocationRequest
+  ReviewLocationRequest,
+  SupportTicketReplyRequest
 } from "@luggage-storage/contracts";
 import { authApi } from "@/services/auth-api";
 import { marketplaceApi } from "@/services/marketplace-api";
@@ -624,6 +631,191 @@ export function useRevokeAdminUserRoleMutation() {
         void qc.invalidateQueries({ queryKey: ["admin", "users"] });
         void qc.invalidateQueries({ queryKey: adminQueryKeys.userDetail(variables.userId) });
         void qc.invalidateQueries({ queryKey: adminQueryKeys.userPermissions(variables.userId) });
+      }
+    },
+    qc
+  );
+}
+
+// ============================================================================
+// Initiative 6 Hooks — Dispute Adjudication, Payout Batches & Support Desk
+// ============================================================================
+
+export function useAdminResolveDisputeMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: ({
+        bookingId,
+        data
+      }: {
+        bookingId: string;
+        data: ResolveBookingDisputeRequest;
+      }) => marketplaceApi.adminResolveBookingDispute(bookingId, data),
+      onSuccess: (_data, variables) => {
+        void qc.invalidateQueries({ queryKey: ["admin", "bookings"] });
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.bookingDetail(variables.bookingId) });
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.custodyDetail(variables.bookingId) });
+        void qc.invalidateQueries({ queryKey: ["admin", "refunds"] });
+        void qc.invalidateQueries({ queryKey: ["admin", "finance"] });
+        void qc.invalidateQueries({ queryKey: ["admin", "payouts"] });
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.metricsSummary() });
+        void qc.invalidateQueries({ queryKey: hostQueryKeys.all });
+      }
+    },
+    qc
+  );
+}
+
+export function useAdminEligiblePayablesQuery(
+  businessId?: string,
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const normalizedBusinessId = isAdminResourceUuid(businessId) ? businessId : undefined;
+  return useQuery(
+    {
+      queryKey: adminQueryKeys.eligiblePayables(normalizedBusinessId),
+      queryFn: () => marketplaceApi.getAdminEligiblePayables(normalizedBusinessId),
+      enabled: isAuthenticated && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useAdminPayoutBatchesQuery(
+  params: Partial<AdminPayoutBatchQuery> = {},
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  return useQuery(
+    {
+      queryKey: adminQueryKeys.payoutBatches(params),
+      queryFn: () => marketplaceApi.getAdminPayoutBatches(params),
+      enabled: isAuthenticated && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useAdminPayoutBatchDetailQuery(
+  batchId: string | undefined,
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  return useQuery(
+    {
+      queryKey: adminQueryKeys.payoutBatchDetail(batchId ?? ""),
+      queryFn: () => marketplaceApi.getAdminPayoutBatchDetail(batchId!),
+      enabled: isAuthenticated && isAdminResourceUuid(batchId) && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useCreateAdminPayoutBatchMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: (data: CreatePayoutBatchRequest) => marketplaceApi.createAdminPayoutBatch(data),
+      onSuccess: () => {
+        void qc.invalidateQueries({ queryKey: ["admin", "payouts"] });
+        void qc.invalidateQueries({ queryKey: hostQueryKeys.all });
+      }
+    },
+    qc
+  );
+}
+
+export function useDisburseAdminPayoutBatchMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: ({ batchId, data }: { batchId: string; data: DisbursePayoutBatchRequest }) =>
+        marketplaceApi.disburseAdminPayoutBatch(batchId, data),
+      onSuccess: (_data, variables) => {
+        void qc.invalidateQueries({ queryKey: ["admin", "payouts"] });
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.payoutBatchDetail(variables.batchId) });
+        void qc.invalidateQueries({ queryKey: ["admin", "finance"] });
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.metricsSummary() });
+        void qc.invalidateQueries({ queryKey: hostQueryKeys.all });
+      }
+    },
+    qc
+  );
+}
+
+export function useAdminSupportTicketsQuery(
+  params: Partial<AdminSupportTicketQuery> = {},
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  return useQuery(
+    {
+      queryKey: adminQueryKeys.supportTickets(params),
+      queryFn: () => marketplaceApi.getAdminSupportTickets(params),
+      enabled: isAuthenticated && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useAdminSupportTicketDetailQuery(
+  ticketId: string | undefined,
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const validTicketParam = Boolean(
+    ticketId && (/^SUP-\d{8}-[A-Z0-9]+$/i.test(ticketId.trim()) || isAdminResourceUuid(ticketId))
+  );
+  return useQuery(
+    {
+      queryKey: adminQueryKeys.supportTicketDetail(ticketId ?? ""),
+      queryFn: () => marketplaceApi.getAdminSupportTicketDetail(ticketId!),
+      enabled: isAuthenticated && validTicketParam && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
+export function useReplyAdminSupportTicketMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: ({ ticketId, data }: { ticketId: string; data: SupportTicketReplyRequest }) =>
+        marketplaceApi.replyAdminSupportTicket(ticketId, data),
+      onSuccess: (_data, variables) => {
+        void qc.invalidateQueries({ queryKey: ["admin", "support"] });
+        void qc.invalidateQueries({
+          queryKey: adminQueryKeys.supportTicketDetail(variables.ticketId)
+        });
+      }
+    },
+    qc
+  );
+}
+
+export function useUpdateAdminSupportTicketMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: ({
+        ticketId,
+        data
+      }: {
+        ticketId: string;
+        data: AdminUpdateSupportTicketRequest;
+      }) => marketplaceApi.updateAdminSupportTicket(ticketId, data),
+      onSuccess: (_data, variables) => {
+        void qc.invalidateQueries({ queryKey: ["admin", "support"] });
+        void qc.invalidateQueries({
+          queryKey: adminQueryKeys.supportTicketDetail(variables.ticketId)
+        });
       }
     },
     qc

@@ -847,7 +847,7 @@ describe("Project Stabilization — Identity, Verification, Rate Limiting, Audit
       const client = await migratorPool.connect();
       try {
         await verifyMigratedSchema(client);
-        expect(REQUIRED_PUBLIC_TABLES.length).toBe(43);
+        expect(REQUIRED_PUBLIC_TABLES.length).toBe(47);
       } finally {
         client.release();
       }

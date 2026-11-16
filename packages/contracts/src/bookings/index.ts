@@ -38,6 +38,12 @@ export type CancellationPolicyCode = (typeof CANCELLATION_POLICY_CODES)[number];
 export const DEFAULT_HOST_APPROVAL_HOLD_MINUTES = 15;
 export const DEFAULT_PAYMENT_HOLD_MINUTES = 10;
 export const DEFAULT_COMMISSION_RATE_BPS = 1500; // 15.00%
+export const DEFAULT_CUSTODY_PASS_TTL_MINUTES = 15;
+export const DEFAULT_OVERDUE_GRACE_MINUTES = 30;
+
+export const DISPUTE_RESOLUTION_OUTCOMES = ["UPHOLD_HOST", "REFUND_TRAVELLER"] as const;
+export type DisputeResolutionOutcome = (typeof DISPUTE_RESOLUTION_OUTCOMES)[number];
+export const DisputeResolutionOutcomeSchema = z.enum(DISPUTE_RESOLUTION_OUTCOMES);
 
 // ============================================================================
 // Bag Selection & Quotation Schemas
@@ -161,6 +167,23 @@ export const RecordBookingExceptionRequestSchema = z.object({
     .default("OTHER")
 });
 export type RecordBookingExceptionRequest = z.infer<typeof RecordBookingExceptionRequestSchema>;
+
+export const ResolveBookingDisputeRequestSchema = z
+  .object({
+    outcome: DisputeResolutionOutcomeSchema,
+    refundPercentage: z.number().int().min(1).max(100).optional(),
+    notes: z.string().trim().min(5, "Resolution notes must be at least 5 characters").max(1000)
+  })
+  .superRefine((val, ctx) => {
+    if (val.outcome === "UPHOLD_HOST" && val.refundPercentage !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "refundPercentage cannot be specified when upholding host settlement",
+        path: ["refundPercentage"]
+      });
+    }
+  });
+export type ResolveBookingDisputeRequest = z.infer<typeof ResolveBookingDisputeRequestSchema>;
 
 export const BookingPricingSnapshotSchema = z.object({
   id: z.string().uuid(),

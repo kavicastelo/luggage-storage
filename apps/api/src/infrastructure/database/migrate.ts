@@ -56,7 +56,11 @@ export const REQUIRED_PUBLIC_TABLES = [
   "custody_records",
   "custody_tokens",
   "bag_custody_items",
-  "custody_events"
+  "custody_events",
+  "payout_batches",
+  "payout_batch_items",
+  "support_tickets",
+  "support_ticket_messages"
 ] as const;
 
 export const REVOKED_IDENTITY_SECRETS = new Set([

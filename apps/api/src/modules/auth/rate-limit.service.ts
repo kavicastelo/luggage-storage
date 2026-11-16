@@ -18,7 +18,9 @@ export type RateLimitScope =
   | "custody_verify_actor"
   | "custody_verify_booking"
   | "booking_create_user"
-  | "payment_webhook_ip";
+  | "payment_webhook_ip"
+  | "support_ticket_ip"
+  | "support_ticket_email";
 
 export interface RateLimitPolicy {
   maxPoints: number;
@@ -84,6 +86,14 @@ export const RATE_LIMIT_POLICIES: Record<RateLimitScope, RateLimitPolicy> = {
   payment_webhook_ip: {
     maxPoints: 120,
     windowSeconds: 60
+  },
+  support_ticket_ip: {
+    maxPoints: 10,
+    windowSeconds: 900
+  },
+  support_ticket_email: {
+    maxPoints: 5,
+    windowSeconds: 900
   }
 };
 

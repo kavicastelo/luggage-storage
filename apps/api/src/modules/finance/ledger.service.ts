@@ -357,6 +357,178 @@ export class LedgerService {
   }
 
   /**
+   * Reverses an already-accrued post-settlement split (4010 Commission + 2020 Host Payable Liability,
+   * plus any unallocated 2010 balance) into 2030 Traveller Refund Liability (and any retained partial split)
+   * when an admin resolves a post-collection dispute in favour of the traveller.
+   */
+  async recordPostSettlementDisputeRefund(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tx: any,
+    params: {
+      bookingId: string;
+      businessId: string;
+      existingPayable: {
+        id: string;
+        grossSubtotalMinor: number;
+        commissionMinor: number;
+        netPayableMinor: number;
+      };
+      refundId: string | null;
+      paidAmountMinor: number;
+      refundAmountMinor: number;
+      commissionRateBps: number;
+      currency: string;
+      referenceCode: string;
+    }
+  ): Promise<void> {
+    if (
+      !Number.isSafeInteger(params.paidAmountMinor) ||
+      !Number.isSafeInteger(params.refundAmountMinor) ||
+      params.paidAmountMinor < 0 ||
+      params.paidAmountMinor > PG_INT_MAX ||
+      params.refundAmountMinor < 0 ||
+      params.refundAmountMinor > params.paidAmountMinor
+    ) {
+      throw AppError.internal(
+        `Invalid dispute refund settlement amounts: paid=${params.paidAmountMinor}, refund=${params.refundAmountMinor}`
+      );
+    }
+    if (params.paidAmountMinor === 0) {
+      return;
+    }
+
+    const unallocatedBookingLiabilityMinor =
+      params.paidAmountMinor - params.existingPayable.grossSubtotalMinor;
+    if (unallocatedBookingLiabilityMinor < 0) {
+      throw AppError.internal(
+        `Settled payable subtotal (${params.existingPayable.grossSubtotalMinor}) exceeds captured payment (${params.paidAmountMinor})`
+      );
+    }
+
+    const lines: JournalPostingLine[] = [];
+
+    if (unallocatedBookingLiabilityMinor > 0) {
+      lines.push({
+        entryType: "DEBIT",
+        accountCode: LEDGER_ACCOUNTS.TRAVELLER_BOOKING_LIABILITY.code,
+        accountName: LEDGER_ACCOUNTS.TRAVELLER_BOOKING_LIABILITY.name,
+        amountMinor: unallocatedBookingLiabilityMinor,
+        currency: params.currency,
+        referenceType: "BOOKING",
+        referenceId: params.bookingId,
+        bookingId: params.bookingId,
+        businessId: params.businessId,
+        description: `Dispute refund reversal of unallocated booking liability for ${params.referenceCode}`
+      });
+    }
+
+    if (params.existingPayable.commissionMinor > 0) {
+      lines.push({
+        entryType: "DEBIT",
+        accountCode: LEDGER_ACCOUNTS.PLATFORM_COMMISSION_REVENUE.code,
+        accountName: LEDGER_ACCOUNTS.PLATFORM_COMMISSION_REVENUE.name,
+        amountMinor: params.existingPayable.commissionMinor,
+        currency: params.currency,
+        referenceType: "HOST_PAYABLE",
+        referenceId: params.existingPayable.id,
+        bookingId: params.bookingId,
+        businessId: params.businessId,
+        description: `Dispute clawback of commission revenue for ${params.referenceCode}`
+      });
+    }
+
+    if (params.existingPayable.netPayableMinor > 0) {
+      lines.push({
+        entryType: "DEBIT",
+        accountCode: LEDGER_ACCOUNTS.HOST_PAYABLE_LIABILITY.code,
+        accountName: LEDGER_ACCOUNTS.HOST_PAYABLE_LIABILITY.name,
+        amountMinor: params.existingPayable.netPayableMinor,
+        currency: params.currency,
+        referenceType: "HOST_PAYABLE",
+        referenceId: params.existingPayable.id,
+        bookingId: params.bookingId,
+        businessId: params.businessId,
+        description: `Dispute clawback of host payable liability for ${params.referenceCode}`
+      });
+    }
+
+    if (params.refundAmountMinor > 0 && params.refundId) {
+      lines.push({
+        entryType: "CREDIT",
+        accountCode: LEDGER_ACCOUNTS.TRAVELLER_REFUND_LIABILITY.code,
+        accountName: LEDGER_ACCOUNTS.TRAVELLER_REFUND_LIABILITY.name,
+        amountMinor: params.refundAmountMinor,
+        currency: params.currency,
+        referenceType: "REFUND",
+        referenceId: params.refundId,
+        bookingId: params.bookingId,
+        businessId: params.businessId,
+        description: `Authorized dispute resolution refund liability for ${params.referenceCode}`
+      });
+    }
+
+    const retainedMinor = params.paidAmountMinor - params.refundAmountMinor;
+    const now = new Date();
+    if (retainedMinor > 0) {
+      const retainedCommission = Math.floor((retainedMinor * params.commissionRateBps) / 10000);
+      const retainedHostNet = retainedMinor - retainedCommission;
+
+      if (retainedCommission > 0) {
+        lines.push({
+          entryType: "CREDIT",
+          accountCode: LEDGER_ACCOUNTS.PLATFORM_COMMISSION_REVENUE.code,
+          accountName: LEDGER_ACCOUNTS.PLATFORM_COMMISSION_REVENUE.name,
+          amountMinor: retainedCommission,
+          currency: params.currency,
+          referenceType: "HOST_PAYABLE",
+          referenceId: params.existingPayable.id,
+          bookingId: params.bookingId,
+          businessId: params.businessId,
+          description: `Retained platform commission after partial dispute refund for ${params.referenceCode}`
+        });
+      }
+
+      if (retainedHostNet > 0) {
+        lines.push({
+          entryType: "CREDIT",
+          accountCode: LEDGER_ACCOUNTS.HOST_PAYABLE_LIABILITY.code,
+          accountName: LEDGER_ACCOUNTS.HOST_PAYABLE_LIABILITY.name,
+          amountMinor: retainedHostNet,
+          currency: params.currency,
+          referenceType: "HOST_PAYABLE",
+          referenceId: params.existingPayable.id,
+          bookingId: params.bookingId,
+          businessId: params.businessId,
+          description: `Adjusted host payable after partial dispute refund for ${params.referenceCode}`
+        });
+      }
+
+      await tx
+        .update(schema.hostPayables)
+        .set({
+          grossSubtotalMinor: retainedMinor,
+          commissionMinor: retainedCommission,
+          netPayableMinor: retainedHostNet,
+          status: "ELIGIBLE",
+          eligibleAt: now,
+          updatedAt: now
+        })
+        .where(eq(schema.hostPayables.id, params.existingPayable.id));
+    } else {
+      await tx
+        .update(schema.hostPayables)
+        .set({
+          status: "CANCELLED_CLAWBACK",
+          eligibleAt: null,
+          updatedAt: now
+        })
+        .where(eq(schema.hostPayables.id, params.existingPayable.id));
+    }
+
+    await this.postJournalGroup(tx, lines);
+  }
+
+  /**
    * Clears Traveller Refund Payable Liability (2030) against Gateway Clearing (1010)
    * when refund execution succeeds.
    */

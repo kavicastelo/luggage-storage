@@ -282,6 +282,23 @@ export function useHostFinanceSummaryQuery(
   );
 }
 
+export function useHostPayoutBatchesQuery(
+  businessId?: string,
+  options: { enabled?: boolean } = {}
+) {
+  const qc = useResolvedQueryClient();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const normalizedBusinessId = isHostResourceUuid(businessId) ? businessId : undefined;
+  return useQuery(
+    {
+      queryKey: hostQueryKeys.payoutBatches(normalizedBusinessId),
+      queryFn: () => marketplaceApi.getHostPayoutBatches(normalizedBusinessId),
+      enabled: isAuthenticated && (options.enabled ?? true)
+    },
+    qc
+  );
+}
+
 // ============================================================================
 // Mutations
 // ============================================================================
