@@ -25,7 +25,11 @@ export interface RoleManagementContext {
  * will not leave zero ACTIVE SUPERADMIN accounts on the platform.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function assertAnotherActiveSuperadminRemains(tx: any, excludedUserId: string): Promise<void> {
+export async function assertAnotherActiveSuperadminRemains(
+  tx: any,
+  excludedUserId: string
+): Promise<string[]> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(9051001);`);
   const activeAdmins = await tx.execute(sql`
     SELECT u.id
     FROM users u
@@ -33,14 +37,15 @@ export async function assertAnotherActiveSuperadminRemains(tx: any, excludedUser
     INNER JOIN roles r ON r.id = ur.role_id
     WHERE r.code = 'SUPERADMIN'
       AND u.status = 'ACTIVE'
+    ORDER BY u.id ASC
     FOR UPDATE OF u;
   `);
-  const remaining = (activeAdmins.rows as Array<{ id: string }>).filter(
-    (row) => row.id !== excludedUserId
-  );
+  const activeIds = (activeAdmins.rows as Array<{ id: string }>).map((row) => row.id);
+  const remaining = activeIds.filter((id) => id !== excludedUserId);
   if (remaining.length === 0) {
     throw AppError.conflict("Cannot remove or disable the last active Superadmin account");
   }
+  return activeIds;
 }
 
 export class RbacService {
@@ -318,7 +323,10 @@ export class RbacService {
     // Execute role revocation via SECURITY DEFINER function inside transaction setting session actor
     await db.transaction(async (tx) => {
       if (normalizedRoleCode === "SUPERADMIN") {
-        await assertAnotherActiveSuperadminRemains(tx, context.targetUserId);
+        const activeIds = await assertAnotherActiveSuperadminRemains(tx, context.targetUserId);
+        if (!activeIds.includes(context.adminId)) {
+          throw AppError.forbidden("Only Superadministrators can revoke Superadmin privileges");
+        }
       }
       await tx.execute(
         sql`SELECT set_config('app.current_user_id', ${context.adminId}, true);`

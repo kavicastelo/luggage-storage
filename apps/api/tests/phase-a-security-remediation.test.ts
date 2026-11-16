@@ -972,7 +972,7 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
       // Search from origin (6.9000, 79.8000)
       const res = await app.inject({
         method: "GET",
-        url: "/api/v1/discovery/locations?latitude=6.9000&longitude=79.8000&radiusMeters=20000"
+        url: "/api/v1/discovery/locations?latitude=6.9000&longitude=79.8000&radiusMeters=20000&searchTerm=Geospatial"
       });
 
       expect(res.statusCode).toBe(200);
@@ -1048,7 +1048,7 @@ describe("Phase A Security & Correctness Remediation Suite", () => {
 
       const res = await app.inject({
         method: "GET",
-        url: "/api/v1/discovery/locations?latitude=6.9000&longitude=79.8000&radiusMeters=20000"
+        url: "/api/v1/discovery/locations?latitude=6.9000&longitude=79.8000&radiusMeters=20000&searchTerm=Geospatial"
       });
       expect(res.statusCode).toBe(200);
       const locations = JSON.parse(res.body).data.locations;
