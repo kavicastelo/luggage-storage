@@ -2,12 +2,16 @@ import { FastifyInstance, FastifyRequest } from "fastify";
 import {
   AdminHostListQuerySchema,
   AdminLedgerQuerySchema,
+  AdminPayoutBatchQuerySchema,
   AdminRefundListQuerySchema,
   AdminReinstateHostBusinessRequestSchema,
   AdminSuspendHostBusinessRequestSchema,
   AdminTransitionRefundRequestSchema,
   BookingListQuerySchema,
   CancelBookingRequestSchema,
+  CreatePayoutBatchRequestSchema,
+  DisbursePayoutBatchRequestSchema,
+  ResolveBookingDisputeRequestSchema,
   SYSTEM_PERMISSIONS,
   createPaginatedResponse,
   createSuccessResponse
@@ -17,6 +21,7 @@ import { bookingsService } from "../bookings/bookings.service.js";
 import { paymentsService } from "../payments/payments.service.js";
 import { custodyService } from "../custody/custody.service.js";
 import { ledgerService } from "../finance/ledger.service.js";
+import { payoutsService } from "../finance/payouts.service.js";
 import { hostsService } from "../hosts/hosts.service.js";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -321,6 +326,139 @@ export async function adminPhaseBRoutes(app: FastifyInstance): Promise<void> {
         clientInfo: getClientInfo(request)
       });
       return reply.status(200).send(createSuccessResponse(updated, request.id));
+    }
+  );
+
+  // 14. Dispute Adjudication (SUPERADMIN only — admin.booking.manage)
+  app.post<{ Params: { bookingId: string } }>(
+    "/bookings/:bookingId/resolve-dispute",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_BOOKING_MANAGE)],
+      schema: {
+        tags: ["Admin Phase B"],
+        summary: "Adjudicate a DISPUTED booking by upholding host settlement or refunding traveller",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const bookingId = validateUuid(request.params.bookingId, "booking ID");
+      const body = ResolveBookingDisputeRequestSchema.parse(request.body);
+      const updated = await bookingsService.resolveDispute(
+        bookingId,
+        request.user.sub,
+        request.user.roles,
+        body,
+        getClientInfo(request)
+      );
+      return reply.status(200).send(createSuccessResponse(updated, request.id));
+    }
+  );
+
+  // 15. List Eligible Unbatched Host Payables Grouped by Business (SUPERADMIN only)
+  app.get<{ Querystring: { businessId?: string } }>(
+    "/payouts/eligible-payables",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_FINANCIAL_MANAGE)],
+      schema: {
+        tags: ["Admin Payouts"],
+        summary: "Group unbatched ELIGIBLE host payables by host business for payout batch generation",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      if (request.query.businessId) {
+        validateUuid(request.query.businessId, "business ID");
+      }
+      const groups = await payoutsService.getEligiblePayablesGrouped(request.query.businessId);
+      return reply.status(200).send(createSuccessResponse({ groups }, request.id));
+    }
+  );
+
+  // 16. List Host Payout Batches (SUPERADMIN only)
+  app.get(
+    "/payouts/batches",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_FINANCIAL_MANAGE)],
+      schema: {
+        tags: ["Admin Payouts"],
+        summary: "List generated and disbursed host payout batches",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request) => {
+      const query = AdminPayoutBatchQuerySchema.parse(request.query ?? {});
+      const { batches, total, pagination } = await payoutsService.listAdminPayoutBatches(query);
+      return createPaginatedResponse(
+        batches,
+        pagination.page,
+        pagination.limit,
+        total,
+        request.id
+      );
+    }
+  );
+
+  // 17. Generate a Host Payout Batch (SUPERADMIN only)
+  app.post(
+    "/payouts/batches",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_FINANCIAL_MANAGE)],
+      schema: {
+        tags: ["Admin Payouts"],
+        summary: "Lock unbatched ELIGIBLE host payables into a GENERATED payout batch",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const body = CreatePayoutBatchRequestSchema.parse(request.body);
+      const batch = await payoutsService.createPayoutBatch(
+        request.user.sub,
+        body,
+        getClientInfo(request)
+      );
+      return reply.status(201).send(createSuccessResponse(batch, request.id));
+    }
+  );
+
+  // 18. Get Single Payout Batch Detail with Itemized Payables (SUPERADMIN only)
+  app.get<{ Params: { batchId: string } }>(
+    "/payouts/batches/:batchId",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_FINANCIAL_MANAGE)],
+      schema: {
+        tags: ["Admin Payouts"],
+        summary: "Inspect payout batch details and included booking payables",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const batchId = validateUuid(request.params.batchId, "batch ID");
+      const batch = await payoutsService.getAdminPayoutBatchDetail(batchId);
+      return reply.status(200).send(createSuccessResponse(batch, request.id));
+    }
+  );
+
+  // 19. Record Manual Wire / CEFT Reference & Disburse Payout Batch (SUPERADMIN only)
+  app.post<{ Params: { batchId: string } }>(
+    "/payouts/batches/:batchId/disburse",
+    {
+      preHandler: [app.authenticate, app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_FINANCIAL_MANAGE)],
+      schema: {
+        tags: ["Admin Payouts"],
+        summary: "Mark payout batch DISBURSED with bank wire reference and post double-entry ledger entries",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      const batchId = validateUuid(request.params.batchId, "batch ID");
+      const body = DisbursePayoutBatchRequestSchema.parse(request.body);
+      const batch = await payoutsService.disbursePayoutBatch(
+        batchId,
+        request.user.sub,
+        body,
+        getClientInfo(request)
+      );
+      return reply.status(200).send(createSuccessResponse(batch, request.id));
     }
   );
 }

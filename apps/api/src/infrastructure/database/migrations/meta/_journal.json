@@ -127,6 +127,13 @@
       "when": 1794800000000,
       "tag": "0017_initiative_4_custody_evidence_uploads",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794900000000,
+      "tag": "0018_initiative_6_payouts_and_support",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,7 @@ import { quotationService } from "./quotation-availability.service.js";
 import { bookingsService } from "./bookings.service.js";
 import { custodyService } from "../custody/custody.service.js";
 import { ledgerService } from "../finance/ledger.service.js";
+import { payoutsService } from "../finance/payouts.service.js";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -379,6 +380,30 @@ export async function hostBookingAndFinanceRoutes(app: FastifyInstance): Promise
         request.query.businessId
       );
       return reply.status(200).send(createSuccessResponse(summary, request.id));
+    }
+  );
+
+  // 7. Host owner settlement payout batch history (OQ-017: excludes HOST_STAFF)
+  app.get<{ Querystring: { businessId?: string } }>(
+    "/finance/payout-batches",
+    {
+      preHandler: [app.authenticate, app.requirePermission("hosts.finance.read_own")],
+      schema: {
+        tags: ["Host Finance"],
+        summary: "Retrieve host settlement payout batches and bank disbursement references (HOST_OWNER only)",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request, reply) => {
+      if (request.query.businessId) {
+        validateUuid(request.query.businessId, "business ID");
+      }
+      const batches = await payoutsService.listHostPayoutBatches(
+        request.user.sub,
+        request.user.roles,
+        request.query.businessId
+      );
+      return reply.status(200).send(createSuccessResponse({ batches }, request.id));
     }
   );
 }

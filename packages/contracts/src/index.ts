@@ -20,4 +20,5 @@ export * from "./bookings/index.js";
 export * from "./payments/index.js";
 export * from "./custody/index.js";
 export * from "./finance/index.js";
+export * from "./support/index.js";
 
