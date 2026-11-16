@@ -1,5 +1,6 @@
 import { FastifyInstance } from "fastify";
 import {
+  HostVerificationQueueQuerySchema,
   ReviewHostVerificationRequestSchema,
   createSuccessResponse,
   SYSTEM_PERMISSIONS
@@ -7,8 +8,8 @@ import {
 import { hostVerificationService } from "./host-verification.service.js";
 
 export async function hostVerificationRoutes(app: FastifyInstance): Promise<void> {
-  // 1. Pending host verifications queue
-  app.get<{ Querystring: { page?: number; limit?: number } }>(
+  // 1. Host verifications moderation queue
+  app.get<{ Querystring: { page?: number; limit?: number; status?: string } }>(
     "/verifications",
     {
       preHandler: [
@@ -16,23 +17,27 @@ export async function hostVerificationRoutes(app: FastifyInstance): Promise<void
         app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_HOST_READ)
       ],
       schema: {
-        description: "Retrieve pending host verification applications for Superadmin moderation",
+        description: "Retrieve host verification applications for Superadmin & Support moderation",
         tags: ["Admin Host Verification"],
         querystring: {
           type: "object",
           properties: {
             page: { type: "integer", default: 1 },
-            limit: { type: "integer", default: 20 }
+            limit: { type: "integer", default: 20 },
+            status: { type: "string" }
           }
         }
       }
     },
     async (request, reply) => {
-      const page = Math.max(1, request.query?.page || 1);
-      const limit = Math.min(100, Math.max(1, request.query?.limit || 20));
-      const offset = (page - 1) * limit;
+      const parsed = HostVerificationQueueQuerySchema.parse(request.query ?? {});
+      const offset = (parsed.page - 1) * parsed.limit;
 
-      const result = await hostVerificationService.getPendingVerifications(limit, offset);
+      const result = await hostVerificationService.getPendingVerifications(
+        parsed.limit,
+        offset,
+        parsed.status
+      );
       return reply.status(200).send(createSuccessResponse(result, request.id));
     }
   );

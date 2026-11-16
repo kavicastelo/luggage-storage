@@ -1,5 +1,6 @@
 import { FastifyInstance } from "fastify";
 import {
+  LocationModerationQueueQuerySchema,
   ReviewLocationRequestSchema,
   createSuccessResponse,
   SYSTEM_PERMISSIONS
@@ -7,8 +8,8 @@ import {
 import { locationsService } from "./locations.service.js";
 
 export async function locationModerationRoutes(app: FastifyInstance): Promise<void> {
-  // 1. Pending locations moderation queue
-  app.get<{ Querystring: { page?: number; limit?: number } }>(
+  // 1. Locations moderation queue
+  app.get<{ Querystring: { page?: number; limit?: number; status?: string } }>(
     "/locations/moderation-queue",
     {
       preHandler: [
@@ -16,23 +17,27 @@ export async function locationModerationRoutes(app: FastifyInstance): Promise<vo
         app.requirePermission(SYSTEM_PERMISSIONS.ADMIN_LOCATION_READ)
       ],
       schema: {
-        description: "Retrieve pending storage location listings awaiting Superadmin moderation",
+        description: "Retrieve storage location listings for Superadmin & Support moderation",
         tags: ["Admin Location Moderation"],
         querystring: {
           type: "object",
           properties: {
             page: { type: "integer", default: 1 },
-            limit: { type: "integer", default: 20 }
+            limit: { type: "integer", default: 20 },
+            status: { type: "string" }
           }
         }
       }
     },
     async (request, reply) => {
-      const page = Math.max(1, request.query?.page || 1);
-      const limit = Math.min(100, Math.max(1, request.query?.limit || 20));
-      const offset = (page - 1) * limit;
+      const parsed = LocationModerationQueueQuerySchema.parse(request.query ?? {});
+      const offset = (parsed.page - 1) * parsed.limit;
 
-      const result = await locationsService.getPendingLocationsQueue(limit, offset);
+      const result = await locationsService.getPendingLocationsQueue(
+        parsed.limit,
+        offset,
+        parsed.status
+      );
       return reply.status(200).send(createSuccessResponse(result, request.id));
     }
   );

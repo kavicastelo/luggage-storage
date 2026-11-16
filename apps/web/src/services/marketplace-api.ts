@@ -65,9 +65,30 @@ import {
   HostFinanceSummaryResponse,
   AdminLedgerQuery,
   AdminLedgerResponse,
-  PaginatedApiResponse
+  AdminMetricsSummary,
+  AdminHostListQuery,
+  AdminHostDirectoryItem,
+  AdminHostDirectoryDetail,
+  AdminSuspendHostBusinessRequest,
+  AdminReinstateHostBusinessRequest,
+  HostVerificationQueueQuery,
+  LocationModerationQueueQuery,
+  PaginatedApiResponse,
+  PaginationMeta
 } from "@luggage-storage/contracts";
 import { ApiClientError, fetchApi } from "../lib/api-client";
+
+function buildDefaultPagination(page: number, limit: number, total: number): PaginationMeta {
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  return {
+    page,
+    limit,
+    total,
+    totalPages,
+    hasNext: page < totalPages,
+    hasPrev: page > 1
+  };
+}
 
 export interface HostBusinessPayoutDetails {
   payoutBankName: string | null;
@@ -190,9 +211,19 @@ export const marketplaceApi = {
   // 2. Superadmin Host Verification Queue
   // ==========================================================================
 
-  async getPendingVerifications(page = 1, limit = 20): Promise<HostVerificationQueueResponse> {
+  async getPendingVerifications(
+    pageOrQuery: number | Partial<HostVerificationQueueQuery> = 1,
+    limit = 20
+  ): Promise<HostVerificationQueueResponse> {
+    const params: Partial<HostVerificationQueueQuery> =
+      typeof pageOrQuery === "number" ? { page: pageOrQuery, limit } : pageOrQuery;
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 20)
+    });
+    if (params.status) search.set("status", params.status);
     const res = await fetchApi<HostVerificationQueueResponse>(
-      `/admin/verifications?page=${page}&limit=${limit}`,
+      `/admin/verifications?${search.toString()}`,
       { method: "GET" }
     );
     return res.data;
@@ -482,9 +513,19 @@ export const marketplaceApi = {
   // 6. Superadmin Storage Location Moderation
   // ==========================================================================
 
-  async getPendingLocationsQueue(page = 1, limit = 20): Promise<LocationModerationQueueResponse> {
+  async getPendingLocationsQueue(
+    pageOrQuery: number | Partial<LocationModerationQueueQuery> = 1,
+    limit = 20
+  ): Promise<LocationModerationQueueResponse> {
+    const params: Partial<LocationModerationQueueQuery> =
+      typeof pageOrQuery === "number" ? { page: pageOrQuery, limit } : pageOrQuery;
+    const search = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 20)
+    });
+    if (params.status) search.set("status", params.status);
     const res = await fetchApi<LocationModerationQueueResponse>(
-      `/admin/locations/moderation-queue?page=${page}&limit=${limit}`,
+      `/admin/locations/moderation-queue?${search.toString()}`,
       { method: "GET" }
     );
     return res.data;
@@ -523,11 +564,18 @@ export const marketplaceApi = {
 
   async getDocumentDownloadUrl(
     documentId: string
-  ): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
-    const res = await fetchApi<{ downloadUrl: string; expiresInSeconds: number }>(
-      `/uploads/documents/${documentId}/download`,
-      { method: "GET" }
-    );
+  ): Promise<{
+    downloadUrl: string;
+    fileName: string;
+    mimeType: string;
+    expiresInSeconds?: number;
+  }> {
+    const res = await fetchApi<{
+      downloadUrl: string;
+      fileName: string;
+      mimeType: string;
+      expiresInSeconds?: number;
+    }>(`/uploads/documents/${documentId}/download`, { method: "GET" });
     return res.data;
   },
 
@@ -830,10 +878,75 @@ export const marketplaceApi = {
   // 12. Phase B — Superadmin & Support Operational Governance
   // ==========================================================================
 
+  async getAdminMetricsSummary(): Promise<AdminMetricsSummary> {
+    const res = await fetchApi<AdminMetricsSummary>("/admin/metrics/summary", {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  async getAdminHosts(params: Partial<AdminHostListQuery> = {}): Promise<{
+    hosts: AdminHostDirectoryItem[];
+    total: number;
+    pagination: PaginationMeta;
+  }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (params.status) query.set("status", params.status);
+    if (params.search) query.set("search", params.search);
+    const res = (await fetchApi<AdminHostDirectoryItem[]>(
+      `/admin/hosts?${query.toString()}`,
+      { method: "GET" }
+    )) as unknown as PaginatedApiResponse<AdminHostDirectoryItem>;
+    const hosts = res.data ?? [];
+    const total = res.pagination?.total ?? hosts.length;
+    return {
+      hosts,
+      total,
+      pagination: res.pagination ?? buildDefaultPagination(page, limit, total)
+    };
+  },
+
+  async getAdminHostDetail(businessId: string): Promise<AdminHostDirectoryDetail> {
+    const res = await fetchApi<AdminHostDirectoryDetail>(`/admin/hosts/${businessId}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  async suspendAdminHost(
+    businessId: string,
+    data: AdminSuspendHostBusinessRequest
+  ): Promise<AdminHostDirectoryDetail> {
+    const res = await fetchApi<AdminHostDirectoryDetail>(`/admin/hosts/${businessId}/suspend`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async reinstateAdminHost(
+    businessId: string,
+    data: AdminReinstateHostBusinessRequest = {}
+  ): Promise<AdminHostDirectoryDetail> {
+    const res = await fetchApi<AdminHostDirectoryDetail>(
+      `/admin/hosts/${businessId}/reinstate`,
+      {
+        method: "POST",
+        body: JSON.stringify(data)
+      }
+    );
+    return res.data;
+  },
+
   async getAdminBookings(params: Partial<BookingListQuery> = {}): Promise<{
     bookings: BookingDetail[];
     total: number;
+    pagination?: PaginationMeta;
   }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
     if (params.locationId) query.set("locationId", params.locationId);
@@ -845,10 +958,20 @@ export const marketplaceApi = {
     const res = (await fetchApi<BookingDetail[]>(`/admin/bookings${qs ? `?${qs}` : ""}`, {
       method: "GET"
     })) as unknown as PaginatedApiResponse<BookingDetail>;
+    const bookings = res.data ?? [];
+    const total = res.pagination?.total ?? bookings.length;
     return {
-      bookings: res.data ?? [],
-      total: res.pagination?.total ?? (res.data?.length ?? 0)
+      bookings,
+      total,
+      pagination: res.pagination ?? buildDefaultPagination(page, limit, total)
     };
+  },
+
+  async getAdminBookingDetail(bookingId: string): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/admin/bookings/${bookingId}`, {
+      method: "GET"
+    });
+    return res.data;
   },
 
   async adminCancelBooking(bookingId: string, data: CancelBookingRequest): Promise<BookingDetail> {
@@ -866,27 +989,48 @@ export const marketplaceApi = {
     return res.data;
   },
 
+  async getAdminCustodyDetailOrNull(bookingId: string): Promise<CustodyRecordDetail | null> {
+    try {
+      return await this.getAdminCustodyDetail(bookingId);
+    } catch (err) {
+      if (err instanceof ApiClientError && err.statusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
+  },
+
   async getAdminPaymentTransactions(
     page = 1,
     limit = 20,
     bookingId?: string
-  ): Promise<{ transactions: PaymentTransactionRecord[]; total: number }> {
+  ): Promise<{
+    transactions: PaymentTransactionRecord[];
+    total: number;
+    pagination?: PaginationMeta;
+  }> {
     const query = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (bookingId) query.set("bookingId", bookingId);
     const res = (await fetchApi<PaymentTransactionRecord[]>(
       `/admin/payments/transactions?${query.toString()}`,
       { method: "GET" }
     )) as unknown as PaginatedApiResponse<PaymentTransactionRecord>;
+    const transactions = res.data ?? [];
+    const total = res.pagination?.total ?? transactions.length;
     return {
-      transactions: res.data ?? [],
-      total: res.pagination?.total ?? (res.data?.length ?? 0)
+      transactions,
+      total,
+      pagination: res.pagination ?? buildDefaultPagination(page, limit, total)
     };
   },
 
   async getAdminRefunds(params: Partial<AdminRefundListQuery> = {}): Promise<{
     refunds: RefundRecord[];
     total: number;
+    pagination?: PaginationMeta;
   }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
     if (params.bookingId) query.set("bookingId", params.bookingId);
@@ -896,9 +1040,12 @@ export const marketplaceApi = {
     const res = (await fetchApi<RefundRecord[]>(`/admin/refunds${qs ? `?${qs}` : ""}`, {
       method: "GET"
     })) as unknown as PaginatedApiResponse<RefundRecord>;
+    const refunds = res.data ?? [];
+    const total = res.pagination?.total ?? refunds.length;
     return {
-      refunds: res.data ?? [],
-      total: res.pagination?.total ?? (res.data?.length ?? 0)
+      refunds,
+      total,
+      pagination: res.pagination ?? buildDefaultPagination(page, limit, total)
     };
   },
 

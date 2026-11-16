@@ -290,10 +290,21 @@ export const StorageLocationListResponseSchema = z.object({
 });
 export type StorageLocationListResponse = z.infer<typeof StorageLocationListResponseSchema>;
 
+export const LocationModerationQueueQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  status: z.enum([...LOCATION_STATUSES, "ALL"]).optional()
+});
+export type LocationModerationQueueQuery = z.infer<typeof LocationModerationQueueQuerySchema>;
+
 export const LocationModerationQueueItemSchema = z.object({
   locationId: z.string().uuid(),
   businessId: z.string().uuid(),
   businessName: z.string(),
+  legalBusinessName: z.string().optional(),
+  businessStatus: z.string().optional(),
+  ownerEmail: z.string().optional(),
+  ownerDisplayName: z.string().optional(),
   name: z.string(),
   city: z.string(),
   addressLine1: z.string(),

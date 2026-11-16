@@ -3,6 +3,7 @@ import {
   ReviewHostVerificationRequest,
   HostVerification,
   HostVerificationQueueItem,
+  HostVerificationQueueQuery,
   SecurityEventType
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
@@ -21,18 +22,29 @@ export interface AdminVerificationContext {
 
 export class HostVerificationService {
   /**
-   * Retrieves the moderation queue of pending host verifications.
+   * Retrieves host verifications queue filtered by verification status (defaults to PENDING_REVIEW).
    */
-  async getPendingVerifications(limit = 20, offset = 0): Promise<{
+  async getPendingVerifications(
+    limit = 20,
+    offset = 0,
+    status: HostVerificationQueueQuery["status"] = "PENDING_REVIEW"
+  ): Promise<{
     queue: HostVerificationQueueItem[];
     total: number;
   }> {
+    const statusWhere =
+      status === "ALL"
+        ? undefined
+        : eq(schema.hostVerifications.status, status ?? "PENDING_REVIEW");
+
     const rows = await db
       .select({
         verificationId: schema.hostVerifications.id,
         businessId: schema.hostVerifications.businessId,
         legalBusinessName: schema.hostBusinesses.legalBusinessName,
         tradeName: schema.hostBusinesses.tradeName,
+        businessRegistrationNumber: schema.hostBusinesses.businessRegistrationNumber,
+        businessStatus: schema.hostBusinesses.status,
         entityType: schema.hostBusinesses.entityType,
         ownerEmail: schema.users.email,
         ownerDisplayName: schema.users.displayName,
@@ -48,7 +60,7 @@ export class HostVerificationService {
         schema.users,
         eq(schema.hostBusinesses.ownerUserId, schema.users.id)
       )
-      .where(eq(schema.hostVerifications.status, "PENDING_REVIEW"))
+      .where(statusWhere)
       .orderBy(desc(schema.hostVerifications.submittedAt))
       .limit(limit)
       .offset(offset);
@@ -56,7 +68,7 @@ export class HostVerificationService {
     const [totalRes] = await db
       .select({ val: count() })
       .from(schema.hostVerifications)
-      .where(eq(schema.hostVerifications.status, "PENDING_REVIEW"));
+      .where(statusWhere);
 
     // Enrich with document counts
     const queue: HostVerificationQueueItem[] = [];
@@ -71,10 +83,12 @@ export class HostVerificationService {
         businessId: r.businessId,
         legalBusinessName: r.legalBusinessName,
         tradeName: r.tradeName,
-        entityType: r.entityType as any,
+        businessRegistrationNumber: r.businessRegistrationNumber,
+        businessStatus: r.businessStatus as HostVerificationQueueItem["businessStatus"],
+        entityType: r.entityType as HostVerificationQueueItem["entityType"],
         ownerEmail: r.ownerEmail,
         ownerDisplayName: r.ownerDisplayName,
-        status: r.status as any,
+        status: r.status as HostVerificationQueueItem["status"],
         documentCount: docCountRes?.val ?? 0,
         submittedAt: r.submittedAt.toISOString()
       });

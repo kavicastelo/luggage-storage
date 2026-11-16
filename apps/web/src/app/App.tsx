@@ -149,6 +149,7 @@ function AppRoutes() {
             <Route path="hosts" element={<AdminHostDirectoryManagementPage />} />
             <Route path="locations" element={<AdminStorageLocationModerationPage />} />
             <Route path="bookings" element={<AdminGlobalBookingsLedgerPage />} />
+            <Route path="bookings/:id" element={<AdminGlobalBookingsLedgerPage />} />
             <Route path="payments" element={<AdminPaymentTransactionsLogPage />} />
             <Route path="refunds" element={<AdminRefundManagementQueuePage />} />
             <Route path="payouts/batches" element={<AdminHostPayoutBatchGenerationPage />} />

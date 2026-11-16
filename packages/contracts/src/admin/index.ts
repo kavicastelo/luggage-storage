@@ -132,3 +132,22 @@ export const AdminLifecycleActionResponseDataSchema = z.object({
 });
 export type AdminLifecycleActionResponseData = z.infer<typeof AdminLifecycleActionResponseDataSchema>;
 
+export const AdminMetricsSummarySchema = z.object({
+  currency: z.string().length(3).default("LKR"),
+  activeUsersCount: z.number().int().min(0),
+  activeBusinessesCount: z.number().int().min(0),
+  suspendedBusinessesCount: z.number().int().min(0),
+  activeLocationsCount: z.number().int().min(0),
+  pendingVerificationsCount: z.number().int().min(0),
+  pendingLocationsCount: z.number().int().min(0),
+  activeBookingsCount: z.number().int().min(0),
+  disputedBookingsCount: z.number().int().min(0),
+  openRefundsCount: z.number().int().min(0),
+  grossCapturedVolumeMinor: z.number().int().min(0).nullable(),
+  platformCommissionMinor: z.number().int().min(0).nullable(),
+  unearnedBookingLiabilityMinor: z.number().int().min(0).nullable(),
+  eligibleHostPayablesMinor: z.number().int().min(0).nullable()
+});
+export type AdminMetricsSummary = z.infer<typeof AdminMetricsSummarySchema>;
+
+

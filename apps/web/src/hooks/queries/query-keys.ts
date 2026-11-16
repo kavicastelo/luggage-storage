@@ -1,9 +1,16 @@
 import { useContext } from "react";
 import { QueryClientContext } from "@tanstack/react-query";
 import type {
+  AdminAuditEventQuery,
+  AdminHostListQuery,
+  AdminLedgerQuery,
+  AdminRefundListQuery,
+  AdminUserQuery,
   AvailabilitySearchQuery,
   BookingListQuery,
   CheckoutStatusQuery,
+  HostVerificationQueueQuery,
+  LocationModerationQueueQuery,
   SearchLocationsQueryInput
 } from "@luggage-storage/contracts";
 import { queryClient as defaultQueryClient } from "@/lib/query-client";
@@ -49,4 +56,38 @@ export const hostQueryKeys = {
   custodyDetail: (bookingId: string) => ["host", "custody", "detail", bookingId] as const,
   financeSummary: (businessId?: string) =>
     ["host", "finance", "summary", businessId ?? "all"] as const
+};
+
+export const adminQueryKeys = {
+  all: ["admin"] as const,
+  metricsSummary: () => ["admin", "metrics", "summary"] as const,
+  verifications: (params: Partial<HostVerificationQueueQuery> = {}) =>
+    ["admin", "verifications", "list", params] as const,
+  verificationDetail: (verificationId: string) =>
+    ["admin", "verifications", "detail", verificationId] as const,
+  hosts: (params: Partial<AdminHostListQuery> = {}) => ["admin", "hosts", "list", params] as const,
+  hostDetail: (businessId: string) => ["admin", "hosts", "detail", businessId] as const,
+  locationModeration: (params: Partial<LocationModerationQueueQuery> = {}) =>
+    ["admin", "locations", "moderation", params] as const,
+  locationDetail: (locationId: string) => ["admin", "locations", "detail", locationId] as const,
+  locationPools: (locationId: string) => ["admin", "locations", "pools", locationId] as const,
+  locationPricing: (locationId: string) => ["admin", "locations", "pricing", locationId] as const,
+  bookings: (params: Partial<BookingListQuery> = {}) =>
+    ["admin", "bookings", "list", params] as const,
+  bookingDetail: (bookingId: string) => ["admin", "bookings", "detail", bookingId] as const,
+  custodyDetail: (bookingId: string) => ["admin", "custody", "detail", bookingId] as const,
+  payments: (params: { page?: number; limit?: number; bookingId?: string } = {}) =>
+    ["admin", "payments", "list", params] as const,
+  refunds: (params: Partial<AdminRefundListQuery> = {}) =>
+    ["admin", "refunds", "list", params] as const,
+  ledger: (params: Partial<AdminLedgerQuery> = {}) =>
+    ["admin", "finance", "ledger", params] as const,
+  auditEvents: (params: Partial<AdminAuditEventQuery> = {}) =>
+    ["admin", "audit-events", "list", params] as const,
+  auditEventDetail: (eventId: string) => ["admin", "audit-events", "detail", eventId] as const,
+  users: (params: Partial<AdminUserQuery> = {}) => ["admin", "users", "list", params] as const,
+  userDetail: (userId: string) => ["admin", "users", "detail", userId] as const,
+  userPermissions: (userId: string) => ["admin", "users", "permissions", userId] as const,
+  roles: () => ["admin", "roles"] as const,
+  permissions: () => ["admin", "permissions"] as const
 };

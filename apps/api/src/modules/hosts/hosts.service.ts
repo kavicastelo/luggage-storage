@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, or, ilike, count } from "drizzle-orm";
 import {
   CreateHostBusinessRequest,
   UpdateHostBusinessRequest,
@@ -8,6 +8,9 @@ import {
   HostBusiness,
   HostVerification,
   HostStaffMemberDetail,
+  AdminHostListQuery,
+  AdminHostDirectoryItem,
+  AdminHostDirectoryDetail,
   SecurityEventType
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
@@ -237,6 +240,12 @@ export class HostsService {
     const isSuperadmin = context.roles.includes("SUPERADMIN");
     if (existing.ownerUserId !== context.userId && !isSuperadmin) {
       throw AppError.forbidden("Access denied: You do not own this host business");
+    }
+
+    if (existing.status === "SUSPENDED") {
+      throw AppError.badRequest(
+        "Suspended host business cannot be modified until reinstated by an administrator"
+      );
     }
 
     // Check if sensitive legal identity fields are changing on an active business
@@ -1046,6 +1055,317 @@ export class HostsService {
         }
       });
     });
+  }
+
+  // ============================================================================
+  // Admin Host Directory & Business Suspension / Reinstatement (AD-003)
+  // ============================================================================
+
+  async listAdminHostBusinesses(rawQuery: Partial<AdminHostListQuery>): Promise<{
+    items: AdminHostDirectoryItem[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const page = Math.max(1, rawQuery.page ?? 1);
+    const limit = Math.min(100, Math.max(1, rawQuery.limit ?? 20));
+    const offset = (page - 1) * limit;
+
+    const conditions = [];
+    if (rawQuery.status) {
+      conditions.push(eq(schema.hostBusinesses.status, rawQuery.status));
+    }
+    if (rawQuery.search) {
+      const pattern = `%${rawQuery.search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(schema.hostBusinesses.legalBusinessName, pattern),
+          ilike(schema.hostBusinesses.tradeName, pattern),
+          ilike(schema.hostBusinesses.businessRegistrationNumber, pattern),
+          ilike(schema.hostBusinesses.city, pattern),
+          ilike(schema.users.email, pattern)
+        )!
+      );
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [totalRow] = await db
+      .select({ val: count() })
+      .from(schema.hostBusinesses)
+      .innerJoin(schema.users, eq(schema.hostBusinesses.ownerUserId, schema.users.id))
+      .where(whereClause);
+
+    const rows = await db
+      .select({
+        business: schema.hostBusinesses,
+        ownerEmail: schema.users.email,
+        ownerDisplayName: schema.users.displayName
+      })
+      .from(schema.hostBusinesses)
+      .innerJoin(schema.users, eq(schema.hostBusinesses.ownerUserId, schema.users.id))
+      .where(whereClause)
+      .orderBy(desc(schema.hostBusinesses.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const businessIds = rows.map((r) => r.business.id);
+    const verificationStatusMap = new Map<
+      string,
+      AdminHostDirectoryItem["verificationStatus"]
+    >();
+    const locationCountsMap = new Map<string, { total: number; active: number }>();
+
+    if (businessIds.length > 0) {
+      const verifications = await db
+        .select({
+          businessId: schema.hostVerifications.businessId,
+          status: schema.hostVerifications.status
+        })
+        .from(schema.hostVerifications)
+        .where(inArray(schema.hostVerifications.businessId, businessIds))
+        .orderBy(desc(schema.hostVerifications.createdAt));
+
+      for (const v of verifications) {
+        if (!verificationStatusMap.has(v.businessId)) {
+          verificationStatusMap.set(
+            v.businessId,
+            v.status as AdminHostDirectoryItem["verificationStatus"]
+          );
+        }
+      }
+
+      const locs = await db
+        .select({
+          businessId: schema.storageLocations.businessId,
+          status: schema.storageLocations.status
+        })
+        .from(schema.storageLocations)
+        .where(inArray(schema.storageLocations.businessId, businessIds));
+
+      for (const loc of locs) {
+        const current = locationCountsMap.get(loc.businessId) ?? { total: 0, active: 0 };
+        current.total += 1;
+        if (loc.status === "ACTIVE") {
+          current.active += 1;
+        }
+        locationCountsMap.set(loc.businessId, current);
+      }
+    }
+
+    const items: AdminHostDirectoryItem[] = rows.map(({ business, ownerEmail, ownerDisplayName }) => {
+      const locCounts = locationCountsMap.get(business.id) ?? { total: 0, active: 0 };
+      return {
+        id: business.id,
+        ownerUserId: business.ownerUserId,
+        ownerEmail,
+        ownerDisplayName,
+        legalBusinessName: business.legalBusinessName,
+        tradeName: business.tradeName,
+        businessRegistrationNumber: business.businessRegistrationNumber,
+        entityType: business.entityType as AdminHostDirectoryItem["entityType"],
+        city: business.city,
+        contactEmail: business.contactEmail,
+        contactPhone: business.contactPhone,
+        status: business.status as AdminHostDirectoryItem["status"],
+        verificationStatus: verificationStatusMap.get(business.id) ?? null,
+        locationCount: locCounts.total,
+        activeLocationCount: locCounts.active,
+        createdAt: business.createdAt.toISOString(),
+        updatedAt: business.updatedAt.toISOString()
+      };
+    });
+
+    return {
+      items,
+      total: totalRow?.val ?? 0,
+      page,
+      limit
+    };
+  }
+
+  async getAdminHostBusinessDetail(businessId: string): Promise<AdminHostDirectoryDetail> {
+    const [row] = await db
+      .select({
+        business: schema.hostBusinesses,
+        ownerEmail: schema.users.email,
+        ownerDisplayName: schema.users.displayName
+      })
+      .from(schema.hostBusinesses)
+      .innerJoin(schema.users, eq(schema.hostBusinesses.ownerUserId, schema.users.id))
+      .where(eq(schema.hostBusinesses.id, businessId))
+      .limit(1);
+
+    if (!row) {
+      throw AppError.notFound("Host business not found");
+    }
+
+    const [latestVerification, locations] = await Promise.all([
+      this.getLatestVerification(businessId),
+      db
+        .select({
+          id: schema.storageLocations.id,
+          name: schema.storageLocations.name,
+          city: schema.storageLocations.city,
+          status: schema.storageLocations.status,
+          bookingMode: schema.storageLocations.bookingMode,
+          updatedAt: schema.storageLocations.updatedAt
+        })
+        .from(schema.storageLocations)
+        .where(eq(schema.storageLocations.businessId, businessId))
+        .orderBy(desc(schema.storageLocations.updatedAt))
+    ]);
+
+    const activeCount = locations.filter((loc) => loc.status === "ACTIVE").length;
+
+    return {
+      id: row.business.id,
+      ownerUserId: row.business.ownerUserId,
+      ownerEmail: row.ownerEmail,
+      ownerDisplayName: row.ownerDisplayName,
+      legalBusinessName: row.business.legalBusinessName,
+      tradeName: row.business.tradeName,
+      businessRegistrationNumber: row.business.businessRegistrationNumber,
+      entityType: row.business.entityType as AdminHostDirectoryDetail["entityType"],
+      city: row.business.city,
+      contactEmail: row.business.contactEmail,
+      contactPhone: row.business.contactPhone,
+      status: row.business.status as AdminHostDirectoryDetail["status"],
+      verificationStatus:
+        (latestVerification?.status as AdminHostDirectoryDetail["verificationStatus"]) ?? null,
+      locationCount: locations.length,
+      activeLocationCount: activeCount,
+      createdAt: row.business.createdAt.toISOString(),
+      updatedAt: row.business.updatedAt.toISOString(),
+      taxIdentifier: row.business.taxIdentifier,
+      addressLine1: row.business.addressLine1,
+      addressLine2: row.business.addressLine2,
+      postalCode: row.business.postalCode,
+      countryCode: row.business.countryCode,
+      latestVerification: latestVerification ?? null,
+      locations: locations.map((loc) => ({
+        id: loc.id,
+        name: loc.name,
+        city: loc.city,
+        status: loc.status,
+        bookingMode: loc.bookingMode,
+        updatedAt: loc.updatedAt.toISOString()
+      }))
+    };
+  }
+
+  async adminSuspendBusiness(
+    businessId: string,
+    reason: string,
+    context: HostContext
+  ): Promise<AdminHostDirectoryDetail> {
+    await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.hostBusinesses)
+        .where(eq(schema.hostBusinesses.id, businessId))
+        .for("update")
+        .limit(1);
+
+      if (!existing) {
+        throw AppError.notFound("Host business not found");
+      }
+
+      if (existing.status === "SUSPENDED") {
+        throw AppError.badRequest("Host business is already suspended");
+      }
+
+      await tx
+        .update(schema.hostBusinesses)
+        .set({
+          status: "SUSPENDED",
+          updatedAt: new Date()
+        })
+        .where(eq(schema.hostBusinesses.id, businessId));
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.HOST_BUSINESS_SUSPENDED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        tx,
+        metadata: {
+          businessId,
+          tradeName: existing.tradeName,
+          previousStatus: existing.status,
+          newStatus: "SUSPENDED",
+          reason
+        }
+      });
+    });
+
+    return this.getAdminHostBusinessDetail(businessId);
+  }
+
+  async adminReinstateBusiness(
+    businessId: string,
+    reason: string | undefined,
+    context: HostContext
+  ): Promise<AdminHostDirectoryDetail> {
+    await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(schema.hostBusinesses)
+        .where(eq(schema.hostBusinesses.id, businessId))
+        .for("update")
+        .limit(1);
+
+      if (!existing) {
+        throw AppError.notFound("Host business not found");
+      }
+
+      if (existing.status !== "SUSPENDED") {
+        throw AppError.badRequest("Only suspended host businesses can be reinstated");
+      }
+
+      const [latestVerif] = await tx
+        .select({ status: schema.hostVerifications.status })
+        .from(schema.hostVerifications)
+        .where(eq(schema.hostVerifications.businessId, businessId))
+        .orderBy(desc(schema.hostVerifications.createdAt))
+        .limit(1);
+
+      // Preserve KYC integrity: never promote an unapproved business directly to ACTIVE on reinstate
+      let nextStatus: AdminHostDirectoryItem["status"] = "DRAFT";
+      if (latestVerif?.status === "APPROVED") {
+        nextStatus = "ACTIVE";
+      } else if (
+        latestVerif?.status === "PENDING_REVIEW" ||
+        latestVerif?.status === "INFORMATION_REQUESTED"
+      ) {
+        nextStatus = "PENDING_VERIFICATION";
+      } else if (latestVerif?.status === "REJECTED") {
+        nextStatus = "REJECTED";
+      }
+
+      await tx
+        .update(schema.hostBusinesses)
+        .set({
+          status: nextStatus,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.hostBusinesses.id, businessId));
+
+      await auditService.recordEvent({
+        eventType: SecurityEventType.HOST_BUSINESS_REINSTATED,
+        userId: context.userId,
+        clientInfo: context.clientInfo,
+        tx,
+        metadata: {
+          businessId,
+          tradeName: existing.tradeName,
+          previousStatus: existing.status,
+          newStatus: nextStatus,
+          reason: reason ?? "Administrative reinstatement"
+        }
+      });
+    });
+
+    return this.getAdminHostBusinessDetail(businessId);
   }
 }
 

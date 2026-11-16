@@ -638,10 +638,21 @@ describe("Initiative 1 — Foundation Hardening & Regression Suite", () => {
         ) +
         "\n" +
         featureHostSrc;
-      const adminSrc = fs.readFileSync(
-        path.resolve(__dirname, "../src/pages/AdminDashboardPages.tsx"),
-        "utf-8"
-      );
+      const adminDir = path.resolve(__dirname, "../src/features/admin");
+      const featureAdminSrc = fs.existsSync(adminDir)
+        ? fs
+            .readdirSync(adminDir)
+            .filter((f) => f.endsWith(".ts") || f.endsWith(".tsx"))
+            .map((f) => fs.readFileSync(path.join(adminDir, f), "utf-8"))
+            .join("\n")
+        : "";
+      const adminSrc =
+        fs.readFileSync(
+          path.resolve(__dirname, "../src/pages/AdminDashboardPages.tsx"),
+          "utf-8"
+        ) +
+        "\n" +
+        featureAdminSrc;
 
       expect(alertSrc).toContain('variant === "danger" || variant === "warning" ? "alert" : "status"');
       expect(publicSrc).toContain('<Alert variant="danger"');

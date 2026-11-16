@@ -17,9 +17,39 @@ import {
   VerifyEmailResponseData,
   ResendVerificationRequest,
   ResendVerificationResponseData,
-  SecurityAuditEvent
+  SecurityAuditEvent,
+  AdminUserQuery,
+  AdminUserSummary,
+  AdminUserDetail,
+  AdminSuspendUserRequest,
+  AdminReinstateUserRequest,
+  AdminDeactivateUserRequest,
+  AdminReactivateUserRequest,
+  AdminVerifyEmailRequest,
+  AdminLifecycleActionResponseData,
+  AdminAuditEventQuery,
+  Permission,
+  RoleDetail,
+  AssignUserRoleRequest,
+  AssignUserRoleResponseData,
+  RevokeUserRoleResponseData,
+  UserEffectivePermissionsResponseData,
+  PaginatedApiResponse,
+  PaginationMeta
 } from "@luggage-storage/contracts";
 import { fetchApi } from "../lib/api-client";
+
+function buildDefaultPagination(page: number, limit: number, total: number): PaginationMeta {
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  return {
+    page,
+    limit,
+    total,
+    totalPages,
+    hasNext: page < totalPages,
+    hasPrev: page > 1
+  };
+}
 
 export const authApi = {
   /**
@@ -180,6 +210,160 @@ export const authApi = {
     const queryString = search.toString();
     const res = await fetchApi<SecurityAuditEvent[]>(
       `/admin/audit-events${queryString ? `?${queryString}` : ""}`
+    );
+    return res.data;
+  },
+
+  /**
+   * Retrieve paginated & filterable security audit events with full pagination metadata.
+   */
+  async listAdminAuditEventsPaginated(
+    params: Partial<AdminAuditEventQuery> = {}
+  ): Promise<{ items: SecurityAuditEvent[]; pagination: PaginationMeta }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 25;
+    const search = new URLSearchParams();
+    search.set("page", String(page));
+    search.set("limit", String(limit));
+    if (params.eventType) search.set("eventType", params.eventType);
+    if (params.userId) search.set("userId", params.userId);
+    if (params.from) search.set("from", params.from);
+    if (params.to) search.set("to", params.to);
+    const res = (await fetchApi<SecurityAuditEvent[]>(
+      `/admin/audit-events?${search.toString()}`
+    )) as unknown as PaginatedApiResponse<SecurityAuditEvent>;
+    const items = Array.isArray(res.data) ? res.data : [];
+    const pagination = res.pagination ?? buildDefaultPagination(page, limit, items.length);
+    return { items, pagination };
+  },
+
+  async getAdminAuditEventById(eventId: string): Promise<SecurityAuditEvent> {
+    const res = await fetchApi<{ event: SecurityAuditEvent }>(
+      `/admin/audit-events/${eventId}`
+    );
+    return res.data.event;
+  },
+
+  // ==========================================================================
+  // Administrative User Lifecycle & RBAC Governance (AD-018)
+  // ==========================================================================
+
+  async listAdminUsers(
+    params: Partial<AdminUserQuery> = {}
+  ): Promise<{ users: AdminUserSummary[]; pagination: PaginationMeta }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const search = new URLSearchParams();
+    search.set("page", String(page));
+    search.set("limit", String(limit));
+    if (params.status) search.set("status", params.status);
+    if (params.search) search.set("search", params.search);
+    if (params.role) search.set("role", params.role);
+    const res = (await fetchApi<AdminUserSummary[]>(
+      `/admin/users?${search.toString()}`
+    )) as unknown as PaginatedApiResponse<AdminUserSummary>;
+    const users = Array.isArray(res.data) ? res.data : [];
+    const pagination = res.pagination ?? buildDefaultPagination(page, limit, users.length);
+    return { users, pagination };
+  },
+
+  async getAdminUserById(userId: string): Promise<AdminUserDetail> {
+    const res = await fetchApi<AdminUserDetail>(`/admin/users/${userId}`);
+    return res.data;
+  },
+
+  async suspendAdminUser(
+    userId: string,
+    data: AdminSuspendUserRequest
+  ): Promise<AdminLifecycleActionResponseData> {
+    const res = await fetchApi<AdminLifecycleActionResponseData>(
+      `/admin/users/${userId}/suspend`,
+      { method: "POST", body: JSON.stringify(data) }
+    );
+    return res.data;
+  },
+
+  async reinstateAdminUser(
+    userId: string,
+    data: AdminReinstateUserRequest = {}
+  ): Promise<AdminLifecycleActionResponseData> {
+    const res = await fetchApi<AdminLifecycleActionResponseData>(
+      `/admin/users/${userId}/reinstate`,
+      { method: "POST", body: JSON.stringify(data) }
+    );
+    return res.data;
+  },
+
+  async deactivateAdminUser(
+    userId: string,
+    data: AdminDeactivateUserRequest
+  ): Promise<AdminLifecycleActionResponseData> {
+    const res = await fetchApi<AdminLifecycleActionResponseData>(
+      `/admin/users/${userId}/deactivate`,
+      { method: "POST", body: JSON.stringify(data) }
+    );
+    return res.data;
+  },
+
+  async reactivateAdminUser(
+    userId: string,
+    data: AdminReactivateUserRequest = {}
+  ): Promise<AdminLifecycleActionResponseData> {
+    const res = await fetchApi<AdminLifecycleActionResponseData>(
+      `/admin/users/${userId}/reactivate`,
+      { method: "POST", body: JSON.stringify(data) }
+    );
+    return res.data;
+  },
+
+  async verifyAdminUserEmail(
+    userId: string,
+    data: AdminVerifyEmailRequest = {}
+  ): Promise<AdminLifecycleActionResponseData> {
+    const res = await fetchApi<AdminLifecycleActionResponseData>(
+      `/admin/users/${userId}/verify-email`,
+      { method: "POST", body: JSON.stringify(data) }
+    );
+    return res.data;
+  },
+
+  async listAdminRoles(): Promise<RoleDetail[]> {
+    const res = await fetchApi<RoleDetail[] | { roles: RoleDetail[] }>("/admin/roles");
+    return Array.isArray(res.data) ? res.data : (res.data?.roles ?? []);
+  },
+
+  async listAdminPermissions(): Promise<Permission[]> {
+    const res = await fetchApi<Permission[] | { permissions: Permission[] }>(
+      "/admin/permissions"
+    );
+    return Array.isArray(res.data) ? res.data : (res.data?.permissions ?? []);
+  },
+
+  async getAdminUserPermissions(userId: string): Promise<UserEffectivePermissionsResponseData> {
+    const res = await fetchApi<UserEffectivePermissionsResponseData>(
+      `/admin/users/${userId}/permissions`
+    );
+    return res.data;
+  },
+
+  async assignAdminUserRole(
+    userId: string,
+    data: AssignUserRoleRequest
+  ): Promise<AssignUserRoleResponseData> {
+    const res = await fetchApi<AssignUserRoleResponseData>(`/admin/users/${userId}/roles`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async revokeAdminUserRole(
+    userId: string,
+    roleCode: string
+  ): Promise<RevokeUserRoleResponseData> {
+    const res = await fetchApi<RevokeUserRoleResponseData>(
+      `/admin/users/${userId}/roles/${encodeURIComponent(roleCode)}`,
+      { method: "DELETE" }
     );
     return res.data;
   }
