@@ -4,7 +4,9 @@ import type {
   AdminAuditEventQuery,
   AdminHostListQuery,
   AdminLedgerQuery,
+  AdminPayoutBatchQuery,
   AdminRefundListQuery,
+  AdminSupportTicketQuery,
   AdminUserQuery,
   AvailabilitySearchQuery,
   BookingListQuery,
@@ -33,7 +35,9 @@ export const travellerQueryKeys = {
   bookingDetail: (bookingId: string) =>
     ["traveller", "bookings", "detail", bookingId] as const,
   checkoutStatus: (query: CheckoutStatusQuery) =>
-    ["traveller", "payments", "checkout-status", query] as const
+    ["traveller", "payments", "checkout-status", query] as const,
+  supportTickets: () => ["traveller", "support", "tickets"] as const,
+  supportTicketDetail: (ticketId: string) => ["traveller", "support", "detail", ticketId] as const
 };
 
 export const hostQueryKeys = {
@@ -55,7 +59,9 @@ export const hostQueryKeys = {
   bookingDetail: (bookingId: string) => ["host", "bookings", "detail", bookingId] as const,
   custodyDetail: (bookingId: string) => ["host", "custody", "detail", bookingId] as const,
   financeSummary: (businessId?: string) =>
-    ["host", "finance", "summary", businessId ?? "all"] as const
+    ["host", "finance", "summary", businessId ?? "all"] as const,
+  payoutBatches: (businessId?: string) =>
+    ["host", "finance", "payout-batches", businessId ?? "all"] as const
 };
 
 export const adminQueryKeys = {
@@ -82,6 +88,14 @@ export const adminQueryKeys = {
     ["admin", "refunds", "list", params] as const,
   ledger: (params: Partial<AdminLedgerQuery> = {}) =>
     ["admin", "finance", "ledger", params] as const,
+  eligiblePayables: (businessId?: string) =>
+    ["admin", "payouts", "eligible-payables", businessId ?? "all"] as const,
+  payoutBatches: (params: Partial<AdminPayoutBatchQuery> = {}) =>
+    ["admin", "payouts", "batches", params] as const,
+  payoutBatchDetail: (batchId: string) => ["admin", "payouts", "detail", batchId] as const,
+  supportTickets: (params: Partial<AdminSupportTicketQuery> = {}) =>
+    ["admin", "support", "list", params] as const,
+  supportTicketDetail: (ticketId: string) => ["admin", "support", "detail", ticketId] as const,
   auditEvents: (params: Partial<AdminAuditEventQuery> = {}) =>
     ["admin", "audit-events", "list", params] as const,
   auditEventDetail: (eventId: string) => ["admin", "audit-events", "detail", eventId] as const,

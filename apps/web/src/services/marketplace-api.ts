@@ -73,6 +73,22 @@ import {
   AdminReinstateHostBusinessRequest,
   HostVerificationQueueQuery,
   LocationModerationQueueQuery,
+  ResolveBookingDisputeRequest,
+  EligibleHostPayablesGroup,
+  CreatePayoutBatchRequest,
+  DisbursePayoutBatchRequest,
+  PayoutBatchSummary,
+  PayoutBatchDetail,
+  AdminPayoutBatchQuery,
+  CreateSupportTicketRequest,
+  SupportTicketCreatedResponse,
+  SupportTicketSummary,
+  SupportTicketCustomerDetail,
+  SupportTicketAdminDetail,
+  SupportTicketReplyRequest,
+  CustomerSupportTicketReplyRequest,
+  AdminUpdateSupportTicketRequest,
+  AdminSupportTicketQuery,
   PaginatedApiResponse,
   PaginationMeta
 } from "@luggage-storage/contracts";
@@ -1071,6 +1087,188 @@ export const marketplaceApi = {
     const res = await fetchApi<AdminLedgerResponse>(
       `/admin/finance/ledger${qs ? `?${qs}` : ""}`,
       { method: "GET" }
+    );
+    return res.data;
+  },
+
+  // ==========================================================================
+  // 13. Initiative 6 — Dispute Adjudication, Payout Batches & Support Desk
+  // ==========================================================================
+
+  async adminResolveBookingDispute(
+    bookingId: string,
+    data: ResolveBookingDisputeRequest
+  ): Promise<BookingDetail> {
+    const res = await fetchApi<BookingDetail>(`/admin/bookings/${bookingId}/resolve-dispute`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async getAdminEligiblePayables(businessId?: string): Promise<EligibleHostPayablesGroup[]> {
+    const qs = businessId ? `?businessId=${encodeURIComponent(businessId)}` : "";
+    const res = await fetchApi<{ groups: EligibleHostPayablesGroup[] }>(
+      `/admin/payouts/eligible-payables${qs}`,
+      { method: "GET" }
+    );
+    return res.data.groups;
+  },
+
+  async getAdminPayoutBatches(params: Partial<AdminPayoutBatchQuery> = {}): Promise<{
+    batches: PayoutBatchSummary[];
+    total: number;
+    pagination: PaginationMeta;
+  }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (params.status) query.set("status", params.status);
+    if (params.businessId) query.set("businessId", params.businessId);
+    const res = (await fetchApi<PayoutBatchSummary[]>(
+      `/admin/payouts/batches?${query.toString()}`,
+      { method: "GET" }
+    )) as unknown as PaginatedApiResponse<PayoutBatchSummary>;
+    const batches = res.data ?? [];
+    const total = res.pagination?.total ?? batches.length;
+    return {
+      batches,
+      total,
+      pagination: res.pagination ?? buildDefaultPagination(page, limit, total)
+    };
+  },
+
+  async getAdminPayoutBatchDetail(batchId: string): Promise<PayoutBatchDetail> {
+    const res = await fetchApi<PayoutBatchDetail>(`/admin/payouts/batches/${batchId}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  async createAdminPayoutBatch(data: CreatePayoutBatchRequest): Promise<PayoutBatchDetail> {
+    const res = await fetchApi<PayoutBatchDetail>("/admin/payouts/batches", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async disburseAdminPayoutBatch(
+    batchId: string,
+    data: DisbursePayoutBatchRequest
+  ): Promise<PayoutBatchDetail> {
+    const res = await fetchApi<PayoutBatchDetail>(`/admin/payouts/batches/${batchId}/disburse`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async getHostPayoutBatches(businessId?: string): Promise<PayoutBatchSummary[]> {
+    const qs = businessId ? `?businessId=${encodeURIComponent(businessId)}` : "";
+    const res = await fetchApi<{ batches: PayoutBatchSummary[] }>(
+      `/hosts/finance/payout-batches${qs}`,
+      { method: "GET" }
+    );
+    return res.data.batches;
+  },
+
+  async createSupportTicket(
+    data: CreateSupportTicketRequest
+  ): Promise<SupportTicketCreatedResponse> {
+    const res = await fetchApi<SupportTicketCreatedResponse>("/support/tickets", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async getMySupportTickets(): Promise<SupportTicketSummary[]> {
+    const res = await fetchApi<{ tickets: SupportTicketSummary[] }>("/support/tickets/me", {
+      method: "GET"
+    });
+    return res.data.tickets;
+  },
+
+  async getMySupportTicketDetail(ticketId: string): Promise<SupportTicketCustomerDetail> {
+    const res = await fetchApi<SupportTicketCustomerDetail>(
+      `/support/tickets/me/${encodeURIComponent(ticketId)}`,
+      { method: "GET" }
+    );
+    return res.data;
+  },
+
+  async replyMySupportTicket(
+    ticketId: string,
+    data: CustomerSupportTicketReplyRequest
+  ): Promise<SupportTicketCustomerDetail> {
+    const res = await fetchApi<SupportTicketCustomerDetail>(
+      `/support/tickets/me/${encodeURIComponent(ticketId)}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify(data)
+      }
+    );
+    return res.data;
+  },
+
+  async getAdminSupportTickets(params: Partial<AdminSupportTicketQuery> = {}): Promise<{
+    tickets: SupportTicketSummary[];
+    total: number;
+    pagination: PaginationMeta;
+  }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (params.status) query.set("status", params.status);
+    if (params.priority) query.set("priority", params.priority);
+    if (params.category) query.set("category", params.category);
+    if (params.search) query.set("search", params.search);
+    const res = (await fetchApi<SupportTicketSummary[]>(
+      `/admin/support/tickets?${query.toString()}`,
+      { method: "GET" }
+    )) as unknown as PaginatedApiResponse<SupportTicketSummary>;
+    const tickets = res.data ?? [];
+    const total = res.pagination?.total ?? tickets.length;
+    return {
+      tickets,
+      total,
+      pagination: res.pagination ?? buildDefaultPagination(page, limit, total)
+    };
+  },
+
+  async getAdminSupportTicketDetail(ticketId: string): Promise<SupportTicketAdminDetail> {
+    const res = await fetchApi<SupportTicketAdminDetail>(
+      `/admin/support/tickets/${encodeURIComponent(ticketId)}`,
+      { method: "GET" }
+    );
+    return res.data;
+  },
+
+  async replyAdminSupportTicket(
+    ticketId: string,
+    data: SupportTicketReplyRequest
+  ): Promise<SupportTicketAdminDetail> {
+    const res = await fetchApi<SupportTicketAdminDetail>(
+      `/admin/support/tickets/${encodeURIComponent(ticketId)}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify(data)
+      }
+    );
+    return res.data;
+  },
+
+  async updateAdminSupportTicket(
+    ticketId: string,
+    data: AdminUpdateSupportTicketRequest
+  ): Promise<SupportTicketAdminDetail> {
+    const res = await fetchApi<SupportTicketAdminDetail>(
+      `/admin/support/tickets/${encodeURIComponent(ticketId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data)
+      }
     );
     return res.data;
   }
