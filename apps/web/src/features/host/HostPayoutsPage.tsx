@@ -5,6 +5,7 @@ import { isDemoPreviewActive } from "@/config/demo-preview";
 import { formatLkr } from "@/data/mock-marketplace";
 import {
   useHostFinanceSummaryQuery,
+  useHostPayoutBatchesQuery,
   useHostPayoutDetailsQuery,
   useOwnedBusinessesQuery,
   useUpdateBusinessMutation
@@ -48,6 +49,9 @@ export function HostPayoutAccountsHistoryPage() {
   const financeQuery = useHostFinanceSummaryQuery(activeBusiness?.id, {
     enabled: isAuthenticated && !showDemo && Boolean(activeBusiness?.id) && canActAsHostOwner
   });
+  const payoutBatchesQuery = useHostPayoutBatchesQuery(activeBusiness?.id, {
+    enabled: isAuthenticated && !showDemo && Boolean(activeBusiness?.id) && canActAsHostOwner
+  });
   const updateBusinessMutation = useUpdateBusinessMutation();
 
   const [showEditBankModal, setShowEditBankModal] = useState(false);
@@ -65,6 +69,7 @@ export function HostPayoutAccountsHistoryPage() {
   const liveAccountMasked =
     livePayout?.payoutAccountNumberMasked ?? activeBusiness?.payoutAccountNumberMasked ?? null;
   const livePayables = financeQuery.data?.payables ?? [];
+  const liveBatches = payoutBatchesQuery.data ?? [];
 
   const demoBatches = showDemo
     ? [
@@ -193,7 +198,46 @@ export function HostPayoutAccountsHistoryPage() {
       (financeQuery.error instanceof Error
         ? financeQuery.error.message
         : "Unable to load settlement history.")) ||
+    (payoutBatchesQuery.isError &&
+      (payoutBatchesQuery.error instanceof Error
+        ? payoutBatchesQuery.error.message
+        : "Unable to load payout batch statements.")) ||
     null;
+
+  const handleExportBatchCsv = () => {
+    const csv = serializeCsv(
+      [
+        "Batch Code",
+        "Bookings",
+        "Gross Minor",
+        "Commission Minor",
+        "Net Payable Minor",
+        "Currency",
+        "Method",
+        "Bank Reference",
+        "Status",
+        "Disbursed At"
+      ],
+      liveBatches.map((b) => [
+        b.batchCode,
+        b.itemCount,
+        b.totalGrossMinor,
+        b.totalCommissionMinor,
+        b.totalNetPayableMinor,
+        b.currency,
+        b.payoutMethod,
+        b.payoutReference ?? "",
+        b.status,
+        b.disbursedAt ?? ""
+      ])
+    );
+    const saved = downloadCsvFile("host-payout-batches.csv", csv);
+    setStatusMessage(
+      saved
+        ? `Exported ${liveBatches.length} payout batch statement(s) to CSV.`
+        : "Prepared payout batch statement CSV."
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -204,6 +248,7 @@ export function HostPayoutAccountsHistoryPage() {
             void businessesQuery.refetch();
             void payoutQuery.refetch();
             void financeQuery.refetch();
+            void payoutBatchesQuery.refetch();
           }}
         />
       )}
@@ -265,14 +310,13 @@ export function HostPayoutAccountsHistoryPage() {
           </div>
         </div>
       ) : (
-        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
+          <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
           <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
           <div>
-            <strong className="text-navy-950">Settlement Schedule Notice:</strong> Bank details
-            saved below are encrypted and stored for{" "}
-            {activeBusiness?.tradeName || "your host organization"}. Automated weekly CEFT payout
-            batch execution and downloadable PDF remittance statements activate under Platform
-            Governance &amp; Finance Batch Settlement.
+            <strong className="text-navy-950">Beneficiary &amp; Settlement Notice:</strong> Bank
+            details saved below are encrypted and used for{" "}
+            {activeBusiness?.tradeName || "your host organization"} payout batches and remittance
+            statements.
           </div>
         </div>
       )}
@@ -353,6 +397,83 @@ export function HostPayoutAccountsHistoryPage() {
             Submit corporate bank beneficiary details via Update Bank Details so payouts can be
             routed cleanly when batch disbursement runs.
           </p>
+        </div>
+      )}
+
+      {/* Live Settlement Payout Batches */}
+      {!showDemo && (
+        <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
+          <div className="p-4 border-b border-sand-200 flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-navy-950">Settlement Payout Batches</h3>
+              <p className="text-[11px] text-navy-600">
+                Disbursed and pending bank settlement runs with CEFT / SLIPS transfer references.
+              </p>
+            </div>
+            {liveBatches.length > 0 && (
+              <button
+                type="button"
+                onClick={handleExportBatchCsv}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 hover:bg-sand-50 text-navy-900 text-xs font-bold transition"
+              >
+                <Download className="h-3.5 w-3.5 text-terracotta-600" />
+                <span>Export Remittance CSV</span>
+              </button>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-sand-50 border-b border-sand-200 text-navy-500 uppercase font-bold text-[10px] tracking-wider">
+                  <th className="p-3.5">Batch Code</th>
+                  <th className="p-3.5">Bookings</th>
+                  <th className="p-3.5">Net Settlement</th>
+                  <th className="p-3.5">Method &amp; Reference</th>
+                  <th className="p-3.5">Disbursed Date</th>
+                  <th className="p-3.5">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-sand-100">
+                {liveBatches.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-navy-500">
+                      No settlement payout batches generated for this organization yet.
+                    </td>
+                  </tr>
+                ) : (
+                  liveBatches.map((batch) => (
+                    <tr key={batch.id} className="hover:bg-sand-50/70 transition">
+                      <td className="p-3.5 font-mono font-bold text-navy-900">{batch.batchCode}</td>
+                      <td className="p-3.5 text-navy-700">{batch.itemCount}</td>
+                      <td className="p-3.5 font-bold text-emerald-700">
+                        {formatLkrMinor(batch.totalNetPayableMinor, batch.currency)}
+                      </td>
+                      <td className="p-3.5 font-mono text-navy-700">
+                        {batch.payoutMethod}
+                        {batch.payoutReference ? ` • ${batch.payoutReference}` : ""}
+                      </td>
+                      <td className="p-3.5 text-navy-600">
+                        {batch.disbursedAt
+                          ? formatDateTimeDisplay(batch.disbursedAt)
+                          : "Scheduled Transfer"}
+                      </td>
+                      <td className="p-3.5">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                            batch.status === "DISBURSED"
+                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              : "bg-amber-50 text-amber-950 border-amber-300"
+                          }`}
+                        >
+                          {batch.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

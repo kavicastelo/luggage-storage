@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { MascotIllustration } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
+import { isFeaturePromotionsEnabled, isFeatureReviewsEnabled } from "@/config/feature-flags";
 import { useAuthStore } from "@/store/useAuthStore";
 
 export type EffectiveAdminRole = "SUPERADMIN" | "SUPPORT";
@@ -246,7 +247,14 @@ export function AdminDashboardLayout() {
     return <Navigate to={`/admin/bookings${querySuffix}`} replace />;
   }
 
-  const matchedItem = ADMIN_NAV_ITEMS.find((item) => {
+  const visibleNavItems = ADMIN_NAV_ITEMS.filter((item) => {
+    if (isDemoActive) return true;
+    if (item.key === "reviews") return isFeatureReviewsEnabled();
+    if (item.key === "promotions") return isFeaturePromotionsEnabled();
+    return true;
+  });
+
+  const matchedItem = visibleNavItems.find((item) => {
     if (normalizedPath === item.to) return true;
     if (item.matchPrefix && normalizedPath.startsWith(`${item.matchPrefix}/`)) return true;
     return false;
@@ -309,7 +317,7 @@ export function AdminDashboardLayout() {
           aria-label="Admin portal navigation"
           className="bg-white rounded-2xl border border-slate-200 p-2.5 space-y-1 shadow-sm max-h-[75vh] overflow-y-auto"
         >
-          {ADMIN_NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive =
               normalizedPath === item.to ||

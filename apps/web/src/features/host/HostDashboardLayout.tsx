@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { isDemoPreviewActive } from "@/config/demo-preview";
+import { isFeatureReviewsEnabled } from "@/config/feature-flags";
 import { DEMO_LOCATIONS, type StorageLocationItem } from "@/data/mock-marketplace";
 import {
   useHostLocationsQuery,
@@ -198,6 +199,7 @@ export function HostDashboardLayout() {
     effectiveSelectedLocationId ||
     (!isAuthenticated && isDemoActive ? DEMO_LOCATIONS[0].id : "select");
 
+  const showReviewsNav = (!isAuthenticated && isDemoActive) || isFeatureReviewsEnabled();
   const operationalNavItems = [
     { label: "Overview", to: "/host/dashboard", icon: LayoutDashboard, ownerOnly: false },
     {
@@ -209,7 +211,9 @@ export function HostDashboardLayout() {
     },
     { label: "Bookings Hub", to: "/host/bookings", icon: Briefcase, ownerOnly: false },
     { label: "Storage Hubs", to: "/host/locations", icon: MapPin, ownerOnly: false },
-    { label: "Customer Reviews", to: "/host/reviews", icon: Star, ownerOnly: false }
+    ...(showReviewsNav
+      ? [{ label: "Customer Reviews", to: "/host/reviews", icon: Star, ownerOnly: false }]
+      : [])
   ];
 
   const locationConfigNavItems = [

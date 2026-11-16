@@ -13,14 +13,28 @@ import {
   HelpCircle,
   Search,
   Building2,
-  Calculator
+  Calculator,
+  MessageSquare,
+  Send
 } from "lucide-react";
+import {
+  SUPPORT_TICKET_CATEGORIES,
+  type SupportTicketCategory,
+  type SupportTicketCreatedResponse
+} from "@luggage-storage/contracts";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { formatLkr } from "@/data/mock-marketplace";
+import {
+  useCreateSupportTicketMutation,
+  useMySupportTicketDetailQuery,
+  useMySupportTicketsQuery,
+  useReplyMySupportTicketMutation
+} from "@/hooks/queries/use-support-tickets";
+import { formatDateTimeDisplay } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 
 export function BecomeAHostLandingPage() {
@@ -326,12 +340,25 @@ export function HelpCentreFaqPage() {
 }
 
 export function ContactUsPage() {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const { isAuthenticated, user } = useAuthStore();
+  const [name, setName] = useState(user?.displayName ?? "");
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [category, setCategory] = useState<SupportTicketCategory>("GENERAL_INQUIRY");
+  const [subject, setSubject] = useState("");
   const [bookingRef, setBookingRef] = useState("");
   const [message, setMessage] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [preparedMailto, setPreparedMailto] = useState<string | null>(null);
+  const [createdTicket, setCreatedTicket] = useState<SupportTicketCreatedResponse | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [followUpMessage, setFollowUpMessage] = useState("");
+  const [replyError, setReplyError] = useState<string | null>(null);
+
+  const createTicketMutation = useCreateSupportTicketMutation();
+  const myTicketsQuery = useMySupportTicketsQuery({ enabled: isAuthenticated });
+  const myTicketDetailQuery = useMySupportTicketDetailQuery(selectedTicketId ?? undefined, {
+    enabled: isAuthenticated && Boolean(selectedTicketId)
+  });
+  const replyTicketMutation = useReplyMySupportTicketMutation();
 
   useEffect(() => {
     if (typeof document !== "undefined") {
@@ -339,38 +366,73 @@ export function ContactUsPage() {
     }
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      setName((prev) => prev || user.displayName || "");
+      setEmail((prev) => prev || user.email || "");
+    }
+  }, [isAuthenticated, user]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setValidationError(null);
 
-    if (!name.trim() || !email.trim() || !message.trim()) {
-      setValidationError("Please complete your name, email address, and inquiry details.");
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+    const trimmedSubject = subject.trim() || "Customer Support Request";
+    const trimmedMessage = message.trim();
+
+    if (trimmedName.length < 2 || !trimmedEmail || trimmedMessage.length < 10) {
+      setValidationError(
+        "Please enter your name, valid email address, and at least 10 characters describing your request."
+      );
       return;
     }
 
-    const subject = bookingRef.trim()
-      ? `LuggageStorage Support — Booking ${bookingRef.trim()}`
-      : "LuggageStorage Customer Support Request";
-
-    const bodyLines = [
-      `Name: ${name.trim()}`,
-      `Reply Email: ${email.trim()}`,
-      bookingRef.trim() ? `Booking Reference: ${bookingRef.trim()}` : null,
-      "",
-      message.trim()
-    ]
-      .filter((line): line is string => line !== null)
-      .join("\n");
-
-    const mailtoHref = `mailto:support@luggagestorage.lk?subject=${encodeURIComponent(
-      subject
-    )}&body=${encodeURIComponent(bodyLines)}`;
-
-    setPreparedMailto(mailtoHref);
-    if (typeof window !== "undefined") {
-      window.location.href = mailtoHref;
+    try {
+      const created = await createTicketMutation.mutateAsync({
+        requesterName: trimmedName,
+        requesterEmail: trimmedEmail,
+        category,
+        subject: trimmedSubject,
+        message: trimmedMessage,
+        ...(bookingRef.trim() ? { bookingReference: bookingRef.trim() } : {})
+      });
+      setCreatedTicket(created);
+      setSubject("");
+      setMessage("");
+      setBookingRef("");
+      if (isAuthenticated) {
+        setSelectedTicketId(created.id);
+      }
+    } catch (err: unknown) {
+      setValidationError(
+        err instanceof Error ? err.message : "Unable to submit support request right now."
+      );
     }
   };
+
+  const handleReplySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTicketId) return;
+    setReplyError(null);
+    if (followUpMessage.trim().length < 2) {
+      setReplyError("Enter a follow-up message before sending.");
+      return;
+    }
+    try {
+      await replyTicketMutation.mutateAsync({
+        ticketId: selectedTicketId,
+        data: { message: followUpMessage.trim() }
+      });
+      setFollowUpMessage("");
+    } catch (err: unknown) {
+      setReplyError(err instanceof Error ? err.message : "Unable to post reply.");
+    }
+  };
+
+  const myTickets = myTicketsQuery.data ?? [];
+  const activeDetail = myTicketDetailQuery.data ?? null;
 
   return (
     <div className="space-y-8 pb-12 max-w-5xl mx-auto">
@@ -382,8 +444,8 @@ export function ContactUsPage() {
           Contact Customer Care &amp; Support
         </h1>
         <p className="text-sm text-sand-700">
-          For urgent active-custody issues, report an exception directly on your booking or contact
-          our Colombo operations team immediately.
+          For urgent active-custody issues, report an exception directly on your booking or submit
+          a tracked support request to our Colombo operations desk.
         </p>
       </div>
 
@@ -425,37 +487,34 @@ export function ContactUsPage() {
         </Card>
 
         <Card className="lg:col-span-7 p-6 bg-white space-y-4">
-          <h2 className="text-lg font-extrabold text-navy-950">Prepare Direct Email Inquiry</h2>
+          <h2 className="text-lg font-extrabold text-navy-950">Submit a Tracked Support Ticket</h2>
 
           {validationError && <Alert variant="danger">{validationError}</Alert>}
 
-          {preparedMailto ? (
-            <Alert variant="success" title="Email Draft Ready">
+          {createdTicket ? (
+            <Alert variant="success" title="Support Ticket Submitted">
               <p className="mb-3">
-                Your inquiry is addressed to{" "}
-                <span className="font-mono font-semibold">support@luggagestorage.lk</span>. If your
-                mail app did not open automatically, click below or call{" "}
+                Your inquiry is logged under reference{" "}
+                <span className="font-mono font-bold text-navy-950">
+                  {createdTicket.referenceCode}
+                </span>{" "}
+                ({createdTicket.category} • Priority {createdTicket.priority}). For urgent live
+                handover help call{" "}
                 <span className="font-mono font-semibold">+94 11 234 5678</span>.
               </p>
               <div className="flex flex-wrap gap-2">
-                <a
-                  href={preparedMailto}
-                  className="px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800"
-                >
-                  Open Email Client
-                </a>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setPreparedMailto(null)}
+                  onClick={() => setCreatedTicket(null)}
                 >
-                  Edit Message
+                  Submit Another Request
                 </Button>
               </div>
             </Alert>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
                   label="Full Name"
@@ -473,11 +532,36 @@ export function ContactUsPage() {
                   placeholder="you@example.com"
                 />
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-navy-900 mb-1.5">
+                    Inquiry Category
+                  </label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value as SupportTicketCategory)}
+                    className="w-full rounded-xl border border-sand-300 bg-white px-3.5 py-2.5 text-sm text-navy-950 focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                  >
+                    {SUPPORT_TICKET_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Input
+                  label="Booking Reference (Optional)"
+                  value={bookingRef}
+                  onChange={(e) => setBookingRef(e.target.value)}
+                  placeholder="e.g. LSB-20261115-..."
+                />
+              </div>
               <Input
-                label="Booking Reference (Optional)"
-                value={bookingRef}
-                onChange={(e) => setBookingRef(e.target.value)}
-                placeholder="e.g. LSB-20261115-..."
+                label="Subject"
+                required
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Brief summary of your inquiry"
               />
               <div>
                 <label className="block text-sm font-semibold text-navy-900 mb-1.5">
@@ -492,7 +576,11 @@ export function ContactUsPage() {
                   className="w-full rounded-xl border border-sand-300 bg-white px-3.5 py-2.5 text-sm text-navy-950 focus:outline-none focus:ring-2 focus:ring-terracotta-500"
                 />
               </div>
-              <Button type="submit" variant="primary">
+              <Button
+                type="submit"
+                variant="primary"
+                isLoading={createTicketMutation.isPending}
+              >
                 <CheckCircle2 className="h-4 w-4" />
                 Submit Support Request
               </Button>
@@ -500,6 +588,112 @@ export function ContactUsPage() {
           )}
         </Card>
       </div>
+
+      {isAuthenticated && (
+        <Card className="p-6 bg-white space-y-4">
+          <div className="flex items-center justify-between gap-2 border-b border-sand-200 pb-3">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-terracotta-600" />
+              <h2 className="text-lg font-extrabold text-navy-950">
+                Your Recent Support Tickets
+              </h2>
+            </div>
+            <span className="text-xs text-sand-700 font-semibold">{myTickets.length} ticket(s)</span>
+          </div>
+
+          {myTickets.length === 0 ? (
+            <p className="text-xs text-sand-700">
+              Tickets you submit while signed in appear here with live agent replies and status
+              updates.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
+              <div className="lg:col-span-5 space-y-2">
+                {myTickets.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setSelectedTicketId(t.id)}
+                    className={`w-full text-left p-3.5 rounded-xl border transition ${
+                      selectedTicketId === t.id
+                        ? "border-terracotta-500 bg-terracotta-50/40"
+                        : "border-sand-200 hover:bg-sand-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-navy-950">{t.referenceCode}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-sand-100 text-navy-800 font-bold text-[10px]">
+                        {t.status}
+                      </span>
+                    </div>
+                    <p className="font-bold text-navy-900 mt-1 truncate">{t.subject}</p>
+                    <p className="text-[11px] text-sand-700 mt-0.5">
+                      {t.category} • Updated {formatDateTimeDisplay(t.lastMessageAt)}
+                    </p>
+                  </button>
+                ))}
+              </div>
+
+              <div className="lg:col-span-7">
+                {!activeDetail ? (
+                  <p className="text-sand-700">Select a ticket to inspect agent updates.</p>
+                ) : (
+                  <div className="rounded-xl border border-sand-200 p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-sand-100 pb-2">
+                      <div>
+                        <p className="font-mono font-bold text-navy-950">
+                          {activeDetail.referenceCode}
+                        </p>
+                        <p className="font-bold text-navy-900">{activeDetail.subject}</p>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-sand-100 text-navy-800 font-bold text-[10px]">
+                        {activeDetail.status}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {activeDetail.messages.map((m) => (
+                        <div key={m.id} className="p-2.5 rounded-lg bg-sand-50 border border-sand-200">
+                          <div className="flex justify-between text-[10px] text-sand-700 mb-1">
+                            <span className="font-bold text-navy-900">
+                              {m.senderDisplayName} ({m.senderRole})
+                            </span>
+                            <span>{formatDateTimeDisplay(m.createdAt)}</span>
+                          </div>
+                          <p className="text-navy-900 whitespace-pre-wrap">{m.body}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {replyError && <Alert variant="danger">{replyError}</Alert>}
+
+                    {activeDetail.status !== "CLOSED" && (
+                      <form onSubmit={(e) => void handleReplySubmit(e)} className="flex gap-2">
+                        <input
+                          type="text"
+                          value={followUpMessage}
+                          onChange={(e) => setFollowUpMessage(e.target.value)}
+                          placeholder="Add a follow-up message..."
+                          className="flex-1 rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                        />
+                        <Button
+                          type="submit"
+                          variant="secondary"
+                          size="sm"
+                          isLoading={replyTicketMutation.isPending}
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          Send
+                        </Button>
+                      </form>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

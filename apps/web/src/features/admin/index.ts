@@ -13,10 +13,14 @@ export { AdminSecurityComplianceAuditLogPage } from "./AdminAuditLogPage";
 export { AdminStaffRbacManagementPage } from "./AdminUsersRbacPage";
 export {
   AdminHostPayoutBatchGenerationPage,
-  AdminManualPayoutDisbursementPage,
+  AdminManualPayoutDisbursementPage
+} from "./AdminPayoutsPages";
+export {
   AdminSupportTicketTriageQueuePage,
-  AdminSupportTicketResolutionViewPage,
-  AdminIncidentDisputeInvestigationPage,
+  AdminSupportTicketResolutionViewPage
+} from "./AdminSupportPages";
+export { AdminIncidentDisputeInvestigationPage } from "./AdminIncidentsDisputesPage";
+export {
   AdminReviewModerationQueuePage,
   AdminPromotionMarketingEnginePage,
   AdminPlatformSystemConfigurationPage
