@@ -61,25 +61,24 @@ Verified directly against `apps/api/src/app.ts` (`API_PREFIX = "/api/v1"`), rout
 | `POST /hosts/locations/:id/submit` | Owner | Requires parent business `ACTIVE`, opening hours, capacity pool, pricing policy |
 | `POST /hosts/locations/:id/disable` | Owner | Disables location (`INACTIVE`) |
 | `PUT /hosts/locations/:id/opening-hours` | Owner | Replaces 7-day weekly schedule |
-| `POST /hosts/locations/:id/exceptions` | Owner | Upserts closure/override by `exceptionDate` (**no `DELETE` route exists in backend**) |
-| `POST /hosts/locations/:id/zones` | Owner | Adds storage zone (`zoneCode`, `name`, `zoneType`) |
-| `POST /hosts/locations/:id/media` | Owner | Attaches uploaded location media metadata |
+| `POST /hosts/locations/:id/exceptions`, `DELETE .../exceptions/:exceptionId` | Owner | Upserts closure/override by `exceptionDate` and deletes saved exceptions (integrated in `location-editor.tsx`) |
+| `POST /hosts/locations/:id/zones`, `PATCH/DELETE .../zones/:zoneId` | Owner | Adds/updates/deletes storage zones |
+| `POST /hosts/locations/:id/media`, `PATCH/DELETE .../media/:mediaId` | Owner | Attaches/updates/removes location media metadata |
+| `GET/POST /hosts/businesses/:id/staff`, `PATCH/DELETE .../staff/:membershipId` | Owner (`HOST_OWNER`) | Lists, assigns, pauses/activates, and removes counter staff (integrated in `settings.tsx`) |
 | `GET/POST /hosts/locations/:id/capacity-pools`, `PATCH /hosts/capacity-pools/:poolId` | Owner | Configures capacity quotas by bag category |
 | `GET/PUT /hosts/locations/:id/pricing` | Owner | Configures hourly rate, daily cap, currency (`LKR`), bag multipliers, grace minutes |
 | `GET /hosts/bookings`, `/:id`, `POST /accept`, `/reject`, `/cancel` | `hosts.bookings.read_own` / `manage_own` | Owner or assigned staff; `reject` requires non-empty `reason`; `cancel` authorizes 100% traveller refund |
 | `POST /hosts/custody/verify`, `GET /hosts/custody/:id`, `POST /check-in`, `POST /check-out` | `hosts.custody.operate` | Verify checks QR/PIN without consuming (rate-limited `429`); check-in/out consumes credential and transitions state (`BR-035` / `OQ-015` zero possessory lien) |
-| `GET /hosts/finance/summary` | `hosts.finance.read_own` (`403` for `HOST_STAFF`) | Real `totalAccruedMinor`, `totalEligibleMinor`, `totalOnHoldMinor`, `totalPaidMinor`, `payables[]` |
+| `GET /hosts/finance/summary`, `GET /hosts/finance/payout-batches` | `hosts.finance.read_own` (`403` for `HOST_STAFF`) | Real `totalAccruedMinor`, `totalEligibleMinor`, `totalOnHoldMinor`, `totalPaidMinor`, `payables[]`, and settlement payout batches (`earnings.tsx`) |
+| `GET/PATCH /identity/profile` | `app.authenticate` | Retrieves and updates permitted self-service profile fields (`app/(account)/profile.tsx`) |
+| `POST /support/tickets`, `GET /support/tickets/me`, `GET/POST .../me/:ticketId*` | Authenticated (`POST` also allows guest) | Persisted customer/host support ticket creation, list, thread, and replies (`support.tsx`) |
 
 ---
 
-## 2. Explicit Missing Backend Capabilities (Documented — Never Faked)
+## 2. Explicit Missing Backend / Mobile Parity Items (Documented — Never Faked)
 
 1. **Saved / Favourite Locations:** No `/saved-locations` endpoint exists in `apps/api`. Implemented as honest device-local UUID list (`AsyncStorage`) hydrated against live `GET /discovery/locations/:locationId`, clearly labeled `"Saved on this device"`.
 2. **In-App Notifications & Preferences:** No `/notifications` endpoint or table exists. Fake notification inbox/toggles are omitted; operational reminders are derived strictly from live booking/host status.
 3. **Traveller Ratings & Reviews:** No `/reviews` endpoint or DB table exists (`averageRating: null`, `reviewCount: 0` in public discovery). Fabricated `4.8` ratings and fake review forms are removed and replaced with honest `"No verified reviews yet"`.
-4. **User Profile Self-Service Edit (`PATCH /identity/profile`):** Request schema exists in `@luggage-storage/contracts`, but no route is mounted in `apps/api/src/app.ts`. Profile screen renders live read-only `GET /auth/me` fields + working verification/security/session actions.
-5. **Support Ticketing (`TM-040`/`TM-041`):** No standalone `/support/tickets` endpoint exists. Active/completed/disputed bookings use real `POST /bookings/:id/exceptions`; general FAQ/help omits fake ticket creation.
-6. **Mid-Storage Time Extension (`TM-029`):** No `/bookings/:id/extend` endpoint exists. Fake `setTimeout` extension modal is removed.
-7. **Host Staff Invitations (`HM-033`/`HM-034`):** No mobile `/hosts/staff` invitation route exists in `apps/api`. Hardcoded mock staff names (`Roshan Fernando`) are removed from Settings.
-8. **Delete Schedule Exception:** `locations.routes.ts` provides `POST /hosts/locations/:id/exceptions` (date upsert) without `DELETE`.
-9. **Custody Check-In Photo Server Upload:** `uploads.routes.ts` only permits `HOST_VERIFICATION` and `LOCATION_IMAGE`. Per `OQ-014` (`DEC-001`), counter intake photo capture remains optional local counter reference only and never claims server persistence.
+4. **Mid-Storage Time Extension (`TM-029`):** No `/bookings/:id/extend` endpoint exists. Fake `setTimeout` extension modal is removed.
+5. **Custody Check-In Photo Server Upload (`app/(host)/intake.tsx`):** Backend supports `CUSTODY_EVIDENCE` on `uploads.routes.ts` and `photoFileKey` in `CompleteCheckInRequest`, while mobile `intake.tsx` currently captures `localPhotoUri` on-device only (deferred mobile enhancement).
