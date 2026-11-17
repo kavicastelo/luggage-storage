@@ -38,6 +38,7 @@ import {
   useCreateCapacityPoolMutation,
   useCreateLocationMutation,
   useCreateStorageZoneMutation,
+  useDeleteOpeningHoursExceptionMutation,
   useDisableLocationMutation,
   useHostLocationDetailQuery,
   useOwnedBusinessesQuery,
@@ -98,6 +99,7 @@ export default function HostLocationEditorScreen() {
   const updateLocationMutation = useUpdateLocationMutation();
   const setHoursMutation = useSetOpeningHoursMutation();
   const addExceptionMutation = useAddOpeningHoursExceptionMutation();
+  const deleteExceptionMutation = useDeleteOpeningHoursExceptionMutation();
   const createZoneMutation = useCreateStorageZoneMutation();
   const createPoolMutation = useCreateCapacityPoolMutation();
   const updatePoolMutation = useUpdateCapacityPoolMutation();
@@ -753,10 +755,38 @@ export default function HostLocationEditorScreen() {
                     }}
                   />
                   {(existing?.exceptions?.length ?? 0) > 0 ? (
-                    <Text style={styles.mutedNote}>
-                      Saved exceptions: {existing?.exceptions?.length}. Existing
-                      exceptions are read-only on mobile.
-                    </Text>
+                    <View style={styles.choicesWrap}>
+                      {(existing?.exceptions ?? []).map((ex) => (
+                        <View
+                          key={ex.id}
+                          style={{
+                            width: "100%",
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            paddingVertical: 6
+                          }}
+                        >
+                          <Text style={styles.mutedNote}>
+                            {ex.exceptionDate} • {ex.exceptionType}
+                            {ex.reason ? ` (${ex.reason})` : ""}
+                          </Text>
+                          <Button
+                            title="Remove"
+                            size="sm"
+                            variant="outline"
+                            isLoading={deleteExceptionMutation.isPending}
+                            onPress={() => {
+                              if (!existing?.id) return;
+                              void deleteExceptionMutation.mutateAsync({
+                                locationId: existing.id,
+                                exceptionId: ex.id
+                              });
+                            }}
+                          />
+                        </View>
+                      ))}
+                    </View>
                   ) : null}
                 </FormSection>
               </Card>

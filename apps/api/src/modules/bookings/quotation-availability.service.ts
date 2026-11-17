@@ -266,8 +266,7 @@ export class QuotationAndAvailabilityService {
       }
 
       if (weeklyHours.length === 0) {
-        // No weekly restrictions configured yet -> treat as 24/7 unless exception closed
-        return null;
+        return "Operating hours are not configured for this storage location";
       }
 
       const daySchedule = weeklyHours.find(

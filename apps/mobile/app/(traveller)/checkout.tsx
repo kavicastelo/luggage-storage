@@ -695,7 +695,7 @@ export default function TravellerCheckoutScreen() {
             <Card variant="elevated" style={styles.cardGap}>
               <FormSection
                 title="Storage Window"
-                subtitle={`Operating timezone: ${location?.timezone || "Asia/Colombo"} (${location?.operatingHoursSummary || "08:00 - 20:00"})`}
+                subtitle={`Operating timezone: ${location?.timezone || "Asia/Colombo"} (${location?.operatingHoursSummary ?? "Operating hours not configured"})`}
               >
                 <DateTimeSelector
                   label="Drop-off Date & Time"

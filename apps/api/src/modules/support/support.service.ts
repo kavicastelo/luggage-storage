@@ -523,12 +523,33 @@ export class SupportService {
 
     if (input.assignedToUserId) {
       const [assignee] = await db
-        .select({ id: schema.users.id })
+        .select({
+          id: schema.users.id,
+          status: schema.users.status
+        })
         .from(schema.users)
         .where(eq(schema.users.id, input.assignedToUserId))
         .limit(1);
       if (!assignee) {
         throw AppError.notFound("Assignee user not found");
+      }
+      if (assignee.status !== "ACTIVE") {
+        throw AppError.badRequest("Assignee account must be ACTIVE");
+      }
+
+      const roleRows = await db
+        .select({ code: schema.roles.code })
+        .from(schema.userRoles)
+        .innerJoin(schema.roles, eq(schema.userRoles.roleId, schema.roles.id))
+        .where(eq(schema.userRoles.userId, input.assignedToUserId));
+
+      const isEligibleAgent = roleRows.some(
+        (r) => r.code === "SUPPORT" || r.code === "SUPERADMIN"
+      );
+      if (!isEligibleAgent) {
+        throw AppError.badRequest(
+          "Assignee must hold an active SUPPORT or SUPERADMIN role"
+        );
       }
     }
 

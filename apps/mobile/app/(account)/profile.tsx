@@ -1,6 +1,13 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import {
+  CurrencyCodeSchema,
+  UpdateProfileRequestSchema,
+  type CurrencyCode,
+  type UpdateProfileRequest,
+  type UserProfileData
+} from "@luggage-storage/contracts";
 import {
   Badge,
   Button,
@@ -9,8 +16,12 @@ import {
   EmptyState,
   MobileIcon,
   ScreenContainer,
-  StatusBadge
+  SelectionCard,
+  StatusBadge,
+  TextInput
 } from "../../src/components";
+import { authApi } from "../../src/services/auth-api";
+import { normalizeApiError } from "../../src/services/api-client";
 import { useAuthStore } from "../../src/store/useAuthStore";
 import {
   mobileColors,
@@ -21,18 +32,82 @@ import {
   mobileTypography
 } from "../../src/lib/theme";
 
+const ROLE_DISPLAY_LABELS: Record<string, string> = {
+  TRAVELLER: "Traveller",
+  HOST_OWNER: "Host Partner",
+  HOST_STAFF: "Host Staff",
+  SUPPORT: "Support Specialist",
+  SUPERADMIN: "Platform Administrator"
+};
+
 export default function MobileProfileScreen() {
   const router = useRouter();
-  const { user, sessionId, permissions, logout } = useAuthStore();
+  const { user, logout, refreshUser } = useAuthStore();
+  const [profile, setProfile] = useState<UserProfileData | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  const [displayName, setDisplayName] = useState(user?.displayName ?? "");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [preferredLanguage, setPreferredLanguage] = useState("en");
+  const [preferredCurrency, setPreferredCurrency] = useState<CurrencyCode>("LKR");
+  const [emergencyContactName, setEmergencyContactName] = useState("");
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState("");
+
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const hydrateForm = (p: UserProfileData | null, fallbackName: string) => {
+    setDisplayName(p?.displayName ?? fallbackName);
+    setPhoneNumber(p?.phoneNumber ?? "");
+    setFirstName(p?.travellerProfile?.firstName ?? "");
+    setLastName(p?.travellerProfile?.lastName ?? "");
+    setPreferredLanguage(p?.travellerProfile?.preferredLanguage ?? "en");
+    setPreferredCurrency(p?.travellerProfile?.preferredCurrency ?? "LKR");
+    setEmergencyContactName(p?.travellerProfile?.emergencyContactName ?? "");
+    setEmergencyContactPhone(p?.travellerProfile?.emergencyContactPhone ?? "");
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!user) return;
+      setIsLoadingProfile(true);
+      setLoadError(null);
+      try {
+        const res = await authApi.getIdentityProfile();
+        if (!cancelled) {
+          setProfile(res.profile);
+          hydrateForm(res.profile, user.displayName);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(normalizeApiError(err).message);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingProfile(false);
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   if (!user) {
     return (
       <ScreenContainer>
         <EmptyState
           title="Sign In Required"
-          description="Sign in to view your account details, email verification status, and permissions."
+          description="Sign in to view and manage your profile, preferences, and account security."
           icon="user"
           actionTitle="Sign In"
           onAction={() => router.replace("/(auth)/login")}
@@ -40,6 +115,48 @@ export default function MobileProfileScreen() {
       </ScreenContainer>
     );
   }
+
+  const handleSaveProfile = async () => {
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    const payload: UpdateProfileRequest = {
+      displayName: displayName.trim(),
+      phoneNumber: phoneNumber.trim() ? phoneNumber.trim() : null,
+      traveller: {
+        firstName: firstName.trim() ? firstName.trim() : null,
+        lastName: lastName.trim() ? lastName.trim() : null,
+        preferredLanguage: preferredLanguage.trim() || "en",
+        preferredCurrency,
+        emergencyContactName: emergencyContactName.trim()
+          ? emergencyContactName.trim()
+          : null,
+        emergencyContactPhone: emergencyContactPhone.trim()
+          ? emergencyContactPhone.trim()
+          : null
+      }
+    };
+
+    const parsed = UpdateProfileRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      setSaveError(parsed.error.issues[0]?.message ?? "Please check your profile inputs.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const res = await authApi.updateIdentityProfile(parsed.data);
+      setProfile(res.profile);
+      hydrateForm(res.profile, res.profile.displayName);
+      setIsEditing(false);
+      setSaveSuccess(res.message || "Profile updated successfully.");
+      await refreshUser();
+    } catch (err) {
+      setSaveError(normalizeApiError(err).message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -52,29 +169,41 @@ export default function MobileProfileScreen() {
     }
   };
 
+  const effectiveDisplayName = profile?.displayName ?? user.displayName;
+  const effectiveRoles = profile?.roles ?? user.roles;
+
   return (
     <ScreenContainer testID="account-profile-screen">
       <Card variant="elevated" style={styles.headerCard}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{user.displayName.charAt(0).toUpperCase()}</Text>
+          <Text style={styles.avatarText}>{effectiveDisplayName.charAt(0).toUpperCase()}</Text>
         </View>
-        <Text style={styles.displayName}>{user.displayName}</Text>
-        <Text style={styles.emailText}>{user.email}</Text>
+        <Text style={styles.displayName}>{effectiveDisplayName}</Text>
+        <Text style={styles.emailText}>{profile?.email ?? user.email}</Text>
 
         <View style={styles.badgeRow}>
-          <StatusBadge status={user.status} size="sm" />
+          <StatusBadge status={profile?.status ?? user.status} size="sm" />
           <Badge
-            label={user.isEmailVerified ? "Email Verified" : "Email Unverified"}
-            variant={user.isEmailVerified ? "success" : "warning"}
-            icon={user.isEmailVerified ? "check-circle" : "alert-circle"}
+            label={
+              (profile?.isEmailVerified ?? user.isEmailVerified)
+                ? "Email Verified"
+                : "Email Unverified"
+            }
+            variant={(profile?.isEmailVerified ?? user.isEmailVerified) ? "success" : "warning"}
+            icon={
+              (profile?.isEmailVerified ?? user.isEmailVerified)
+                ? "check-circle"
+                : "alert-circle"
+            }
             size="sm"
           />
         </View>
 
-        {!user.isEmailVerified ? (
+        {!(profile?.isEmailVerified ?? user.isEmailVerified) ? (
           <View style={styles.verifyCallout}>
             <Text style={styles.verifyCalloutText}>
-              Verify your email to create luggage bookings, change your password, or register as a host.
+              Verify your email to create luggage bookings, change your password, or register as a
+              host.
             </Text>
             <Button
               title="Verify Email Address"
@@ -86,48 +215,173 @@ export default function MobileProfileScreen() {
             />
           </View>
         ) : null}
+
+        {!isEditing ? (
+          <Button
+            title="Edit Profile"
+            size="sm"
+            variant="outline"
+            leftIcon={<MobileIcon name="edit" size="xs" />}
+            onPress={() => {
+              hydrateForm(profile, user.displayName);
+              setSaveError(null);
+              setSaveSuccess(null);
+              setIsEditing(true);
+            }}
+            fullWidth
+          />
+        ) : null}
       </Card>
 
-      <Card variant="default" style={styles.card}>
-        <Text style={styles.sectionTitle}>Identity Summary (Read-Only)</Text>
-        <Text style={styles.helperNote}>
-          Self-service profile editing is not exposed by the mobile API; contact support for legal identity changes.
-        </Text>
+      {loadError ? (
+        <Card variant="outlined" style={styles.errorCard}>
+          <Text style={styles.errorText}>{loadError}</Text>
+        </Card>
+      ) : null}
 
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>User ID</Text>
-          <Text style={styles.detailMono} numberOfLines={1}>
-            {user.id}
-          </Text>
-        </View>
+      {saveSuccess ? (
+        <Card variant="outlined" style={styles.successCard}>
+          <Text style={styles.successText}>{saveSuccess}</Text>
+        </Card>
+      ) : null}
 
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Active Session</Text>
-          <Text style={styles.detailMono} numberOfLines={1}>
-            {sessionId ?? "Active"}
-          </Text>
-        </View>
+      {isEditing ? (
+        <Card variant="default" style={styles.card}>
+          <Text style={styles.sectionTitle}>Edit Profile</Text>
+          {saveError ? <Text style={styles.errorText}>{saveError}</Text> : null}
 
-        <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Roles</Text>
+          <TextInput
+            label="Display Name *"
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholder="Your display name"
+          />
+          <TextInput
+            label="Phone Number"
+            value={phoneNumber}
+            onChangeText={setPhoneNumber}
+            placeholder="+94771234567"
+            keyboardType="phone-pad"
+          />
+          <TextInput
+            label="First Name"
+            value={firstName}
+            onChangeText={setFirstName}
+            placeholder="First name"
+          />
+          <TextInput
+            label="Last Name"
+            value={lastName}
+            onChangeText={setLastName}
+            placeholder="Last name"
+          />
+          <TextInput
+            label="Preferred Language"
+            value={preferredLanguage}
+            onChangeText={setPreferredLanguage}
+            placeholder="en"
+            autoCapitalize="none"
+          />
+
+          <Text style={styles.detailLabel}>Preferred Currency</Text>
           <View style={styles.chipsWrap}>
-            {user.roles.map((r) => (
-              <Badge key={r} label={r} variant="navy" size="sm" />
+            {CurrencyCodeSchema.options.map((code) => (
+              <SelectionCard
+                key={code}
+                title={code}
+                selected={preferredCurrency === code}
+                onPress={() => setPreferredCurrency(code)}
+              />
             ))}
           </View>
-        </View>
-      </Card>
 
-      <Card variant="default" style={styles.card}>
-        <Text style={styles.sectionTitle}>Effective Permissions ({permissions.length})</Text>
-        <View style={styles.chipsWrap}>
-          {permissions.map((perm) => (
-            <View key={perm} style={styles.permChip}>
-              <Text style={styles.permText}>{perm}</Text>
+          <TextInput
+            label="Emergency Contact Name"
+            value={emergencyContactName}
+            onChangeText={setEmergencyContactName}
+            placeholder="Full name"
+          />
+          <TextInput
+            label="Emergency Contact Phone (E.164)"
+            value={emergencyContactPhone}
+            onChangeText={setEmergencyContactPhone}
+            placeholder="+94777654321"
+            keyboardType="phone-pad"
+          />
+
+          <View style={styles.editActionsRow}>
+            <Button
+              title="Cancel"
+              variant="outline"
+              onPress={() => {
+                hydrateForm(profile, user.displayName);
+                setSaveError(null);
+                setIsEditing(false);
+              }}
+              disabled={isSaving}
+            />
+            <Button
+              title="Save Changes"
+              isLoading={isSaving}
+              onPress={() => {
+                void handleSaveProfile();
+              }}
+            />
+          </View>
+        </Card>
+      ) : (
+        <Card variant="default" style={styles.card}>
+          <Text style={styles.sectionTitle}>Personal &amp; Traveller Details</Text>
+          {isLoadingProfile ? (
+            <Text style={styles.helperNote}>Loading profile details...</Text>
+          ) : null}
+
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Full Name</Text>
+            <Text style={styles.detailValue}>
+              {[profile?.travellerProfile?.firstName, profile?.travellerProfile?.lastName]
+                .filter(Boolean)
+                .join(" ") || "Not set"}
+            </Text>
+          </View>
+
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Phone Number</Text>
+            <Text style={styles.detailValue}>{profile?.phoneNumber || "Not set"}</Text>
+          </View>
+
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Preferences</Text>
+            <Text style={styles.detailValue}>
+              {profile?.travellerProfile?.preferredLanguage ?? "en"} •{" "}
+              {profile?.travellerProfile?.preferredCurrency ?? "LKR"}
+            </Text>
+          </View>
+
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Emergency Contact</Text>
+            <Text style={styles.detailValue}>
+              {profile?.travellerProfile?.emergencyContactName ||
+              profile?.travellerProfile?.emergencyContactPhone
+                ? `${profile?.travellerProfile?.emergencyContactName ?? "Contact"} ${
+                    profile?.travellerProfile?.emergencyContactPhone
+                      ? `(${profile.travellerProfile.emergencyContactPhone})`
+                      : ""
+                  }`
+                : "Not set"}
+            </Text>
+          </View>
+
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Account Access</Text>
+            <View style={styles.chipsWrap}>
+              {effectiveRoles.map((r) => (
+                <Badge key={r} label={ROLE_DISPLAY_LABELS[r] ?? r} variant="navy" size="sm" />
+              ))}
             </View>
-          ))}
-        </View>
-      </Card>
+          </View>
+        </Card>
+      )}
 
       <View style={styles.actions}>
         <Button
@@ -223,7 +477,8 @@ const styles = StyleSheet.create({
     ...mobileTypography.headingSm
   },
   helperNote: {
-    ...mobileTypography.bodySm
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted
   },
   detailRow: {
     gap: 4,
@@ -235,26 +490,39 @@ const styles = StyleSheet.create({
     ...mobileTypography.bodySm,
     color: mobileTextColors.muted
   },
-  detailMono: {
-    ...mobileTypography.codeMono,
-    fontSize: 12
+  detailValue: {
+    ...mobileTypography.bodyMd,
+    color: mobileColors.navy[950],
+    fontWeight: "600"
   },
   chipsWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: mobileSpacing[2]
   },
-  permChip: {
-    backgroundColor: mobileColors.sand[100],
-    borderRadius: mobileRadius.sm,
-    paddingHorizontal: mobileSpacing[2],
-    paddingVertical: 4
+  editActionsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: mobileSpacing[2],
+    marginTop: mobileSpacing[2]
   },
-  permText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: mobileColors.navy[900],
-    fontFamily: "monospace"
+  errorCard: {
+    borderColor: mobileStatusTokens.dangerBorder,
+    backgroundColor: mobileStatusTokens.dangerBg,
+    marginBottom: mobileSpacing[3]
+  },
+  errorText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.danger
+  },
+  successCard: {
+    borderColor: mobileStatusTokens.successBorder,
+    backgroundColor: mobileStatusTokens.successBg,
+    marginBottom: mobileSpacing[3]
+  },
+  successText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success
   },
   actions: {
     gap: mobileSpacing[3],

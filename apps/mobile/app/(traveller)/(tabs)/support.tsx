@@ -2,20 +2,30 @@ import React, { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import {
+  SUPPORT_TICKET_CATEGORIES,
+  type SupportTicketCategory
+} from "@luggage-storage/contracts";
+import {
   Badge,
   Button,
   Card,
   EmptyState,
   ErrorState,
   FormSection,
+  LoadingSkeleton,
   MobileIcon,
   SafeHeader,
   ScreenContainer,
   SelectionCard,
+  StatusBadge,
   TextInput
 } from "../../../src/components";
 import {
+  useCreateSupportTicketMutation,
   useMyBookingsQuery,
+  useMySupportTicketDetailQuery,
+  useMySupportTicketsQuery,
+  useReplyMySupportTicketMutation,
   useReportBookingExceptionMutation
 } from "../../../src/hooks";
 import { normalizeApiError } from "../../../src/services/api-client";
@@ -62,7 +72,7 @@ const EXCEPTION_CATEGORIES = [
 
 export default function TravellerSupportScreen() {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
 
   const [expandedFaqId, setExpandedFaqId] = useState<string | null>("payhere");
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
@@ -72,8 +82,25 @@ export default function TravellerSupportScreen() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
+  const [ticketCategory, setTicketCategory] =
+    useState<SupportTicketCategory>("GENERAL_INQUIRY");
+  const [ticketSubject, setTicketSubject] = useState("");
+  const [ticketMessage, setTicketMessage] = useState("");
+  const [ticketError, setTicketError] = useState<string | null>(null);
+  const [ticketSuccess, setTicketSuccess] = useState<string | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [replyMessage, setReplyMessage] = useState("");
+  const [replyError, setReplyError] = useState<string | null>(null);
+
   const bookingsQuery = useMyBookingsQuery({ limit: 10 }, isAuthenticated);
   const reportMutation = useReportBookingExceptionMutation();
+  const ticketsQuery = useMySupportTicketsQuery(isAuthenticated);
+  const ticketDetailQuery = useMySupportTicketDetailQuery(
+    selectedTicketId ?? undefined,
+    isAuthenticated && Boolean(selectedTicketId)
+  );
+  const createTicketMutation = useCreateSupportTicketMutation();
+  const replyTicketMutation = useReplyMySupportTicketMutation();
 
   const reportableBookings = (bookingsQuery.data?.bookings ?? []).filter(
     (b) => !["EXPIRED", "REJECTED"].includes(b.status)
@@ -203,6 +230,157 @@ export default function TravellerSupportScreen() {
                   void handleReportSubmit();
                 }}
               />
+            </View>
+          )}
+        </FormSection>
+      </Card>
+
+      <Card variant="default" style={styles.sectionCard}>
+        <FormSection
+          title="Support Tickets"
+          subtitle="Create a support inquiry and track replies from our Sri Lanka operations desk."
+        >
+          {!isAuthenticated || !user ? (
+            <EmptyState
+              mascot="thinking"
+              title="Sign In to Track Tickets"
+              description="Sign in to submit and track your persisted support ticket conversations."
+              actionTitle="Sign In"
+              onAction={() => router.push("/(auth)/login")}
+            />
+          ) : (
+            <View style={styles.formStack}>
+              <Text style={styles.fieldLabel}>Topic</Text>
+              {SUPPORT_TICKET_CATEGORIES.map((cat) => (
+                <SelectionCard
+                  key={cat}
+                  title={cat.replace(/_/g, " ")}
+                  selected={ticketCategory === cat}
+                  onPress={() => setTicketCategory(cat)}
+                />
+              ))}
+
+              <TextInput
+                label="Subject"
+                required
+                placeholder="Short summary of your inquiry"
+                value={ticketSubject}
+                onChangeText={setTicketSubject}
+              />
+              <TextInput
+                label="Message"
+                required
+                placeholder="Share details so our support team can assist quickly..."
+                value={ticketMessage}
+                onChangeText={setTicketMessage}
+              />
+
+              {ticketError ? <ErrorState title="Ticket Error" message={ticketError} /> : null}
+              {ticketSuccess ? (
+                <Badge label={ticketSuccess} variant="success" icon="check-circle" />
+              ) : null}
+
+              <Button
+                title="Submit Support Ticket"
+                isLoading={createTicketMutation.isPending}
+                onPress={() => {
+                  setTicketError(null);
+                  setTicketSuccess(null);
+                  if (ticketSubject.trim().length < 3 || ticketMessage.trim().length < 10) {
+                    setTicketError(
+                      "Enter a subject (3+ chars) and message (10+ chars)."
+                    );
+                    return;
+                  }
+                  void createTicketMutation
+                    .mutateAsync({
+                      requesterName: user.displayName,
+                      requesterEmail: user.email,
+                      category: ticketCategory,
+                      subject: ticketSubject.trim(),
+                      message: ticketMessage.trim()
+                    })
+                    .then((created) => {
+                      setTicketSubject("");
+                      setTicketMessage("");
+                      setSelectedTicketId(created.id);
+                      setTicketSuccess(`Ticket ${created.referenceCode} created.`);
+                    })
+                    .catch((err) => setTicketError(normalizeApiError(err).message));
+                }}
+              />
+
+              <Text style={styles.fieldLabel}>
+                My Tickets ({ticketsQuery.data?.length ?? 0})
+              </Text>
+              {ticketsQuery.isLoading ? (
+                <LoadingSkeleton count={2} />
+              ) : ticketsQuery.error ? (
+                <ErrorState
+                  title="Unable to Load Tickets"
+                  message={normalizeApiError(ticketsQuery.error).message}
+                  onRetry={() => void ticketsQuery.refetch()}
+                />
+              ) : (ticketsQuery.data?.length ?? 0) === 0 ? (
+                <Text style={styles.mutedNote}>No support tickets submitted yet.</Text>
+              ) : (
+                (ticketsQuery.data ?? []).map((t) => (
+                  <SelectionCard
+                    key={t.id}
+                    title={`${t.referenceCode} • ${t.subject}`}
+                    subtitle={`${t.status} • ${t.category.replace(/_/g, " ")}`}
+                    selected={selectedTicketId === t.id}
+                    onPress={() => setSelectedTicketId(t.id)}
+                  />
+                ))
+              )}
+
+              {selectedTicketId && ticketDetailQuery.data ? (
+                <Card variant="outlined" style={styles.faqItem}>
+                  <View style={{ padding: 12, gap: 8 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                      <Text style={styles.faqTitle}>
+                        {ticketDetailQuery.data.referenceCode} • {ticketDetailQuery.data.subject}
+                      </Text>
+                      <StatusBadge status={ticketDetailQuery.data.status} size="sm" />
+                    </View>
+                    {ticketDetailQuery.data.messages.map((m) => (
+                      <View key={m.id} style={{ paddingVertical: 4 }}>
+                        <Text style={styles.mutedNote}>
+                          {m.senderDisplayName} ({m.senderRole}):
+                        </Text>
+                        <Text style={styles.faqBody}>{m.body}</Text>
+                      </View>
+                    ))}
+                    <TextInput
+                      label="Reply"
+                      placeholder="Write a follow-up message..."
+                      value={replyMessage}
+                      onChangeText={setReplyMessage}
+                    />
+                    {replyError ? <ErrorState title="Reply Error" message={replyError} /> : null}
+                    <Button
+                      title="Send Reply"
+                      size="sm"
+                      isLoading={replyTicketMutation.isPending}
+                      onPress={() => {
+                        setReplyError(null);
+                        if (replyMessage.trim().length < 2) {
+                          setReplyError("Enter a reply message.");
+                          return;
+                        }
+                        void replyTicketMutation
+                          .mutateAsync({
+                            ticketId: selectedTicketId,
+                            data: { message: replyMessage.trim() }
+                          })
+                          .then(() => setReplyMessage(""))
+                          .catch((err) => setReplyError(normalizeApiError(err).message));
+                      }}
+                    />
+                  </View>
+                </Card>
+              ) : null}
             </View>
           )}
         </FormSection>

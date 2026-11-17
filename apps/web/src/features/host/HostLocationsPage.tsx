@@ -389,13 +389,10 @@ export function HostLocationManagementPage() {
               <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-sand-100">
                 <div className="flex flex-wrap gap-2 text-[11px]">
                   <span className="px-2.5 py-1 rounded-lg bg-sand-100 text-navy-700 font-medium">
-                    {loc.is24Hours ? "24/7 Access" : "Standard Hours"}
+                    {loc.is24Hours ? "24/7 Access" : loc.openHours}
                   </span>
                   <span className="px-2.5 py-1 rounded-lg bg-sand-100 text-navy-700 font-medium">
                     LKR Pricing Model
-                  </span>
-                  <span className="px-2.5 py-1 rounded-lg bg-sand-100 text-navy-700 font-medium">
-                    LKR 250k Protection
                   </span>
                 </div>
 

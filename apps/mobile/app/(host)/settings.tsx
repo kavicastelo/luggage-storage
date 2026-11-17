@@ -1,19 +1,31 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import { HOST_STAFF_ROLES, type HostStaffRole } from "@luggage-storage/contracts";
 import {
   Badge,
   Button,
   Card,
   ConfirmDialog,
+  ErrorState,
   LoadingSkeleton,
   MobileIcon,
   SafeHeader,
   ScreenContainer,
+  SelectionCard,
   StatusBadge,
+  TextInput,
   type MobileIconName
 } from "../../src/components";
-import { useOwnedBusinessesQuery, useOwnedLocationsQuery } from "../../src/hooks";
+import {
+  useBusinessStaffQuery,
+  useInviteBusinessStaffMutation,
+  useOwnedBusinessesQuery,
+  useOwnedLocationsQuery,
+  useRemoveBusinessStaffMutation,
+  useUpdateBusinessStaffMutation
+} from "../../src/hooks";
+import { normalizeApiError } from "../../src/services/api-client";
 import { useAuthStore } from "../../src/store/useAuthStore";
 import { useMobileStore } from "../../src/store/useMobileStore";
 import {
@@ -67,6 +79,17 @@ export default function HostSettingsScreen() {
 
   const businessesQuery = useOwnedBusinessesQuery(isOwner);
   const locationsQuery = useOwnedLocationsQuery(isOwner);
+  const firstBusinessId = businessesQuery.data?.[0]?.id;
+  const staffQuery = useBusinessStaffQuery(firstBusinessId, isOwner && Boolean(firstBusinessId));
+  const inviteStaffMutation = useInviteBusinessStaffMutation();
+  const updateStaffMutation = useUpdateBusinessStaffMutation();
+  const removeStaffMutation = useRemoveBusinessStaffMutation();
+
+  const [staffEmail, setStaffEmail] = useState("");
+  const [staffRole, setStaffRole] = useState<HostStaffRole>("ATTENDANT");
+  const [selectedLocId, setSelectedLocId] = useState<string>("");
+  const [staffFeedback, setStaffFeedback] = useState<string | null>(null);
+  const [staffError, setStaffError] = useState<string | null>(null);
 
   if (!isOwner) {
     return (
@@ -162,13 +185,155 @@ export default function HostSettingsScreen() {
             />
           </Card>
 
-          <Card variant="outlined" style={styles.staffNoticeCard}>
+          <Card variant="default" style={styles.cardGap}>
             <Text style={styles.noticeTitle}>Counter Staff Access</Text>
             <Text style={styles.noticeBody}>
-              Dedicated self-service staff invitation links are not currently exposed in the API
-              contract. Counter staff accounts with assigned HOST_STAFF permissions can sign in
-              directly to access Live Desk, Requests, Scanner, Intake, and Vault.
+              Assign existing verified accounts as Manager or Attendant across your storage hubs.
             </Text>
+
+            {business ? (
+              <View style={{ gap: 10, marginTop: 6 }}>
+                <TextInput
+                  label="Staff Email"
+                  value={staffEmail}
+                  onChangeText={setStaffEmail}
+                  placeholder="staff@example.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <View style={styles.badgesRow}>
+                  {HOST_STAFF_ROLES.map((role) => (
+                    <SelectionCard
+                      key={role}
+                      title={role}
+                      selected={staffRole === role}
+                      onPress={() => setStaffRole(role)}
+                    />
+                  ))}
+                </View>
+
+                {(locationsQuery.data?.length ?? 0) > 0 ? (
+                  <View style={styles.badgesRow}>
+                    <SelectionCard
+                      title="All Hubs"
+                      selected={!selectedLocId}
+                      onPress={() => setSelectedLocId("")}
+                    />
+                    {(locationsQuery.data ?? []).map((loc) => (
+                      <SelectionCard
+                        key={loc.id}
+                        title={loc.name}
+                        selected={selectedLocId === loc.id}
+                        onPress={() => setSelectedLocId(loc.id)}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+
+                {staffError ? <ErrorState title="Staff Update Failed" message={staffError} /> : null}
+                {staffFeedback ? (
+                  <Badge label={staffFeedback} variant="success" icon="check-circle" />
+                ) : null}
+
+                <Button
+                  title="Assign Staff Member"
+                  size="sm"
+                  isLoading={inviteStaffMutation.isPending}
+                  onPress={() => {
+                    setStaffError(null);
+                    setStaffFeedback(null);
+                    const trimmed = staffEmail.trim();
+                    if (!trimmed) {
+                      setStaffError("Enter a registered user email address.");
+                      return;
+                    }
+                    void inviteStaffMutation
+                      .mutateAsync({
+                        businessId: business.id,
+                        data: {
+                          email: trimmed,
+                          staffRole,
+                          assignedLocationIds: selectedLocId ? [selectedLocId] : []
+                        }
+                      })
+                      .then(() => {
+                        setStaffEmail("");
+                        setStaffFeedback("Staff member assigned.");
+                      })
+                      .catch((err) => setStaffError(normalizeApiError(err).message));
+                  }}
+                />
+
+                {staffQuery.isLoading ? (
+                  <LoadingSkeleton count={2} />
+                ) : staffQuery.error ? (
+                  <ErrorState
+                    title="Unable to Load Staff"
+                    message={normalizeApiError(staffQuery.error).message}
+                    onRetry={() => void staffQuery.refetch()}
+                  />
+                ) : (staffQuery.data?.length ?? 0) === 0 ? (
+                  <Text style={styles.noticeBody}>No staff members assigned yet.</Text>
+                ) : (
+                  (staffQuery.data ?? []).map((member) => (
+                    <Card key={member.id} variant="outlined" style={styles.staffNoticeCard}>
+                      <View style={styles.rowBetween}>
+                        <View style={styles.flexCol}>
+                          <Text style={styles.menuTitle}>
+                            {member.displayName || member.email}
+                          </Text>
+                          <Text style={styles.menuSub}>
+                            {member.email} • {member.staffRole}
+                          </Text>
+                        </View>
+                        <Badge
+                          label={member.isActive ? "Active" : "Paused"}
+                          variant={member.isActive ? "success" : "warning"}
+                          size="sm"
+                        />
+                      </View>
+                      <View style={styles.badgesRow}>
+                        <Button
+                          title={member.isActive ? "Pause Access" : "Activate"}
+                          size="sm"
+                          variant="outline"
+                          isLoading={updateStaffMutation.isPending}
+                          onPress={() => {
+                            setStaffError(null);
+                            void updateStaffMutation
+                              .mutateAsync({
+                                businessId: business.id,
+                                membershipId: member.id,
+                                data: { isActive: !member.isActive }
+                              })
+                              .catch((err) => setStaffError(normalizeApiError(err).message));
+                          }}
+                        />
+                        <Button
+                          title="Remove"
+                          size="sm"
+                          variant="danger"
+                          isLoading={removeStaffMutation.isPending}
+                          onPress={() => {
+                            setStaffError(null);
+                            void removeStaffMutation
+                              .mutateAsync({
+                                businessId: business.id,
+                                membershipId: member.id
+                              })
+                              .catch((err) => setStaffError(normalizeApiError(err).message));
+                          }}
+                        />
+                      </View>
+                    </Card>
+                  ))
+                )}
+              </View>
+            ) : (
+              <Text style={styles.noticeBody}>
+                Complete Partner Onboarding first to assign counter staff.
+              </Text>
+            )}
           </Card>
 
           <Button
