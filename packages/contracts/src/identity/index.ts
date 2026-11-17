@@ -79,24 +79,28 @@ export type UserProfileResponseData = z.infer<typeof UserProfileResponseDataSche
 /**
  * Traveller Profile Partial Update payload
  */
-export const UpdateTravellerProfileSchema = z.object({
-  firstName: z.string().trim().max(64, "First name cannot exceed 64 characters").nullable().optional(),
-  lastName: z.string().trim().max(64, "Last name cannot exceed 64 characters").nullable().optional(),
-  preferredLanguage: Bcp47LanguageTagSchema.optional(),
-  preferredCurrency: CurrencyCodeSchema.optional(),
-  emergencyContactName: z.string().trim().max(128, "Emergency contact name cannot exceed 128 characters").nullable().optional(),
-  emergencyContactPhone: E164PhoneNumberSchema.nullable().optional()
-});
+export const UpdateTravellerProfileSchema = z
+  .object({
+    firstName: z.string().trim().max(64, "First name cannot exceed 64 characters").nullable().optional(),
+    lastName: z.string().trim().max(64, "Last name cannot exceed 64 characters").nullable().optional(),
+    preferredLanguage: Bcp47LanguageTagSchema.optional(),
+    preferredCurrency: CurrencyCodeSchema.optional(),
+    emergencyContactName: z.string().trim().max(128, "Emergency contact name cannot exceed 128 characters").nullable().optional(),
+    emergencyContactPhone: E164PhoneNumberSchema.nullable().optional()
+  })
+  .strict();
 export type UpdateTravellerProfile = z.infer<typeof UpdateTravellerProfileSchema>;
 
 /**
  * Profile Update Request (PATCH /api/v1/identity/profile)
  */
-export const UpdateProfileRequestSchema = z.object({
-  displayName: DisplayNameSchema.optional(),
-  phoneNumber: PhoneNumberSchema.optional(),
-  traveller: UpdateTravellerProfileSchema.optional()
-});
+export const UpdateProfileRequestSchema = z
+  .object({
+    displayName: DisplayNameSchema.optional(),
+    phoneNumber: z.string().trim().max(32, "Phone number must not exceed 32 characters").nullable().optional(),
+    traveller: UpdateTravellerProfileSchema.optional()
+  })
+  .strict();
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
 
 export const UpdateProfileResponseDataSchema = z.object({

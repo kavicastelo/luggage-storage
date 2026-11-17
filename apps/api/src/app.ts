@@ -30,6 +30,7 @@ import { paymentRoutes } from "./modules/payments/payments.routes.js";
 import { hostCustodyRoutes } from "./modules/custody/custody.routes.js";
 import { adminPhaseBRoutes } from "./modules/admin/admin-phase-b.routes.js";
 import { adminSupportRoutes, supportRoutes } from "./modules/support/support.routes.js";
+import { identityRoutes } from "./modules/identity/identity.routes.js";
 import { sessionService } from "./modules/auth/session.service.js";
 import { rbacService } from "./modules/auth/rbac.service.js";
 import { auditService, SecurityEventType } from "./modules/audit/audit.service.js";
@@ -392,6 +393,10 @@ export function buildApp(): FastifyInstance {
   app.register(supportRoutes, { prefix: "/support" });
   app.register(adminSupportRoutes, { prefix: `${env.API_PREFIX}/admin` });
   app.register(adminSupportRoutes, { prefix: "/admin" });
+
+  // Initiative 7: Self-service authenticated profile routes
+  app.register(identityRoutes, { prefix: `${env.API_PREFIX}/identity` });
+  app.register(identityRoutes, { prefix: "/identity" });
 
   return app;
 }

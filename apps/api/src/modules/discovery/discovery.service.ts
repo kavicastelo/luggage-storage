@@ -12,7 +12,8 @@ import {
   PublicStorageLocationDetail,
   SearchLocationsQueryInput,
   SearchLocationsQuerySchema,
-  SearchLocationsResponse
+  SearchLocationsResponse,
+  summarizeOpeningHours
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
@@ -226,23 +227,7 @@ export class DiscoveryService {
       const images = mediaMap.get(r.id) || [];
       const primaryImage = images.find((i) => i.isPrimary) || images[0];
       const hours = hoursMap.get(r.id) || [];
-
-      const is24Hours =
-        hours.length > 0 &&
-        hours.every(
-          (h) =>
-            !h.isClosed &&
-            h.openTime === "00:00:00" &&
-            (h.closeTime === "23:59:59" || h.closeTime === "24:00:00")
-        );
-      const firstOpen = hours.find((h) => !h.isClosed);
-      const operatingHoursSummary = is24Hours
-        ? "24/7 Open"
-        : firstOpen
-        ? `${firstOpen.openTime.slice(0, 5)} - ${firstOpen.closeTime.slice(0, 5)}`
-        : hours.length > 0
-        ? "Closed"
-        : "08:00 - 20:00";
+      const hoursSummary = summarizeOpeningHours(hours);
 
       // OQ-012: Privacy-preserving coarse coordinates from DB (exact coordinates are never queried)
       const approximateLatitude = Number(Number(r.approximate_latitude).toFixed(2));
@@ -274,8 +259,9 @@ export class DiscoveryService {
         currency: r.currency || "LKR",
         averageRating: null,
         reviewCount: 0,
-        is24Hours,
-        operatingHoursSummary
+        is24Hours: hoursSummary.is24Hours,
+        operatingHoursStatus: hoursSummary.operatingHoursStatus,
+        operatingHoursSummary: hoursSummary.operatingHoursSummary
       };
     });
 
@@ -390,23 +376,7 @@ export class DiscoveryService {
       }))
     );
     const primaryImage = formattedImages.find((i) => i.isPrimary) || formattedImages[0];
-
-    const is24Hours =
-      hours.length > 0 &&
-      hours.every(
-        (h) =>
-          !h.isClosed &&
-          h.openTime === "00:00:00" &&
-          (h.closeTime === "23:59:59" || h.closeTime === "24:00:00")
-      );
-    const firstOpen = hours.find((h) => !h.isClosed);
-    const operatingHoursSummary = is24Hours
-      ? "24/7 Open"
-      : firstOpen
-      ? `${firstOpen.openTime.slice(0, 5)} - ${firstOpen.closeTime.slice(0, 5)}`
-      : hours.length > 0
-      ? "Closed"
-      : "08:00 - 20:00";
+    const hoursSummary = summarizeOpeningHours(hours);
 
     const openingHours = hours.map((h) => ({
       dayOfWeek: h.dayOfWeek,
@@ -495,8 +465,9 @@ export class DiscoveryService {
       currency: row.currency || "LKR",
       averageRating: null,
       reviewCount: 0,
-      is24Hours,
-      operatingHoursSummary,
+      is24Hours: hoursSummary.is24Hours,
+      operatingHoursStatus: hoursSummary.operatingHoursStatus,
+      operatingHoursSummary: hoursSummary.operatingHoursSummary,
       openingHours,
       upcomingExceptions,
       pricingPolicy,

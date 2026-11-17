@@ -167,9 +167,106 @@ export const PublicStorageLocationSchema = z.object({
   averageRating: z.number().min(0).max(5).nullable().default(null),
   reviewCount: z.number().int().nonnegative().default(0),
   is24Hours: z.boolean().default(false),
-  operatingHoursSummary: z.string().default("08:00 - 20:00")
+  operatingHoursStatus: z
+    .enum(["CONFIGURED", "UNCONFIGURED", "PARTIAL", "CLOSED", "OPEN_24_HOURS"])
+    .default("UNCONFIGURED"),
+  operatingHoursSummary: z.string().nullable().default(null)
 });
 export type PublicStorageLocation = z.infer<typeof PublicStorageLocationSchema>;
+
+export const OPERATING_HOURS_STATUSES = [
+  "CONFIGURED",
+  "UNCONFIGURED",
+  "PARTIAL",
+  "CLOSED",
+  "OPEN_24_HOURS"
+] as const;
+export type OperatingHoursStatus = (typeof OPERATING_HOURS_STATUSES)[number];
+export const OperatingHoursStatusSchema = z.enum(OPERATING_HOURS_STATUSES);
+
+export interface OpeningHoursSummaryInput {
+  dayOfWeek?: number;
+  openTime?: string | null;
+  closeTime?: string | null;
+  isClosed: boolean;
+}
+
+export interface OperatingHoursSummaryResult {
+  is24Hours: boolean;
+  operatingHoursStatus: OperatingHoursStatus;
+  operatingHoursSummary: string | null;
+}
+
+/**
+ * Computes an explicit, non-fabricated operating-hours summary from persisted opening_hours rows.
+ */
+export function summarizeOpeningHours(
+  hours: ReadonlyArray<OpeningHoursSummaryInput>
+): OperatingHoursSummaryResult {
+  if (hours.length === 0) {
+    return {
+      is24Hours: false,
+      operatingHoursStatus: "UNCONFIGURED",
+      operatingHoursSummary: null
+    };
+  }
+
+  const configuredDayCount = new Set(hours.map((h, index) => h.dayOfWeek ?? index)).size;
+  const validOpenDays = hours.filter(
+    (h) => !h.isClosed && Boolean(h.openTime) && Boolean(h.closeTime)
+  );
+  const firstOpen = validOpenDays[0];
+
+  if (configuredDayCount < 7) {
+    if (!firstOpen) {
+      return {
+        is24Hours: false,
+        operatingHoursStatus: "PARTIAL",
+        operatingHoursSummary: "Partial schedule (closed on configured days)"
+      };
+    }
+    return {
+      is24Hours: false,
+      operatingHoursStatus: "PARTIAL",
+      operatingHoursSummary: `${firstOpen.openTime!.slice(0, 5)} - ${firstOpen.closeTime!.slice(0, 5)} (Partial schedule)`
+    };
+  }
+
+  if (!firstOpen) {
+    return {
+      is24Hours: false,
+      operatingHoursStatus: "CLOSED",
+      operatingHoursSummary: "Closed"
+    };
+  }
+
+  const isAll24Hours =
+    validOpenDays.length === hours.length &&
+    validOpenDays.every(
+      (h) =>
+        h.openTime!.startsWith("00:00") &&
+        (h.closeTime!.startsWith("23:59") || h.closeTime!.startsWith("24:00"))
+    );
+
+  if (isAll24Hours) {
+    return {
+      is24Hours: true,
+      operatingHoursStatus: "OPEN_24_HOURS",
+      operatingHoursSummary: "24/7 Open"
+    };
+  }
+
+  const firstWindow = `${firstOpen.openTime!.slice(0, 5)} - ${firstOpen.closeTime!.slice(0, 5)}`;
+  const allSameWindow = validOpenDays.every(
+    (h) => `${h.openTime!.slice(0, 5)} - ${h.closeTime!.slice(0, 5)}` === firstWindow
+  );
+
+  return {
+    is24Hours: false,
+    operatingHoursStatus: "CONFIGURED",
+    operatingHoursSummary: allSameWindow ? firstWindow : `${firstWindow} (Varies by day)`
+  };
+}
 
 // ============================================================================
 // Request Schemas
