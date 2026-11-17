@@ -47,6 +47,15 @@ import {
   PaymentIntent,
   SandboxSimulatePaymentRequest,
   HostFinanceSummaryResponse,
+  PayoutBatchSummary,
+  HostStaffMemberDetail,
+  AddHostStaffRequest,
+  UpdateHostStaffRequest,
+  CreateSupportTicketRequest,
+  SupportTicketCreatedResponse,
+  SupportTicketSummary,
+  SupportTicketCustomerDetail,
+  CustomerSupportTicketReplyRequest,
   PaginatedApiResponse
 } from "@luggage-storage/contracts";
 import { ApiClientError, fetchApi } from "./api-client";
@@ -604,6 +613,109 @@ export const marketplaceApi = {
     const res = await fetchApi<HostFinanceSummaryResponse>(`/hosts/finance/summary${qs}`, {
       method: "GET"
     });
+    return res.data;
+  },
+
+  async getHostPayoutBatches(businessId?: string): Promise<PayoutBatchSummary[]> {
+    const qs = businessId ? `?businessId=${encodeURIComponent(businessId)}` : "";
+    const res = await fetchApi<{ batches: PayoutBatchSummary[] }>(
+      `/hosts/finance/payout-batches${qs}`,
+      { method: "GET" }
+    );
+    return res.data.batches ?? [];
+  },
+
+  // ==========================================================================
+  // 5. Host Staff Management & Location Schedule Exceptions
+  // ==========================================================================
+
+  async getBusinessStaff(businessId: string): Promise<HostStaffMemberDetail[]> {
+    const res = await fetchApi<{ staff: HostStaffMemberDetail[] }>(
+      `/hosts/businesses/${businessId}/staff`,
+      { method: "GET" }
+    );
+    return res.data.staff ?? [];
+  },
+
+  async inviteBusinessStaff(
+    businessId: string,
+    data: AddHostStaffRequest
+  ): Promise<HostStaffMemberDetail> {
+    const res = await fetchApi<HostStaffMemberDetail>(`/hosts/businesses/${businessId}/staff`, {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async updateBusinessStaff(
+    businessId: string,
+    membershipId: string,
+    data: UpdateHostStaffRequest
+  ): Promise<HostStaffMemberDetail> {
+    const res = await fetchApi<HostStaffMemberDetail>(
+      `/hosts/businesses/${businessId}/staff/${membershipId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data)
+      }
+    );
+    return res.data;
+  },
+
+  async removeBusinessStaff(businessId: string, membershipId: string): Promise<void> {
+    await fetchApi<{ removed: boolean }>(
+      `/hosts/businesses/${businessId}/staff/${membershipId}`,
+      { method: "DELETE" }
+    );
+  },
+
+  async deleteOpeningHoursException(locationId: string, exceptionId: string): Promise<void> {
+    await fetchApi<{ deleted: boolean }>(
+      `/hosts/locations/${locationId}/exceptions/${exceptionId}`,
+      { method: "DELETE" }
+    );
+  },
+
+  // ==========================================================================
+  // 6. Customer Support Tickets
+  // ==========================================================================
+
+  async createSupportTicket(
+    data: CreateSupportTicketRequest
+  ): Promise<SupportTicketCreatedResponse> {
+    const res = await fetchApi<SupportTicketCreatedResponse>("/support/tickets", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async getMySupportTickets(): Promise<SupportTicketSummary[]> {
+    const res = await fetchApi<{ tickets: SupportTicketSummary[] }>("/support/tickets/me", {
+      method: "GET"
+    });
+    return res.data.tickets ?? [];
+  },
+
+  async getMySupportTicketDetail(ticketId: string): Promise<SupportTicketCustomerDetail> {
+    const res = await fetchApi<SupportTicketCustomerDetail>(`/support/tickets/me/${ticketId}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  async replyMySupportTicket(
+    ticketId: string,
+    data: CustomerSupportTicketReplyRequest
+  ): Promise<SupportTicketCustomerDetail> {
+    const res = await fetchApi<SupportTicketCustomerDetail>(
+      `/support/tickets/me/${ticketId}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify(data)
+      }
+    );
     return res.data;
   }
 };

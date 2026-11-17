@@ -16,7 +16,10 @@ import {
   VerifyEmailRequest,
   VerifyEmailResponseData,
   ResendVerificationRequest,
-  ResendVerificationResponseData
+  ResendVerificationResponseData,
+  UserProfileResponseData,
+  UpdateProfileRequest,
+  UpdateProfileResponseData
 } from "@luggage-storage/contracts";
 import { fetchApi } from "./api-client";
 
@@ -160,6 +163,27 @@ export const authApi = {
         body: JSON.stringify(data)
       }
     );
+    return res.data;
+  },
+
+  /**
+   * Retrieve the authenticated user's full self-service profile.
+   */
+  async getIdentityProfile(): Promise<UserProfileResponseData> {
+    const res = await fetchApi<UserProfileResponseData>("/identity/profile");
+    return res.data;
+  },
+
+  /**
+   * Update explicitly permitted self-service profile fields.
+   */
+  async updateIdentityProfile(
+    data: UpdateProfileRequest
+  ): Promise<UpdateProfileResponseData> {
+    const res = await fetchApi<UpdateProfileResponseData>("/identity/profile", {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
     return res.data;
   }
 };

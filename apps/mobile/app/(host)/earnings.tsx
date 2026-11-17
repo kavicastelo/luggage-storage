@@ -17,6 +17,7 @@ import {
 import {
   useBusinessPayoutDetailsQuery,
   useHostFinanceSummaryQuery,
+  useHostPayoutBatchesQuery,
   useOwnedBusinessesQuery
 } from "../../src/hooks";
 import { normalizeApiError } from "../../src/services/api-client";
@@ -42,6 +43,7 @@ export default function HostEarningsScreen() {
 
   const financeQuery = useHostFinanceSummaryQuery(business?.id, isOwner);
   const payoutQuery = useBusinessPayoutDetailsQuery(business?.id, isOwner && Boolean(business?.id));
+  const batchesQuery = useHostPayoutBatchesQuery(business?.id, isOwner);
 
   if (!isOwner) {
     return (
@@ -193,6 +195,50 @@ export default function HostEarningsScreen() {
                 </Text>
                 <Text style={styles.metaText}>
                   Accrued: {formatColomboDateTime(new Date(item.accruedAt))}
+                </Text>
+              </Card>
+            ))
+          )}
+
+          <Text style={styles.sectionTitle}>
+            Settlement Payout Batches ({batchesQuery.data?.length ?? 0})
+          </Text>
+          {batchesQuery.isLoading ? (
+            <LoadingSkeleton count={2} />
+          ) : batchesQuery.error ? (
+            <ErrorState
+              title="Unable to Load Payout Batches"
+              message={normalizeApiError(batchesQuery.error).message}
+              onRetry={() => void batchesQuery.refetch()}
+            />
+          ) : (batchesQuery.data?.length ?? 0) === 0 ? (
+            <EmptyState
+              mascot="thinking"
+              title="No Payout Batches Yet"
+              description="Once eligible host payables are grouped and disbursed by finance, bank settlement batches and wire references appear here."
+            />
+          ) : (
+            (batchesQuery.data ?? []).map((batch) => (
+              <Card key={batch.id} variant="default" style={styles.cardGap}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.refCode}>{batch.batchCode}</Text>
+                  <StatusBadge status={batch.status} size="sm" />
+                </View>
+                <Text style={styles.netValue}>
+                  Net Disbursed:{" "}
+                  {formatCurrencyMinorUnits(
+                    batch.totalNetPayableMinor,
+                    (batch.currency || currency) as CurrencyCode
+                  )}
+                </Text>
+                <Text style={styles.metaText}>
+                  Items: {batch.itemCount} • Method: {batch.payoutMethod}
+                  {batch.payoutReference ? ` • Ref: ${batch.payoutReference}` : ""}
+                </Text>
+                <Text style={styles.metaText}>
+                  {batch.disbursedAt
+                    ? `Disbursed: ${formatColomboDateTime(new Date(batch.disbursedAt))}`
+                    : `Generated: ${formatColomboDateTime(new Date(batch.createdAt))}`}
                 </Text>
               </Card>
             ))

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  AddHostStaffRequest,
   BookingListQuery,
   CancelBookingRequest,
   CompleteCheckInRequest,
@@ -16,6 +17,7 @@ import type {
   SubmitHostVerificationRequest,
   UpdateCapacityPoolRequest,
   UpdateHostBusinessRequest,
+  UpdateHostStaffRequest,
   UpdateLocationRequest,
   VerifyCustodyPassRequest
 } from "@luggage-storage/contracts";
@@ -362,6 +364,78 @@ export function useCompleteCollectionMutation() {
         queryKey: mobileQueryKeys.host.custodyDetail(vars.bookingId)
       });
       await queryClient.invalidateQueries({ queryKey: mobileQueryKeys.host.all });
+    }
+  });
+}
+
+export function useHostPayoutBatchesQuery(businessId?: string, enabled: boolean = true) {
+  return useQuery({
+    queryKey: mobileQueryKeys.host.payoutBatches(businessId),
+    queryFn: () => marketplaceApi.getHostPayoutBatches(businessId),
+    enabled
+  });
+}
+
+export function useBusinessStaffQuery(businessId?: string, enabled: boolean = true) {
+  const isValid = Boolean(businessId && UUID_REGEX.test(businessId));
+  return useQuery({
+    queryKey: mobileQueryKeys.host.staff(businessId ?? "invalid"),
+    queryFn: () => marketplaceApi.getBusinessStaff(businessId as string),
+    enabled: enabled && isValid
+  });
+}
+
+export function useInviteBusinessStaffMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { businessId: string; data: AddHostStaffRequest }) =>
+      marketplaceApi.inviteBusinessStaff(params.businessId, params.data),
+    onSuccess: async (_res, vars) => {
+      await queryClient.invalidateQueries({
+        queryKey: mobileQueryKeys.host.staff(vars.businessId)
+      });
+    }
+  });
+}
+
+export function useUpdateBusinessStaffMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: {
+      businessId: string;
+      membershipId: string;
+      data: UpdateHostStaffRequest;
+    }) => marketplaceApi.updateBusinessStaff(params.businessId, params.membershipId, params.data),
+    onSuccess: async (_res, vars) => {
+      await queryClient.invalidateQueries({
+        queryKey: mobileQueryKeys.host.staff(vars.businessId)
+      });
+    }
+  });
+}
+
+export function useRemoveBusinessStaffMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { businessId: string; membershipId: string }) =>
+      marketplaceApi.removeBusinessStaff(params.businessId, params.membershipId),
+    onSuccess: async (_res, vars) => {
+      await queryClient.invalidateQueries({
+        queryKey: mobileQueryKeys.host.staff(vars.businessId)
+      });
+    }
+  });
+}
+
+export function useDeleteOpeningHoursExceptionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { locationId: string; exceptionId: string }) =>
+      marketplaceApi.deleteOpeningHoursException(params.locationId, params.exceptionId),
+    onSuccess: async (_res, vars) => {
+      await queryClient.invalidateQueries({
+        queryKey: mobileQueryKeys.host.location(vars.locationId)
+      });
     }
   });
 }

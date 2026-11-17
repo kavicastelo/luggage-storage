@@ -122,7 +122,11 @@ export function LocationCard({
         <View style={styles.leftFooter}>
           <View style={styles.hoursRow}>
             <MobileIcon name="clock" size="xs" color={mobileTextColors.muted} />
-            <Text style={styles.hoursText}>{location.operatingHoursSummary}</Text>
+            <Text style={styles.hoursText}>
+              {location.is24Hours
+                ? "Open 24 Hours"
+                : location.operatingHoursSummary ?? "Hours not configured"}
+            </Text>
           </View>
           <View style={styles.hoursRow}>
             <MobileIcon

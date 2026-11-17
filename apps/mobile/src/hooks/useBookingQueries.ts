@@ -4,6 +4,8 @@ import type {
   BookingQuoteRequest,
   CancelBookingRequest,
   CreateBookingRequest,
+  CreateSupportTicketRequest,
+  CustomerSupportTicketReplyRequest,
   IssueCustodyPassRequest,
   RecordBookingExceptionRequest
 } from "@luggage-storage/contracts";
@@ -103,6 +105,45 @@ export function useIssueCustodyPassMutation() {
       await queryClient.invalidateQueries({
         queryKey: mobileQueryKeys.bookings.detail(vars.bookingId)
       });
+    }
+  });
+}
+
+export function useMySupportTicketsQuery(enabled: boolean = true) {
+  return useQuery({
+    queryKey: mobileQueryKeys.support.tickets,
+    queryFn: () => marketplaceApi.getMySupportTickets(),
+    enabled
+  });
+}
+
+export function useMySupportTicketDetailQuery(ticketId?: string, enabled: boolean = true) {
+  const isValid = Boolean(ticketId && UUID_REGEX.test(ticketId));
+  return useQuery({
+    queryKey: mobileQueryKeys.support.ticketDetail(ticketId ?? "invalid"),
+    queryFn: () => marketplaceApi.getMySupportTicketDetail(ticketId as string),
+    enabled: enabled && isValid
+  });
+}
+
+export function useCreateSupportTicketMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateSupportTicketRequest) => marketplaceApi.createSupportTicket(data),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: mobileQueryKeys.support.tickets });
+    }
+  });
+}
+
+export function useReplyMySupportTicketMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { ticketId: string; data: CustomerSupportTicketReplyRequest }) =>
+      marketplaceApi.replyMySupportTicket(params.ticketId, params.data),
+    onSuccess: async (updated, vars) => {
+      queryClient.setQueryData(mobileQueryKeys.support.ticketDetail(vars.ticketId), updated);
+      await queryClient.invalidateQueries({ queryKey: mobileQueryKeys.support.tickets });
     }
   });
 }

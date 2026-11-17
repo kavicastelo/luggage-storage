@@ -199,7 +199,9 @@ export default function TravellerLocationDetailScreen() {
             <View style={styles.hoursRow}>
               <MobileIcon name="clock" size={18} color={mobileColors.navy[800]} />
               <Text style={styles.hoursValue}>
-                {location.is24Hours ? "Open 24 Hours" : location.operatingHoursSummary}
+                {location.is24Hours
+                  ? "Open 24 Hours"
+                  : location.operatingHoursSummary ?? "Operating hours not configured"}
               </Text>
             </View>
             <Text style={styles.captionNote}>

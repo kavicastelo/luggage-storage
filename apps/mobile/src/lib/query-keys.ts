@@ -33,7 +33,14 @@ export const mobileQueryKeys = {
       ["host", "bookings", filters ?? {}] as const,
     bookingDetail: (bookingId: string) => ["host", "booking-detail", bookingId] as const,
     custodyDetail: (bookingId: string) => ["host", "custody", bookingId] as const,
-    financeSummary: ["host", "finance", "summary"] as const
+    financeSummary: ["host", "finance", "summary"] as const,
+    payoutBatches: (businessId?: string) =>
+      ["host", "finance", "payout-batches", businessId ?? "all"] as const,
+    staff: (businessId: string) => ["host", "staff", businessId] as const
+  },
+  support: {
+    tickets: ["support", "tickets", "me"] as const,
+    ticketDetail: (ticketId: string) => ["support", "tickets", "me", ticketId] as const
   }
 } as const;
 
