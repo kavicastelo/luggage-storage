@@ -644,7 +644,9 @@ export function WebSearchDiscoveryPage() {
                           </p>
                           <p className="text-xs text-sand-600 flex items-center gap-1">
                             <Clock className="h-3.5 w-3.5 text-navy-700 shrink-0" />
-                            {loc.is24Hours ? "Open 24 Hours" : loc.operatingHoursSummary}
+                            {loc.is24Hours
+                              ? "Open 24 Hours"
+                              : loc.operatingHoursSummary ?? "Operating hours not configured"}
                           </p>
                         </div>
 

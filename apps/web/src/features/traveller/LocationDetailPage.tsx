@@ -362,7 +362,10 @@ export function LocationProfileDetailPage() {
               </h2>
               {detail && (
                 <span className="text-xs font-semibold text-sand-700">
-                  {detail.is24Hours ? "Open 24 Hours" : detail.operatingHoursSummary} ({detail.timezone})
+                  {detail.is24Hours
+                    ? "Open 24 Hours"
+                    : detail.operatingHoursSummary ?? "Operating hours not configured"}{" "}
+                  ({detail.timezone})
                 </span>
               )}
             </div>
@@ -392,7 +395,9 @@ export function LocationProfileDetailPage() {
                 </div>
               ) : (
                 <p className="text-sm text-sand-700">
-                  Standard operating schedule: {detail.operatingHoursSummary}.
+                  {detail.operatingHoursSummary
+                    ? `Standard operating schedule: ${detail.operatingHoursSummary}.`
+                    : "Operating hours have not been configured for this location yet."}
                 </p>
               )
             ) : (

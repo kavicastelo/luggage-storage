@@ -33,6 +33,9 @@ import {
   AssignUserRoleRequest,
   AssignUserRoleResponseData,
   RevokeUserRoleResponseData,
+  UserProfileResponseData,
+  UpdateProfileRequest,
+  UpdateProfileResponseData,
   UserEffectivePermissionsResponseData,
   PaginatedApiResponse,
   PaginationMeta
@@ -365,6 +368,27 @@ export const authApi = {
       `/admin/users/${userId}/roles/${encodeURIComponent(roleCode)}`,
       { method: "DELETE" }
     );
+    return res.data;
+  },
+
+  /**
+   * Retrieve the authenticated user's full self-service profile.
+   */
+  async getIdentityProfile(): Promise<UserProfileResponseData> {
+    const res = await fetchApi<UserProfileResponseData>("/identity/profile");
+    return res.data;
+  },
+
+  /**
+   * Update explicitly permitted self-service profile fields.
+   */
+  async updateIdentityProfile(
+    data: UpdateProfileRequest
+  ): Promise<UpdateProfileResponseData> {
+    const res = await fetchApi<UpdateProfileResponseData>("/identity/profile", {
+      method: "PATCH",
+      body: JSON.stringify(data)
+    });
     return res.data;
   }
 };
