@@ -46,7 +46,7 @@
     "eslint": "10.14.0",
     "rimraf": "^5.0.7",
     "tsx": "^4.7.2",
-    "typescript": "^5.4.5",
+    "typescript": "^6.0.3",
     "vitest": "^3.2.7"
   }
 }
