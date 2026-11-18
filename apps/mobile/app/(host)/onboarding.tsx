@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Linking, StyleSheet } from "react-native";
+import { View, Text, Linking, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -17,10 +17,10 @@ import {
   ErrorState,
   FormSection,
   LoadingSkeleton,
+  MascotIllustration,
   MobileIcon,
   SafeHeader,
   ScreenContainer,
-  SelectionCard,
   StatusBadge,
   TextInput
 } from "../../src/components";
@@ -57,6 +57,7 @@ export default function HostOnboardingScreen() {
   const updateMutation = useUpdateBusinessMutation();
   const submitVerificationMutation = useSubmitVerificationMutation();
 
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [legalBusinessName, setLegalBusinessName] = useState("");
   const [tradeName, setTradeName] = useState("");
   const [entityType, setEntityType] = useState<HostEntityType>("SOLE_PROPRIETORSHIP");
@@ -354,10 +355,48 @@ export default function HostOnboardingScreen() {
             </Card>
           )}
 
-          <Card variant="default" style={styles.cardGap}>
+          <View style={styles.stepperRow} accessibilityRole="tablist">
+            {(
+              [
+                { step: 1 as const, label: "1. Business", locked: false },
+                { step: 2 as const, label: "2. Payout Bank", locked: false },
+                { step: 3 as const, label: "3. KYC Docs", locked: !existingBusiness }
+              ]
+            ).map((item) => {
+              const active = wizardStep === item.step;
+              const done = wizardStep > item.step;
+              return (
+                <TouchableOpacity
+                  key={item.step}
+                  style={[
+                    styles.stepPill,
+                    active ? styles.stepPillActive : null,
+                    done ? styles.stepPillDone : null,
+                    item.locked ? styles.stepPillLocked : null
+                  ]}
+                  disabled={item.locked}
+                  onPress={() => setWizardStep(item.step)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active, disabled: item.locked }}
+                >
+                  <Text
+                    style={[
+                      styles.stepPillText,
+                      (active || done) ? styles.stepPillTextActive : null
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {wizardStep === 1 ? (
             <FormSection
-              title={existingBusiness ? "1. Business & Payout Details" : "1. Register Business"}
-              subtitle="Legal identity and LKR bank settlement account details."
+              title={existingBusiness ? "1. Business Identity" : "1. Register Business"}
+              subtitle="Legal identity and primary Sri Lanka contact details."
             >
               <TextInput
                 label="Legal Business Name"
@@ -375,15 +414,28 @@ export default function HostOnboardingScreen() {
               />
 
               <Text style={styles.fieldLabel}>Entity Type</Text>
-              <View style={styles.choicesWrap}>
-                {HOST_ENTITY_TYPES.map((type) => (
-                  <SelectionCard
-                    key={type}
-                    title={type.replace(/_/g, " ")}
-                    selected={entityType === type}
-                    onPress={() => setEntityType(type)}
-                  />
-                ))}
+              <View style={styles.chipsWrap}>
+                {HOST_ENTITY_TYPES.map((type) => {
+                  const selected = entityType === type;
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                      onPress={() => setEntityType(type)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text
+                        style={[
+                          styles.pillChipText,
+                          selected ? styles.pillChipTextActive : null
+                        ]}
+                      >
+                        {type.replace(/_/g, " ")}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
 
               <TextInput
@@ -428,7 +480,31 @@ export default function HostOnboardingScreen() {
                 placeholder="00100"
               />
 
-              <Text style={styles.fieldLabel}>LKR Bank Settlement Details</Text>
+              {formError ? <ErrorState title="Validation Error" message={formError} /> : null}
+              {formNotice ? (
+                <View style={styles.successBanner} accessibilityRole="alert">
+                  <MobileIcon
+                    name="check-circle"
+                    size={16}
+                    color={mobileStatusTokens.successIcon}
+                  />
+                  <Text style={styles.successBannerText}>{formNotice}</Text>
+                </View>
+              ) : null}
+
+              <Button
+                title="Continue to Payout Bank"
+                rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
+                onPress={() => setWizardStep(2)}
+              />
+            </FormSection>
+          ) : null}
+
+          {wizardStep === 2 ? (
+            <FormSection
+              title="2. LKR Payout Bank Details"
+              subtitle="Bank account details used for manual LKR settlements."
+            >
               <TextInput
                 label="Bank Name"
                 value={payoutBankName}
@@ -460,120 +536,166 @@ export default function HostOnboardingScreen() {
               />
 
               {formError ? <ErrorState title="Validation Error" message={formError} /> : null}
-              {formNotice ? <Badge label={formNotice} variant="success" icon="check-circle" /> : null}
+              {formNotice ? (
+                <View style={styles.successBanner} accessibilityRole="alert">
+                  <MobileIcon
+                    name="check-circle"
+                    size={16}
+                    color={mobileStatusTokens.successIcon}
+                  />
+                  <Text style={styles.successBannerText}>{formNotice}</Text>
+                </View>
+              ) : null}
 
               <Button
-                title={existingBusiness ? "Update Business Profile" : "Register Business"}
+                title={existingBusiness ? "Save Business & Bank Details" : "Register Business"}
                 isLoading={createMutation.isPending || updateMutation.isPending}
                 onPress={() => {
                   void handleSaveBusiness();
                 }}
               />
+              {existingBusiness ? (
+                <Button
+                  title="Next: Upload KYC Docs"
+                  variant="outline"
+                  rightIcon={
+                    <MobileIcon name="arrow-right" size={16} color={mobileColors.navy[900]} />
+                  }
+                  onPress={() => setWizardStep(3)}
+                />
+              ) : null}
             </FormSection>
-          </Card>
+          ) : null}
 
-          {existingBusiness ? (
-            <Card variant="default" style={styles.cardGap}>
-              <FormSection
-                title="2. Partner KYC Verification Documents"
-                subtitle="Upload clear PDF or image scans (max 15 MB each). Files are confirmed directly with storage before submission."
-              >
-                {verification ? (
-                  <View style={styles.kycStatusBox}>
-                    <View style={styles.statusRow}>
-                      <Text style={styles.fieldLabel}>Current Review Status</Text>
-                      <StatusBadge status={verification.status} size="sm" />
-                    </View>
-                    {verification.rejectionReason ? (
-                      <Text style={styles.rejectionText}>
-                        Reviewer Note: {verification.rejectionReason}
-                      </Text>
-                    ) : null}
-                    {verification.documents.map((doc) => (
-                      <View key={doc.id} style={styles.docRow}>
-                        <View style={styles.docCol}>
-                          <Text style={styles.docName}>{doc.fileName}</Text>
-                          <Text style={styles.docMeta}>
-                            {doc.documentType} • {doc.status}
-                          </Text>
-                        </View>
-                        <Button
-                          title="Preview"
-                          size="sm"
-                          variant="outline"
-                          onPress={() => {
-                            void handlePreviewServerDoc(doc.id);
-                          }}
-                        />
-                      </View>
-                    ))}
+          {wizardStep === 3 && existingBusiness ? (
+            <FormSection
+              title="3. Partner KYC Verification Documents"
+              subtitle="Upload clear PDF or image scans (max 15 MB each). Files are confirmed directly with storage before submission."
+            >
+              <MascotIllustration
+                mascot="selfie"
+                size="sm"
+                variant="bare"
+                caption="Capture crisp, uncropped photos or PDFs of your business registration & ID."
+              />
+
+              {verification ? (
+                <View style={styles.kycStatusBox}>
+                  <View style={styles.statusRow}>
+                    <Text style={styles.fieldLabel}>Current Review Status</Text>
+                    <StatusBadge status={verification.status} size="sm" />
                   </View>
-                ) : null}
-
-                <Text style={styles.fieldLabel}>Document Category</Text>
-                <View style={styles.choicesWrap}>
-                  {HOST_DOCUMENT_TYPES.map((docType) => (
-                    <SelectionCard
-                      key={docType}
-                      title={docType.replace(/_/g, " ")}
-                      selected={selectedDocType === docType}
-                      onPress={() => setSelectedDocType(docType)}
-                    />
+                  {verification.rejectionReason ? (
+                    <Text style={styles.rejectionText}>
+                      Reviewer Note: {verification.rejectionReason}
+                    </Text>
+                  ) : null}
+                  {verification.documents.map((doc) => (
+                    <View key={doc.id} style={styles.docRow}>
+                      <View style={styles.docCol}>
+                        <Text style={styles.docName}>{doc.fileName}</Text>
+                        <Text style={styles.docMeta}>
+                          {doc.documentType} • {doc.status}
+                        </Text>
+                      </View>
+                      <Button
+                        title="Preview"
+                        size="sm"
+                        variant="outline"
+                        onPress={() => {
+                          void handlePreviewServerDoc(doc.id);
+                        }}
+                      />
+                    </View>
                   ))}
                 </View>
+              ) : null}
 
-                <View style={styles.uploadBtnRow}>
-                  <Button
-                    title="Upload PDF / File"
-                    variant="outline"
-                    leftIcon={<MobileIcon name="file-text" size={16} color={mobileColors.navy[900]} />}
-                    isLoading={isUploadingDoc}
-                    onPress={() => {
-                      void handlePickDocument();
-                    }}
-                    style={styles.flexBtn}
-                  />
-                  <Button
-                    title="Upload Photo"
-                    variant="outline"
-                    leftIcon={<MobileIcon name="camera" size={16} color={mobileColors.navy[900]} />}
-                    isLoading={isUploadingDoc}
-                    onPress={() => {
-                      void handlePickImage();
-                    }}
-                    style={styles.flexBtn}
-                  />
-                </View>
+              <Text style={styles.fieldLabel}>Document Category</Text>
+              <View style={styles.chipsWrap}>
+                {HOST_DOCUMENT_TYPES.map((docType) => {
+                  const selected = selectedDocType === docType;
+                  return (
+                    <TouchableOpacity
+                      key={docType}
+                      style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                      onPress={() => setSelectedDocType(docType)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text
+                        style={[
+                          styles.pillChipText,
+                          selected ? styles.pillChipTextActive : null
+                        ]}
+                      >
+                        {docType.replace(/_/g, " ")}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
-                {pendingDocs.length > 0 ? (
-                  <View style={styles.pendingList}>
-                    <Text style={styles.fieldLabel}>
-                      Ready to Submit ({pendingDocs.length})
-                    </Text>
-                    {pendingDocs.map((item, idx) => (
-                      <View key={`${item.fileKey}-${idx}`} style={styles.docRow}>
-                        <Text style={styles.docName}>
-                          {item.documentType}: {item.fileName}
-                        </Text>
-                        <Badge label="Confirmed" variant="success" size="sm" />
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-
-                {kycError ? <ErrorState title="Verification Error" message={kycError} /> : null}
-                {kycNotice ? <Badge label={kycNotice} variant="success" icon="check-circle" /> : null}
-
+              <View style={styles.uploadBtnRow}>
                 <Button
-                  title="Submit KYC Package for Review"
-                  isLoading={submitVerificationMutation.isPending}
-                  disabled={pendingDocs.length === 0}
+                  title="Upload PDF / File"
+                  variant="outline"
+                  leftIcon={<MobileIcon name="file-text" size={16} color={mobileColors.navy[900]} />}
+                  isLoading={isUploadingDoc}
                   onPress={() => {
-                    void handleSubmitVerification();
+                    void handlePickDocument();
                   }}
+                  style={styles.flexBtn}
                 />
-              </FormSection>
-            </Card>
+                <Button
+                  title="Upload Photo"
+                  variant="outline"
+                  leftIcon={<MobileIcon name="camera" size={16} color={mobileColors.navy[900]} />}
+                  isLoading={isUploadingDoc}
+                  onPress={() => {
+                    void handlePickImage();
+                  }}
+                  style={styles.flexBtn}
+                />
+              </View>
+
+              {pendingDocs.length > 0 ? (
+                <View style={styles.pendingList}>
+                  <Text style={styles.fieldLabel}>
+                    Ready to Submit ({pendingDocs.length})
+                  </Text>
+                  {pendingDocs.map((item, idx) => (
+                    <View key={`${item.fileKey}-${idx}`} style={styles.docRow}>
+                      <Text style={styles.docName}>
+                        {item.documentType}: {item.fileName}
+                      </Text>
+                      <Badge label="Confirmed" variant="success" size="sm" />
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              {kycError ? <ErrorState title="Verification Error" message={kycError} /> : null}
+              {kycNotice ? (
+                <View style={styles.successBanner} accessibilityRole="alert">
+                  <MobileIcon
+                    name="check-circle"
+                    size={16}
+                    color={mobileStatusTokens.successIcon}
+                  />
+                  <Text style={styles.successBannerText}>{kycNotice}</Text>
+                </View>
+              ) : null}
+
+              <Button
+                title="Submit KYC Package for Review"
+                isLoading={submitVerificationMutation.isPending}
+                disabled={pendingDocs.length === 0}
+                onPress={() => {
+                  void handleSubmitVerification();
+                }}
+              />
+            </FormSection>
           ) : null}
         </View>
       )}
@@ -671,5 +793,82 @@ const styles = StyleSheet.create({
   },
   pendingList: {
     gap: mobileSpacing[2]
+  },
+  stepperRow: {
+    flexDirection: "row",
+    gap: mobileSpacing[2]
+  },
+  stepPill: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8
+  },
+  stepPillActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  stepPillDone: {
+    backgroundColor: mobileColors.emerald[700],
+    borderColor: mobileColors.emerald[700]
+  },
+  stepPillLocked: {
+    opacity: 0.5
+  },
+  stepPillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: mobileTextColors.secondary
+  },
+  stepPillTextActive: {
+    color: mobileColors.white
+  },
+  chipsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: mobileSpacing[2]
+  },
+  pillChip: {
+    minHeight: 40,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  pillChipActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  pillChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileTextColors.primary
+  },
+  pillChipTextActive: {
+    color: mobileColors.white
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  successBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success,
+    fontWeight: "600",
+    flex: 1
   }
 });

@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { HOST_STAFF_ROLES, type HostStaffRole } from "@luggage-storage/contracts";
 import {
   Badge,
+  BottomSheet,
   Button,
   Card,
   ConfirmDialog,
@@ -12,7 +13,6 @@ import {
   MobileIcon,
   SafeHeader,
   ScreenContainer,
-  SelectionCard,
   StatusBadge,
   TextInput,
   type MobileIconName
@@ -41,16 +41,18 @@ function SettingsMenuRow({
   icon,
   title,
   subtitle,
-  onPress
+  onPress,
+  isLast = false
 }: {
   icon: MobileIconName;
   title: string;
   subtitle: string;
   onPress: () => void;
+  isLast?: boolean;
 }) {
   return (
     <TouchableOpacity
-      style={styles.menuRow}
+      style={[styles.menuRow, isLast ? styles.menuRowLast : null]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={title}
@@ -85,11 +87,17 @@ export default function HostSettingsScreen() {
   const updateStaffMutation = useUpdateBusinessStaffMutation();
   const removeStaffMutation = useRemoveBusinessStaffMutation();
 
+  const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
+  const [removeStaffTarget, setRemoveStaffTarget] = useState<
+    NonNullable<typeof staffQuery.data>[number] | null
+  >(null);
+  const [pendingStaffId, setPendingStaffId] = useState<string | null>(null);
   const [staffEmail, setStaffEmail] = useState("");
   const [staffRole, setStaffRole] = useState<HostStaffRole>("ATTENDANT");
   const [selectedLocId, setSelectedLocId] = useState<string>("");
   const [staffFeedback, setStaffFeedback] = useState<string | null>(null);
   const [staffError, setStaffError] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   if (!isOwner) {
     return (
@@ -182,87 +190,44 @@ export default function HostSettingsScreen() {
               title="Active Sign-In Sessions"
               subtitle="Audit and revoke active partner device tokens"
               onPress={() => router.push("/(account)/sessions")}
+              isLast
             />
           </Card>
 
           <Card variant="default" style={styles.cardGap}>
-            <Text style={styles.noticeTitle}>Counter Staff Access</Text>
-            <Text style={styles.noticeBody}>
-              Assign existing verified accounts as Manager or Attendant across your storage hubs.
-            </Text>
+            <View style={styles.rowBetween}>
+              <View style={styles.flexCol}>
+                <Text style={styles.noticeTitle}>Counter Staff Access</Text>
+                <Text style={styles.noticeBody}>
+                  Assign existing verified accounts as Manager or Attendant across your storage hubs.
+                </Text>
+              </View>
+              {business ? (
+                <Button
+                  title="Assign Staff"
+                  size="sm"
+                  variant="outline"
+                  onPress={() => {
+                    setInviteError(null);
+                    setInviteSheetOpen(true);
+                  }}
+                />
+              ) : null}
+            </View>
 
             {business ? (
               <View style={{ gap: 10, marginTop: 6 }}>
-                <TextInput
-                  label="Staff Email"
-                  value={staffEmail}
-                  onChangeText={setStaffEmail}
-                  placeholder="staff@example.com"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-                <View style={styles.badgesRow}>
-                  {HOST_STAFF_ROLES.map((role) => (
-                    <SelectionCard
-                      key={role}
-                      title={role}
-                      selected={staffRole === role}
-                      onPress={() => setStaffRole(role)}
-                    />
-                  ))}
-                </View>
-
-                {(locationsQuery.data?.length ?? 0) > 0 ? (
-                  <View style={styles.badgesRow}>
-                    <SelectionCard
-                      title="All Hubs"
-                      selected={!selectedLocId}
-                      onPress={() => setSelectedLocId("")}
-                    />
-                    {(locationsQuery.data ?? []).map((loc) => (
-                      <SelectionCard
-                        key={loc.id}
-                        title={loc.name}
-                        selected={selectedLocId === loc.id}
-                        onPress={() => setSelectedLocId(loc.id)}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-
                 {staffError ? <ErrorState title="Staff Update Failed" message={staffError} /> : null}
                 {staffFeedback ? (
-                  <Badge label={staffFeedback} variant="success" icon="check-circle" />
+                  <View style={styles.successBanner} accessibilityRole="alert">
+                    <MobileIcon
+                      name="check-circle"
+                      size={16}
+                      color={mobileStatusTokens.successIcon}
+                    />
+                    <Text style={styles.successBannerText}>{staffFeedback}</Text>
+                  </View>
                 ) : null}
-
-                <Button
-                  title="Assign Staff Member"
-                  size="sm"
-                  isLoading={inviteStaffMutation.isPending}
-                  onPress={() => {
-                    setStaffError(null);
-                    setStaffFeedback(null);
-                    const trimmed = staffEmail.trim();
-                    if (!trimmed) {
-                      setStaffError("Enter a registered user email address.");
-                      return;
-                    }
-                    void inviteStaffMutation
-                      .mutateAsync({
-                        businessId: business.id,
-                        data: {
-                          email: trimmed,
-                          staffRole,
-                          assignedLocationIds: selectedLocId ? [selectedLocId] : []
-                        }
-                      })
-                      .then(() => {
-                        setStaffEmail("");
-                        setStaffFeedback("Staff member assigned.");
-                      })
-                      .catch((err) => setStaffError(normalizeApiError(err).message));
-                  }}
-                />
 
                 {staffQuery.isLoading ? (
                   <LoadingSkeleton count={2} />
@@ -275,58 +240,57 @@ export default function HostSettingsScreen() {
                 ) : (staffQuery.data?.length ?? 0) === 0 ? (
                   <Text style={styles.noticeBody}>No staff members assigned yet.</Text>
                 ) : (
-                  (staffQuery.data ?? []).map((member) => (
-                    <Card key={member.id} variant="outlined" style={styles.staffNoticeCard}>
-                      <View style={styles.rowBetween}>
-                        <View style={styles.flexCol}>
-                          <Text style={styles.menuTitle}>
-                            {member.displayName || member.email}
-                          </Text>
-                          <Text style={styles.menuSub}>
-                            {member.email} • {member.staffRole}
-                          </Text>
+                  (staffQuery.data ?? []).map((member) => {
+                    const isRowPending = pendingStaffId === member.id;
+                    return (
+                      <Card key={member.id} variant="outlined" style={styles.staffNoticeCard}>
+                        <View style={styles.rowBetween}>
+                          <View style={styles.flexCol}>
+                            <Text style={styles.menuTitle}>
+                              {member.displayName || member.email}
+                            </Text>
+                            <Text style={styles.menuSub}>
+                              {member.email} • {member.staffRole}
+                            </Text>
+                          </View>
+                          <Badge
+                            label={member.isActive ? "Active" : "Paused"}
+                            variant={member.isActive ? "success" : "warning"}
+                            size="sm"
+                          />
                         </View>
-                        <Badge
-                          label={member.isActive ? "Active" : "Paused"}
-                          variant={member.isActive ? "success" : "warning"}
-                          size="sm"
-                        />
-                      </View>
-                      <View style={styles.badgesRow}>
-                        <Button
-                          title={member.isActive ? "Pause Access" : "Activate"}
-                          size="sm"
-                          variant="outline"
-                          isLoading={updateStaffMutation.isPending}
-                          onPress={() => {
-                            setStaffError(null);
-                            void updateStaffMutation
-                              .mutateAsync({
-                                businessId: business.id,
-                                membershipId: member.id,
-                                data: { isActive: !member.isActive }
-                              })
-                              .catch((err) => setStaffError(normalizeApiError(err).message));
-                          }}
-                        />
-                        <Button
-                          title="Remove"
-                          size="sm"
-                          variant="danger"
-                          isLoading={removeStaffMutation.isPending}
-                          onPress={() => {
-                            setStaffError(null);
-                            void removeStaffMutation
-                              .mutateAsync({
-                                businessId: business.id,
-                                membershipId: member.id
-                              })
-                              .catch((err) => setStaffError(normalizeApiError(err).message));
-                          }}
-                        />
-                      </View>
-                    </Card>
-                  ))
+                        <View style={styles.badgesRow}>
+                          <Button
+                            title={member.isActive ? "Pause Access" : "Activate"}
+                            size="sm"
+                            variant="outline"
+                            isLoading={updateStaffMutation.isPending && isRowPending}
+                            disabled={isRowPending}
+                            onPress={() => {
+                              setStaffError(null);
+                              setPendingStaffId(member.id);
+                              void updateStaffMutation
+                                .mutateAsync({
+                                  businessId: business.id,
+                                  membershipId: member.id,
+                                  data: { isActive: !member.isActive }
+                                })
+                                .catch((err) => setStaffError(normalizeApiError(err).message))
+                                .finally(() => setPendingStaffId(null));
+                            }}
+                          />
+                          <Button
+                            title="Remove"
+                            size="sm"
+                            variant="danger"
+                            isLoading={removeStaffMutation.isPending && isRowPending}
+                            disabled={isRowPending}
+                            onPress={() => setRemoveStaffTarget(member)}
+                          />
+                        </View>
+                      </Card>
+                    );
+                  })
                 )}
               </View>
             ) : (
@@ -354,6 +318,146 @@ export default function HostSettingsScreen() {
           />
         </View>
       )}
+
+      <BottomSheet
+        visible={inviteSheetOpen && Boolean(business)}
+        title="Assign Counter Staff"
+        subtitle="Grant counter scanner and check-in access to an existing verified account"
+        onClose={() => setInviteSheetOpen(false)}
+      >
+        <View style={styles.sheetStack}>
+          <TextInput
+            label="Staff Email"
+            required
+            value={staffEmail}
+            onChangeText={setStaffEmail}
+            placeholder="staff@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+
+          <Text style={styles.noticeTitle}>Staff Role</Text>
+          <View style={styles.badgesRow}>
+            {HOST_STAFF_ROLES.map((role) => {
+              const selected = staffRole === role;
+              return (
+                <TouchableOpacity
+                  key={role}
+                  style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                  onPress={() => setStaffRole(role)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                >
+                  <Text
+                    style={[styles.pillChipText, selected ? styles.pillChipTextActive : null]}
+                  >
+                    {role}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {(locationsQuery.data?.length ?? 0) > 0 ? (
+            <>
+              <Text style={styles.noticeTitle}>Hub Scope</Text>
+              <View style={styles.badgesRow}>
+                <TouchableOpacity
+                  style={[styles.pillChip, !selectedLocId ? styles.pillChipActive : null]}
+                  onPress={() => setSelectedLocId("")}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: !selectedLocId }}
+                >
+                  <Text
+                    style={[styles.pillChipText, !selectedLocId ? styles.pillChipTextActive : null]}
+                  >
+                    All Hubs
+                  </Text>
+                </TouchableOpacity>
+                {(locationsQuery.data ?? []).map((loc) => {
+                  const selected = selectedLocId === loc.id;
+                  return (
+                    <TouchableOpacity
+                      key={loc.id}
+                      style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                      onPress={() => setSelectedLocId(loc.id)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text
+                        style={[
+                          styles.pillChipText,
+                          selected ? styles.pillChipTextActive : null
+                        ]}
+                      >
+                        {loc.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
+
+          {inviteError ? <ErrorState title="Staff Update Failed" message={inviteError} /> : null}
+
+          <Button
+            title="Assign Staff Member"
+            isLoading={inviteStaffMutation.isPending}
+            onPress={() => {
+              if (!business) return;
+              setInviteError(null);
+              setStaffFeedback(null);
+              const trimmed = staffEmail.trim();
+              if (!trimmed) {
+                setInviteError("Enter a registered user email address.");
+                return;
+              }
+              void inviteStaffMutation
+                .mutateAsync({
+                  businessId: business.id,
+                  data: {
+                    email: trimmed,
+                    staffRole,
+                    assignedLocationIds: selectedLocId ? [selectedLocId] : []
+                  }
+                })
+                .then(() => {
+                  setStaffEmail("");
+                  setStaffFeedback("Staff member assigned.");
+                  setInviteSheetOpen(false);
+                })
+                .catch((err) => setInviteError(normalizeApiError(err).message));
+            }}
+          />
+        </View>
+      </BottomSheet>
+
+      <ConfirmDialog
+        visible={Boolean(removeStaffTarget)}
+        title={`Remove ${removeStaffTarget?.displayName || removeStaffTarget?.email || "Staff"}?`}
+        description="This immediately revokes counter scanner and vault access for this team member."
+        confirmLabel="Remove Staff"
+        destructive
+        isLoading={removeStaffMutation.isPending}
+        onCancel={() => setRemoveStaffTarget(null)}
+        onConfirm={() => {
+          if (!business || !removeStaffTarget) return;
+          setStaffError(null);
+          setPendingStaffId(removeStaffTarget.id);
+          void removeStaffMutation
+            .mutateAsync({
+              businessId: business.id,
+              membershipId: removeStaffTarget.id
+            })
+            .then(() => {
+              setStaffFeedback("Staff member removed.");
+              setRemoveStaffTarget(null);
+            })
+            .catch((err) => setStaffError(normalizeApiError(err).message))
+            .finally(() => setPendingStaffId(null));
+        }}
+      />
 
       <ConfirmDialog
         visible={confirmSignOut}
@@ -436,6 +540,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: mobileColors.sand[200]
   },
+  menuRowLast: {
+    borderBottomWidth: 0
+  },
   menuIconWrap: {
     width: 36,
     height: 36,
@@ -468,5 +575,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     color: mobileTextColors.secondary
+  },
+  sheetStack: {
+    gap: mobileSpacing[3]
+  },
+  pillChip: {
+    minHeight: 40,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  pillChipActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  pillChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileTextColors.primary
+  },
+  pillChipTextActive: {
+    color: mobileColors.white
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  successBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success,
+    fontWeight: "600",
+    flex: 1
   }
 });

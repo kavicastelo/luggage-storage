@@ -4,8 +4,8 @@ import {
   securityEventTypeValues,
   type SecurityEventType
 } from "@luggage-storage/contracts";
-import { Download, Eye, FileSearch, X } from "lucide-react";
-import { MascotIllustration } from "@/components/ui";
+import { Download, Eye } from "lucide-react";
+import { SlideOverDrawer } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
   useAdminAuditEventDetailQuery,
@@ -15,11 +15,15 @@ import { downloadCsvFile, serializeCsv } from "@/lib/csv-export";
 import { formatDateTimeDisplay, toIsoOffsetFromLocalInput } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
   AdminPageHeader,
   AdminPaginationBar,
   AdminQueryErrorAlert,
-  isUuid
+  AdminTableSkeleton,
+  CopyTextButton,
+  isUuid,
+  truncateUuid
 } from "./admin-helpers";
 
 export function AdminAuditLogPage() {
@@ -137,19 +141,17 @@ export function AdminAuditLogPage() {
       <AdminPageHeader
         title="Security & Compliance Audit Log"
         subtitle="Filter immutable platform security, moderation, payment IPN, and RBAC events by event type, actor UUID, and timestamp window."
+        badge={showDemoPreview ? "Demo Preview" : "Immutable Audit Trail"}
         rightSlot={
-          <div className="flex items-center gap-3">
-            {!showDemoPreview && events.length > 0 && (
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-800"
-              >
-                <Download className="w-3.5 h-3.5" /> Export CSV
-              </button>
-            )}
-            <MascotIllustration mascot="thinking" size="sm" caption="Immutable Audit Trail" />
-          </div>
+          !showDemoPreview && events.length > 0 ? (
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-sand-200 bg-white hover:bg-sand-100 text-xs font-bold text-navy-900 transition"
+            >
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+          ) : undefined
         }
       />
 
@@ -166,96 +168,101 @@ export function AdminAuditLogPage() {
 
       {filterError && <AdminQueryErrorAlert message={filterError} />}
 
-      {/* Filter Form */}
+      {/* 2-Row Filter Toolbar */}
       {!showDemoPreview && (
         <form
           onSubmit={handleApplyFilters}
-          className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 text-xs"
+          className="bg-white rounded-2xl border border-sand-200 p-4 space-y-3 text-xs shadow-sm"
         >
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Event Type</label>
-            <select
-              value={eventTypeFilter}
-              onChange={(e) => setEventTypeFilter(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-mono"
-            >
-              <option value="">All Security Events</option>
-              {securityEventTypeValues.map((evt) => (
-                <option key={evt} value={evt}>
-                  {evt}
-                </option>
-              ))}
-            </select>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Event Type</label>
+              <select
+                value={eventTypeFilter}
+                onChange={(e) => setEventTypeFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-sand-200 bg-white font-mono text-navy-950"
+              >
+                <option value="">All Security Events</option>
+                {securityEventTypeValues.map((evt) => (
+                  <option key={evt} value={evt}>
+                    {evt}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Actor User UUID</label>
+              <input
+                type="text"
+                value={userIdInput}
+                onChange={(e) => setUserIdInput(e.target.value)}
+                placeholder="Optional actor UUID..."
+                className="w-full px-3 py-2 rounded-xl border border-sand-200 font-mono text-navy-950"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">User UUID</label>
-            <input
-              type="text"
-              value={userIdInput}
-              onChange={(e) => setUserIdInput(e.target.value)}
-              placeholder="Optional actor UUID..."
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 font-mono"
-            />
-          </div>
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">From Date/Time</label>
-            <input
-              type="datetime-local"
-              value={fromInput}
-              onChange={(e) => setFromInput(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-300"
-            />
-          </div>
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">To Date/Time</label>
-            <input
-              type="datetime-local"
-              value={toInput}
-              onChange={(e) => setToInput(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-300"
-            />
-          </div>
-          <div className="flex items-end gap-2">
-            <button
-              type="submit"
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold"
-            >
-              Apply Filters
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEventTypeFilter("");
-                setUserIdInput("");
-                setFromInput("");
-                setToInput("");
-                setAppliedFilters({});
-                setFilterError(null);
-                setPage(1);
-              }}
-              className="px-3 py-2 rounded-xl border border-slate-300 font-bold text-slate-700"
-            >
-              Reset
-            </button>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">From Date/Time</label>
+              <input
+                type="datetime-local"
+                value={fromInput}
+                onChange={(e) => setFromInput(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-sand-200 text-navy-950"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">To Date/Time</label>
+              <input
+                type="datetime-local"
+                value={toInput}
+                onChange={(e) => setToInput(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-sand-200 text-navy-950"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEventTypeFilter("");
+                  setUserIdInput("");
+                  setFromInput("");
+                  setToInput("");
+                  setAppliedFilters({});
+                  setFilterError(null);
+                  setPage(1);
+                }}
+                className="px-3.5 py-2 rounded-xl border border-sand-200 font-bold text-navy-900 hover:bg-sand-100 transition"
+              >
+                Reset
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
+              >
+                Apply Filters
+              </button>
+            </div>
           </div>
         </form>
       )}
 
       {/* Event List */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
         {showDemoPreview ? (
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs flex items-center justify-between">
+          <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 text-xs flex items-center justify-between">
             <div>
-              <p className="font-mono font-bold text-slate-900">
+              <p className="font-mono font-bold text-navy-950">
                 Sample Governance Telemetry Event (Demo Preview)
               </p>
-              <p className="text-slate-600 mt-0.5">
+              <p className="text-sand-700 mt-0.5">
                 Sign in with Superadmin credentials to query live immutable audit trails.
               </p>
             </div>
           </div>
         ) : auditQuery.isLoading ? (
-          <p className="text-xs text-slate-500 py-4 text-center">Loading audit trail...</p>
+          <AdminTableSkeleton rows={6} columns={5} />
         ) : events.length === 0 ? (
           <AdminEmptyStateCard
             title="No security audit events match these filters"
@@ -265,7 +272,7 @@ export function AdminAuditLogPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
+                <tr className="border-b border-sand-200 text-sand-700">
                   <th className="pb-2.5 pr-4 font-bold">Timestamp</th>
                   <th className="pb-2.5 pr-4 font-bold">Event Type</th>
                   <th className="pb-2.5 pr-4 font-bold">Actor User</th>
@@ -273,26 +280,34 @@ export function AdminAuditLogPage() {
                   <th className="pb-2.5 font-bold text-right">Details</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-sand-100">
                 {events.map((ev) => (
-                  <tr key={ev.id} className="hover:bg-slate-50">
-                    <td className="py-2.5 pr-4 text-[11px] text-slate-600">
+                  <tr key={ev.id} className="hover:bg-sand-50/70 transition-colors">
+                    <td className="py-2.5 pr-4 text-[11px] text-sand-700 tabular-nums">
                       {formatDateTimeDisplay(ev.createdAt)}
                     </td>
-                    <td className="py-2.5 pr-4 font-mono font-bold text-purple-900">
+                    <td className="py-2.5 pr-4 font-mono font-bold text-navy-950">
                       {ev.eventType}
                     </td>
-                    <td className="py-2.5 pr-4 font-mono text-[11px] text-slate-700">
-                      {ev.userId || "System / Anonymous"}
+                    <td className="py-2.5 pr-4 font-mono text-[11px] text-navy-900">
+                      {ev.userId ? (
+                        <CopyTextButton
+                          value={ev.userId}
+                          displayText={truncateUuid(ev.userId)}
+                          label="Actor User ID"
+                        />
+                      ) : (
+                        <span className="text-sand-700">System / Anonymous</span>
+                      )}
                     </td>
-                    <td className="py-2.5 pr-4 font-mono text-[11px] text-slate-600">
+                    <td className="py-2.5 pr-4 font-mono text-[11px] text-sand-700">
                       {ev.ipAddress || "—"}
                     </td>
                     <td className="py-2.5 text-right">
                       <button
                         type="button"
                         onClick={() => openInspector(ev.id)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
                       >
                         <Eye className="w-3.5 h-3.5" /> Inspect Event
                       </button>
@@ -314,31 +329,24 @@ export function AdminAuditLogPage() {
         )}
       </div>
 
-      {/* Audit Event Detail Drawer */}
-      {inspectedEventId && !showDemoPreview && (
-        <section
-          aria-label="Audit Event Detail Drawer"
-          className="bg-white rounded-2xl border-2 border-purple-300 p-6 shadow-lg space-y-4 text-xs"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">
-                Audit Event Inspector
-              </span>
-              <h2 className="text-base font-extrabold text-slate-950 mt-0.5 flex items-center gap-2 font-mono">
-                <FileSearch className="w-4 h-4 text-purple-700" />
-                {eventDetailQuery.data?.eventType ?? `Event ${inspectedEventId.slice(0, 8)}`}
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={closeInspector}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-700"
-            >
-              <X className="w-3.5 h-3.5" /> Close
-            </button>
-          </div>
-
+      {/* Audit Event Detail Slide-Over Drawer */}
+      <SlideOverDrawer
+        open={Boolean(inspectedEventId && !showDemoPreview)}
+        onClose={closeInspector}
+        ariaLabel="Audit Event Detail Drawer"
+        closeLabel="Close audit event drawer"
+        size="xl"
+        title={
+          eventDetailQuery.data?.eventType ??
+          (inspectedEventId ? `Event ${inspectedEventId.slice(0, 8)}` : "Audit Event Inspector")
+        }
+        subtitle={
+          eventDetailQuery.data
+            ? formatDateTimeDisplay(eventDetailQuery.data.createdAt)
+            : undefined
+        }
+      >
+        <div className="space-y-4 text-xs">
           {eventDetailQuery.isError ? (
             <AdminQueryErrorAlert
               message={
@@ -349,46 +357,62 @@ export function AdminAuditLogPage() {
               onRetry={() => void eventDetailQuery.refetch()}
             />
           ) : eventDetailQuery.isLoading || !eventDetailQuery.data ? (
-            <p className="text-slate-500">Loading audit event payload...</p>
+            <AdminCardListSkeleton count={3} />
           ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">Event ID</span>
-                  <p className="font-mono font-bold text-slate-900">{eventDetailQuery.data.id}</p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4 rounded-xl bg-sand-50 border border-sand-200">
+                <div className="space-y-1">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase block">
+                    Event ID
+                  </span>
+                  <CopyTextButton value={eventDetailQuery.data.id} label="Event ID" />
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">Timestamp</span>
-                  <p className="font-semibold text-slate-800">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">Timestamp</span>
+                  <p className="font-semibold text-navy-950 mt-1 tabular-nums">
                     {formatDateTimeDisplay(eventDetailQuery.data.createdAt)}
                   </p>
                 </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">Actor User ID</span>
-                  <p className="font-mono text-slate-800">
-                    {eventDetailQuery.data.userId || "System / Anonymous"}
-                  </p>
+                <div className="space-y-1">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase block">
+                    Actor User ID
+                  </span>
+                  {eventDetailQuery.data.userId ? (
+                    <CopyTextButton
+                      value={eventDetailQuery.data.userId}
+                      label="Actor User ID"
+                    />
+                  ) : (
+                    <p className="font-mono text-navy-900">System / Anonymous</p>
+                  )}
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Network / Client
                   </span>
-                  <p className="font-mono text-slate-800">
+                  <p className="font-mono text-navy-900 mt-1 break-all">
                     {eventDetailQuery.data.ipAddress || "Unknown IP"}
                     {eventDetailQuery.data.userAgent ? ` • ${eventDetailQuery.data.userAgent}` : ""}
                   </p>
                 </div>
               </div>
-              <div>
-                <span className="block font-bold text-slate-700 mb-1">JSON Metadata Payload</span>
-                <pre className="p-4 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] overflow-x-auto">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-navy-950">JSON Metadata Payload</span>
+                  <CopyTextButton
+                    value={JSON.stringify(eventDetailQuery.data.metadata, null, 2)}
+                    displayText="Copy JSON"
+                    label="JSON Metadata Payload"
+                  />
+                </div>
+                <pre className="p-4 rounded-xl bg-navy-950 text-sand-100 font-mono text-[11px] overflow-x-auto">
                   {JSON.stringify(eventDetailQuery.data.metadata, null, 2)}
                 </pre>
               </div>
             </div>
           )}
-        </section>
-      )}
+        </div>
+      </SlideOverDrawer>
     </div>
   );
 }

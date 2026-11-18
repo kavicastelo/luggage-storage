@@ -8,7 +8,16 @@ import {
   type SupportTicketPriority,
   type SupportTicketStatus
 } from "@luggage-storage/contracts";
-import { ArrowLeft, LifeBuoy, Lock, MessageSquare, Search, Send } from "lucide-react";
+import {
+  ArrowLeft,
+  LifeBuoy,
+  Lock,
+  MessageSquare,
+  RotateCcw,
+  Search,
+  Send,
+  UserCheck
+} from "lucide-react";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
   useAdminSupportTicketDetailQuery,
@@ -19,10 +28,12 @@ import {
 import { formatDateTimeDisplay, formatLkrMinor } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
   AdminPageHeader,
   AdminPaginationBar,
   AdminQueryErrorAlert,
+  AdminTableSkeleton,
   statusBadgeToneClasses
 } from "./admin-helpers";
 
@@ -78,6 +89,21 @@ export function AdminSupportTicketTriageQueuePage() {
   const total = ticketsQuery.data?.total ?? 0;
   const totalPages = ticketsQuery.data?.pagination?.totalPages ?? 1;
 
+  const hasActiveFilters =
+    statusFilter !== "ALL" ||
+    priorityFilter !== "ALL" ||
+    categoryFilter !== "ALL" ||
+    Boolean(appliedSearch);
+
+  const handleResetFilters = () => {
+    setStatusFilter("ALL");
+    setPriorityFilter("ALL");
+    setCategoryFilter("ALL");
+    setSearchInput("");
+    setAppliedSearch("");
+    setPage(1);
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAppliedSearch(searchInput.trim());
@@ -93,16 +119,16 @@ export function AdminSupportTicketTriageQueuePage() {
       />
 
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 flex items-center justify-between text-xs">
+        <div className="bg-white rounded-2xl border border-sand-200 p-5 flex items-center justify-between text-xs shadow-sm">
           <div>
-            <p className="font-bold text-slate-900">
+            <p className="font-bold text-navy-950">
               #TKT-9042 • Overdue Fee Dispute at Colombo Fort Hub
             </p>
-            <p className="text-slate-600 mt-0.5">Priority: High • Linked Sample Booking</p>
+            <p className="text-sand-700 mt-0.5">Priority: High • Linked Sample Booking</p>
           </div>
           <Link
             to={`/admin/support/TKT-9042${querySuffix}`}
-            className="px-3 py-1.5 rounded-xl bg-purple-700 text-white font-bold"
+            className="px-3 py-1.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold transition"
           >
             Inspect Ticket
           </Link>
@@ -120,89 +146,123 @@ export function AdminSupportTicketTriageQueuePage() {
             />
           )}
 
-          {/* Filters */}
-          <form
-            onSubmit={handleSearchSubmit}
-            className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-1 md:grid-cols-5 gap-3 text-xs"
-          >
-            <div className="md:col-span-2">
-              <label className="block font-bold text-slate-700 mb-1">Search Tickets</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="SUP-... ref, requester email, subject..."
-                  className="w-full rounded-xl border border-slate-300 pl-9 pr-3 py-2"
-                />
-                <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
+          {/* Quick Status Tabs + Filters */}
+          <div className="bg-white rounded-2xl border border-sand-200 p-4 space-y-3 shadow-sm text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-sand-100">
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter("ALL");
+                    setPage(1);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                    statusFilter === "ALL"
+                      ? "bg-navy-900 text-white shadow-sm"
+                      : "bg-sand-50 border border-sand-200 text-navy-900 hover:bg-sand-100"
+                  }`}
+                >
+                  All Tickets
+                </button>
+                {SUPPORT_TICKET_STATUSES.map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter(st);
+                      setPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                      statusFilter === st
+                        ? "bg-navy-900 text-white shadow-sm"
+                        : "bg-sand-50 border border-sand-200 text-navy-900 hover:bg-sand-100"
+                    }`}
+                  >
+                    {st.replace(/_/g, " ")}
+                  </button>
+                ))}
               </div>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-sand-200 text-navy-900 font-bold hover:bg-sand-100 transition"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>Reset Filters</span>
+                </button>
+              )}
             </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value as SupportTicketStatus | "ALL");
-                  setPage(1);
-                }}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold"
-              >
-                <option value="ALL">All Statuses</option>
-                {SUPPORT_TICKET_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Priority</label>
-              <select
-                value={priorityFilter}
-                onChange={(e) => {
-                  setPriorityFilter(e.target.value as SupportTicketPriority | "ALL");
-                  setPage(1);
-                }}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold"
-              >
-                <option value="ALL">All Priorities</option>
-                {SUPPORT_TICKET_PRIORITIES.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-end gap-2">
-              <div className="flex-1">
-                <label className="block font-bold text-slate-700 mb-1">Category</label>
+
+            <form
+              onSubmit={handleSearchSubmit}
+              className="grid grid-cols-1 md:grid-cols-5 gap-3"
+            >
+              <div className="md:col-span-2">
+                <label className="block font-bold text-navy-900 mb-1">Search Tickets</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    placeholder="SUP-... ref, requester email, subject..."
+                    className="w-full rounded-xl border border-sand-200 pl-9 pr-3 py-2 text-navy-950"
+                  />
+                  <Search className="h-4 w-4 text-sand-700 absolute left-3 top-2.5" />
+                </div>
+              </div>
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">Priority</label>
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => {
+                    setPriorityFilter(e.target.value as SupportTicketPriority | "ALL");
+                    setPage(1);
+                  }}
+                  className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 font-semibold text-navy-950"
+                >
+                  <option value="ALL">All Priorities</option>
+                  {SUPPORT_TICKET_PRIORITIES.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">Category</label>
                 <select
                   value={categoryFilter}
                   onChange={(e) => {
                     setCategoryFilter(e.target.value as SupportTicketCategory | "ALL");
                     setPage(1);
                   }}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 font-semibold"
+                  className="w-full rounded-xl border border-sand-200 bg-white px-2.5 py-2 font-semibold text-navy-950"
                 >
-                  <option value="ALL">All</option>
+                  <option value="ALL">All Categories</option>
                   {SUPPORT_TICKET_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
-                      {c}
+                      {c.replace(/_/g, " ")}
                     </option>
                   ))}
                 </select>
               </div>
-              <button
-                type="submit"
-                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold"
-              >
-                Search
-              </button>
-            </div>
-          </form>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  className="w-full px-3.5 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
+                >
+                  Search
+                </button>
+              </div>
+            </form>
+          </div>
 
-          {tickets.length === 0 ? (
+          {ticketsQuery.isLoading ? (
+            <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm">
+              <AdminTableSkeleton rows={6} columns={7} />
+            </div>
+          ) : tickets.length === 0 ? (
             <AdminEmptyStateCard
               title="Support Triage Queue Is Clear"
               description="No customer or host support tickets match the selected filters right now."
@@ -210,45 +270,56 @@ export function AdminSupportTicketTriageQueuePage() {
               actionLabel="Review Global Bookings"
             />
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold text-[10px]">
+                    <tr className="bg-sand-50 border-b border-sand-200 text-sand-700 uppercase font-bold text-[10px]">
                       <th className="p-3.5">Ticket Ref</th>
                       <th className="p-3.5">Subject &amp; Category</th>
                       <th className="p-3.5">Requester</th>
+                      <th className="p-3.5">Assignee</th>
                       <th className="p-3.5">Priority</th>
                       <th className="p-3.5">Status</th>
                       <th className="p-3.5">Last Activity</th>
                       <th className="p-3.5 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-sand-100">
                     {tickets.map((ticket) => (
-                      <tr key={ticket.id} className="hover:bg-slate-50/70 transition">
-                        <td className="p-3.5 font-mono font-bold text-slate-900">
+                      <tr key={ticket.id} className="hover:bg-sand-50/70 transition">
+                        <td className="p-3.5 font-mono font-bold text-navy-950">
                           {ticket.referenceCode}
                         </td>
                         <td className="p-3.5">
-                          <p className="font-bold text-slate-950">{ticket.subject}</p>
-                          <p className="text-[11px] text-slate-500">
+                          <p className="font-bold text-navy-950">{ticket.subject}</p>
+                          <p className="text-[11px] text-sand-700">
                             {ticket.category}
                             {ticket.bookingReferenceInput
                               ? ` • Ref: ${ticket.bookingReferenceInput}`
                               : ""}
                           </p>
                         </td>
-                        <td className="p-3.5 text-slate-700">
+                        <td className="p-3.5 text-navy-900">
                           <p className="font-semibold">{ticket.requesterName}</p>
-                          <p className="text-[11px] text-slate-500">{ticket.requesterEmail}</p>
+                          <p className="text-[11px] text-sand-700">{ticket.requesterEmail}</p>
+                        </td>
+                        <td className="p-3.5">
+                          {ticket.assignedToDisplayName ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sand-100 border border-sand-200 text-[11px] font-semibold text-navy-900">
+                              <UserCheck className="h-3 w-3 text-emerald-700" />
+                              {ticket.assignedToDisplayName}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-sand-500 italic">Unassigned</span>
+                          )}
                         </td>
                         <td className="p-3.5">
                           <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               ticket.priority === "URGENT" || ticket.priority === "HIGH"
                                 ? "bg-rose-50 text-rose-800 border border-rose-200"
-                                : "bg-slate-100 text-slate-700 border border-slate-200"
+                                : "bg-sand-100 text-navy-900 border border-sand-200"
                             }`}
                           >
                             {ticket.priority}
@@ -263,13 +334,13 @@ export function AdminSupportTicketTriageQueuePage() {
                             {ticket.status}
                           </span>
                         </td>
-                        <td className="p-3.5 text-slate-600">
+                        <td className="p-3.5 text-sand-700 tabular-nums">
                           {formatDateTimeDisplay(ticket.lastMessageAt)}
                         </td>
                         <td className="p-3.5 text-right">
                           <Link
                             to={`/admin/support/${ticket.id}`}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-bold"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold transition"
                           >
                             <LifeBuoy className="h-3.5 w-3.5" />
                             <span>Open Case</span>
@@ -299,7 +370,7 @@ export function AdminSupportTicketTriageQueuePage() {
 export function AdminSupportTicketResolutionViewPage() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
 
   const showDemoPreview =
     !isAuthenticated &&
@@ -324,6 +395,21 @@ export function AdminSupportTicketResolutionViewPage() {
   const [resolutionSummary, setResolutionSummary] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  const handleAssignToMe = async () => {
+    if (!ticket || !user?.id || updateMutation.isPending) return;
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      await updateMutation.mutateAsync({
+        ticketId: ticket.id,
+        data: { assignedToUserId: user.id }
+      });
+      setActionSuccess(`Ticket assigned to ${user.displayName}.`);
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : "Unable to assign support ticket.");
+    }
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -401,7 +487,7 @@ export function AdminSupportTicketResolutionViewPage() {
           !showDemoPreview ? (
             <Link
               to="/admin/support"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 hover:bg-slate-50"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-sand-200 bg-white text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               <span>Back to Triage Queue</span>
@@ -411,9 +497,9 @@ export function AdminSupportTicketResolutionViewPage() {
       />
 
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
-          <p className="font-bold text-slate-900">Case {id ?? "#TKT-9042"} (Demo Preview)</p>
-          <p className="text-slate-600">Preview conversation thread and timeline snapshot.</p>
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs space-y-2 shadow-sm">
+          <p className="font-bold text-navy-950">Case {id ?? "#TKT-9042"} (Demo Preview)</p>
+          <p className="text-sand-700">Preview conversation thread and timeline snapshot.</p>
         </div>
       ) : (
         <>
@@ -446,10 +532,14 @@ export function AdminSupportTicketResolutionViewPage() {
             </div>
           )}
 
-          {!ticket ? (
+          {ticketQuery.isLoading ? (
+            <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm">
+              <AdminCardListSkeleton count={4} />
+            </div>
+          ) : !ticket ? (
             <AdminEmptyStateCard
-              title="Loading Support Case..."
-              description="If this ticket reference does not exist, return to the triage queue."
+              title="Support Case Not Found"
+              description="This support ticket reference could not be found or you do not have access. Return to the triage queue."
               actionTo="/admin/support"
               actionLabel="Open Support Queue"
             />
@@ -457,10 +547,10 @@ export function AdminSupportTicketResolutionViewPage() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-xs">
               <div className="lg:col-span-8 space-y-5">
                 {/* Summary Card */}
-                <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 shadow-sm">
+                <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-3 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-slate-900">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono font-bold text-navy-950">
                         {ticket.referenceCode}
                       </span>
                       <span
@@ -470,19 +560,41 @@ export function AdminSupportTicketResolutionViewPage() {
                       >
                         {ticket.status}
                       </span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sand-100 border border-sand-200 text-navy-900">
                         {ticket.priority}
                       </span>
                     </div>
-                    <span className="text-slate-500">
+                    <span className="text-sand-700 tabular-nums">
                       Opened {formatDateTimeDisplay(ticket.createdAt)}
                     </span>
                   </div>
-                  <h2 className="text-base font-extrabold text-slate-950">{ticket.subject}</h2>
-                  <p className="text-slate-600">
-                    Requester: <strong>{ticket.requesterName}</strong> ({ticket.requesterEmail}) •
-                    Category: <strong>{ticket.category}</strong>
-                  </p>
+                  <h2 className="text-base font-extrabold text-navy-950">{ticket.subject}</h2>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sand-700">
+                    <p>
+                      Requester: <strong className="text-navy-950">{ticket.requesterName}</strong> (
+                      {ticket.requesterEmail}) • Category:{" "}
+                      <strong className="text-navy-950">{ticket.category}</strong>
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span>
+                        Assignee:{" "}
+                        <strong className="text-navy-950">
+                          {ticket.assignedToDisplayName || "Unassigned"}
+                        </strong>
+                      </span>
+                      {user?.id && ticket.assignedToUserId !== user.id && (
+                        <button
+                          type="button"
+                          disabled={updateMutation.isPending}
+                          onClick={() => void handleAssignToMe()}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-sand-200 bg-sand-50 hover:bg-sand-100 text-navy-900 font-bold transition disabled:opacity-50"
+                        >
+                          <UserCheck className="h-3 w-3 text-terracotta-600" />
+                          <span>Assign to Me</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   {ticket.resolutionSummary && (
                     <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950">
                       <span className="font-bold">Resolution Summary: </span>
@@ -492,72 +604,113 @@ export function AdminSupportTicketResolutionViewPage() {
                 </div>
 
                 {/* Conversation Thread */}
-                <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4 shadow-sm">
-                  <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-                    <MessageSquare className="h-4 w-4 text-purple-700" />
-                    <h3 className="font-bold text-slate-950">Case Message Timeline</h3>
+                <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-4 shadow-sm">
+                  <div className="flex items-center gap-2 border-b border-sand-100 pb-3">
+                    <MessageSquare className="h-4 w-4 text-terracotta-600" />
+                    <h3 className="font-bold text-navy-950">Case Message Timeline</h3>
                   </div>
 
                   <div className="space-y-3">
-                    {ticket.messages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`p-3.5 rounded-xl border ${
-                          msg.isInternalNote
-                            ? "bg-amber-50/70 border-amber-200"
-                            : msg.senderRole === "SUPPORT" || msg.senderRole === "SUPERADMIN"
-                              ? "bg-purple-50/60 border-purple-200"
-                              : "bg-slate-50 border-slate-200"
-                        }`}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900">
-                              {msg.senderDisplayName}
-                            </span>
-                            <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-mono">
-                              {msg.senderRole}
-                            </span>
-                            {msg.isInternalNote && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-950 text-[10px] font-bold">
-                                <Lock className="h-2.5 w-2.5" />
-                                Internal Support Note
+                    {ticket.messages.map((msg) => {
+                      const isAgent = msg.senderRole === "SUPPORT" || msg.senderRole === "SUPERADMIN";
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex ${isAgent && !msg.isInternalNote ? "justify-end" : "justify-start"}`}
+                        >
+                          <div
+                            className={`w-full max-w-2xl p-3.5 rounded-xl border ${
+                              msg.isInternalNote
+                                ? "bg-amber-50/90 border-amber-300 text-amber-950"
+                                : isAgent
+                                  ? "bg-navy-900/5 border-navy-200 text-navy-950"
+                                  : "bg-sand-50 border-sand-200 text-navy-950"
+                            }`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-bold text-navy-950">
+                                  {msg.senderDisplayName}
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-white border border-sand-200 text-[10px] font-mono text-navy-900">
+                                  {msg.senderRole}
+                                </span>
+                                {msg.isInternalNote && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-200/80 text-amber-950 text-[10px] font-bold">
+                                    <Lock className="h-2.5 w-2.5" />
+                                    Internal Support Note
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[11px] text-sand-700 tabular-nums">
+                                {formatDateTimeDisplay(msg.createdAt)}
                               </span>
-                            )}
+                            </div>
+                            <p className="whitespace-pre-wrap leading-relaxed">{msg.body}</p>
                           </div>
-                          <span className="text-[11px] text-slate-500">
-                            {formatDateTimeDisplay(msg.createdAt)}
-                          </span>
                         </div>
-                        <p className="text-slate-800 whitespace-pre-wrap leading-relaxed">
-                          {msg.body}
-                        </p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
-                  {/* Reply / Note Composer */}
+                  {/* Two-Tab Reply / Note Composer */}
                   <form
                     onSubmit={(e) => void handleSendMessage(e)}
-                    className="pt-3 border-t border-slate-100 space-y-3"
+                    className={`pt-4 border-t border-sand-200 space-y-3 rounded-xl p-4 transition-colors ${
+                      isInternalNote
+                        ? "bg-amber-50/70 border border-amber-300"
+                        : "bg-sand-50/50 border border-sand-200"
+                    }`}
                   >
+                    <div
+                      role="tablist"
+                      aria-label="Composer mode"
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 bg-white p-1 rounded-xl border border-sand-200"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={!isInternalNote}
+                        onClick={() => setIsInternalNote(false)}
+                        className={`py-2 px-3 rounded-lg text-xs font-bold transition ${
+                          !isInternalNote
+                            ? "bg-navy-900 text-white shadow-sm"
+                            : "text-navy-900 hover:bg-sand-100"
+                        }`}
+                      >
+                        Public Reply to Customer
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={isInternalNote}
+                        onClick={() => setIsInternalNote(true)}
+                        className={`inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition ${
+                          isInternalNote
+                            ? "bg-amber-600 text-white shadow-sm"
+                            : "text-amber-900 hover:bg-amber-50"
+                        }`}
+                      >
+                        <Lock className="h-3 w-3" />
+                        <span>Internal Agent Note (Private)</span>
+                      </button>
+                    </div>
+
                     <div className="flex items-center justify-between">
-                      <label className="font-bold text-slate-900">
+                      <label htmlFor="support-reply-composer" className="font-bold text-navy-950">
                         {isInternalNote
-                          ? "Add Internal Agent Note (Hidden from Customer)"
+                          ? "Internal Support Note (Hidden from Customer)"
                           : "Send Reply to Customer"}
                       </label>
-                      <label className="inline-flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isInternalNote}
-                          onChange={(e) => setIsInternalNote(e.target.checked)}
-                          className="rounded border-slate-300"
-                        />
-                        <span>Internal Support Note</span>
-                      </label>
+                      {isInternalNote && (
+                        <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-950 text-[10px] font-bold">
+                          Private Agent Visibility Only
+                        </span>
+                      )}
                     </div>
+
                     <textarea
+                      id="support-reply-composer"
                       rows={3}
                       value={replyMessage}
                       onChange={(e) => setReplyMessage(e.target.value)}
@@ -566,13 +719,19 @@ export function AdminSupportTicketResolutionViewPage() {
                           ? "Document investigation findings or refund coordination details..."
                           : "Write clear troubleshooting guidance or resolution update for the requester..."
                       }
-                      className="w-full rounded-xl border border-slate-300 p-3 text-xs"
+                      className={`w-full rounded-xl border p-3 text-xs bg-white text-navy-950 ${
+                        isInternalNote ? "border-amber-300" : "border-sand-200"
+                      }`}
                     />
                     <div className="flex justify-end">
                       <button
                         type="submit"
                         disabled={replyMutation.isPending}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold"
+                        className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl disabled:opacity-50 text-white font-bold transition ${
+                          isInternalNote
+                            ? "bg-amber-700 hover:bg-amber-800"
+                            : "bg-terracotta-500 hover:bg-terracotta-600"
+                        }`}
                       >
                         <Send className="h-3.5 w-3.5" />
                         <span>
@@ -591,15 +750,15 @@ export function AdminSupportTicketResolutionViewPage() {
               <div className="lg:col-span-4 space-y-5">
                 {/* Linked Booking Card */}
                 {ticket.linkedBooking ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2.5 shadow-sm">
-                    <h3 className="font-bold text-slate-950">Linked Reservation Context</h3>
-                    <p className="font-mono font-bold text-purple-800">
+                  <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-2.5 shadow-sm">
+                    <h3 className="font-bold text-navy-950">Linked Reservation Context</h3>
+                    <p className="font-mono font-bold text-terracotta-600">
                       {ticket.linkedBooking.referenceCode}
                     </p>
-                    <p className="text-slate-700">
+                    <p className="text-navy-900">
                       {ticket.linkedBooking.locationName} ({ticket.linkedBooking.businessName})
                     </p>
-                    <p className="text-slate-700">
+                    <p className="text-navy-900 tabular-nums">
                       Status: <strong>{ticket.linkedBooking.status}</strong> •{" "}
                       {formatLkrMinor(
                         ticket.linkedBooking.totalAmountMinor,
@@ -608,31 +767,31 @@ export function AdminSupportTicketResolutionViewPage() {
                     </p>
                     <Link
                       to={`/admin/bookings/${ticket.linkedBooking.id}`}
-                      className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-900 text-white font-bold"
+                      className="inline-flex items-center px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
                     >
                       Inspect Booking &amp; Custody
                     </Link>
                   </div>
                 ) : ticket.bookingReferenceInput ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-1.5 shadow-sm">
-                    <h3 className="font-bold text-slate-950">Submitted Reference</h3>
-                    <p className="font-mono text-slate-700">{ticket.bookingReferenceInput}</p>
-                    <p className="text-slate-500">No matching reservation linked automatically.</p>
+                  <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-1.5 shadow-sm">
+                    <h3 className="font-bold text-navy-950">Submitted Reference</h3>
+                    <p className="font-mono text-navy-900">{ticket.bookingReferenceInput}</p>
+                    <p className="text-sand-700">No matching reservation linked automatically.</p>
                   </div>
                 ) : null}
 
                 {/* Triage & Resolution Controls */}
                 <form
                   onSubmit={(e) => void handleUpdateMeta(e)}
-                  className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 shadow-sm"
+                  className="bg-white rounded-2xl border border-sand-200 p-5 space-y-3 shadow-sm"
                 >
-                  <h3 className="font-bold text-slate-950">Update Case Triage</h3>
+                  <h3 className="font-bold text-navy-950">Update Case Triage</h3>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Status</label>
+                    <label className="block font-bold text-navy-900 mb-1">Status</label>
                     <select
                       value={nextStatus || ticket.status}
                       onChange={(e) => setNextStatus(e.target.value as SupportTicketStatus)}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold"
+                      className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 font-semibold text-navy-950"
                     >
                       {SUPPORT_TICKET_STATUSES.map((s) => (
                         <option key={s} value={s}>
@@ -642,11 +801,11 @@ export function AdminSupportTicketResolutionViewPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Priority</label>
+                    <label className="block font-bold text-navy-900 mb-1">Priority</label>
                     <select
                       value={nextPriority || ticket.priority}
                       onChange={(e) => setNextPriority(e.target.value as SupportTicketPriority)}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold"
+                      className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 font-semibold text-navy-950"
                     >
                       {SUPPORT_TICKET_PRIORITIES.map((p) => (
                         <option key={p} value={p}>
@@ -656,7 +815,7 @@ export function AdminSupportTicketResolutionViewPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">
+                    <label className="block font-bold text-navy-900 mb-1">
                       Resolution Summary
                     </label>
                     <textarea
@@ -664,13 +823,13 @@ export function AdminSupportTicketResolutionViewPage() {
                       value={resolutionSummary}
                       onChange={(e) => setResolutionSummary(e.target.value)}
                       placeholder="Final resolution notes before closing case..."
-                      className="w-full rounded-xl border border-slate-300 p-2.5"
+                      className="w-full rounded-xl border border-sand-200 bg-white p-2.5 text-navy-950"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={updateMutation.isPending}
-                    className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold"
+                    className="w-full py-2 rounded-xl bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white font-bold transition"
                   >
                     {updateMutation.isPending ? "Saving..." : "Save Ticket Updates"}
                   </button>

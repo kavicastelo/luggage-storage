@@ -13,8 +13,8 @@ import {
   type StorageZone,
   type StorageZoneType
 } from "@luggage-storage/contracts";
-import { Plus, Trash2, X } from "lucide-react";
-import { Alert } from "@/components/ui/Alert";
+import { Plus, Trash2 } from "lucide-react";
+import { Alert, Badge, Button, Card, EmptyState, LoadingSkeleton, Modal } from "@/components/ui";
 import { DEMO_LOCATIONS } from "@/data/mock-marketplace";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -29,7 +29,12 @@ import {
   useUpdateCapacityPoolMutation,
   useUpdateStorageZoneMutation
 } from "@/hooks/queries/use-host-portal";
-import { HostQueryErrorAlert, isUuid, NoLocationSelectedCard } from "./host-helpers";
+import {
+  HostLocationSetupTabs,
+  HostQueryErrorAlert,
+  isUuid,
+  NoLocationSelectedCard
+} from "./host-helpers";
 import { useHostVenue } from "./HostDashboardLayout";
 
 export function HostCapacityPoolsZonesPage() {
@@ -67,6 +72,8 @@ export function HostCapacityPoolsZonesPage() {
   const [showAddZone, setShowAddZone] = useState(false);
   const [showAddPool, setShowAddPool] = useState(false);
   const [editingPool, setEditingPool] = useState<StorageCapacityPool | null>(null);
+  const [confirmDeleteZone, setConfirmDeleteZone] = useState<StorageZone | null>(null);
+  const [confirmDeletePool, setConfirmDeletePool] = useState<StorageCapacityPool | null>(null);
   const [editPoolUnits, setEditPoolUnits] = useState(20);
   const [editPoolActive, setEditPoolActive] = useState(true);
 
@@ -102,9 +109,14 @@ export function HostCapacityPoolsZonesPage() {
 
   if (isAuthenticated && (zonesQuery.isLoading || poolsQuery.isLoading)) {
     return (
-      <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs font-semibold text-navy-600">
-        Loading storage zones and capacity pools...
-      </div>
+      <Card className="p-6 space-y-4">
+        <LoadingSkeleton variant="text" className="w-60 h-7" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <LoadingSkeleton className="h-32 w-full" />
+          <LoadingSkeleton className="h-32 w-full" />
+          <LoadingSkeleton className="h-32 w-full" />
+        </div>
+      </Card>
     );
   }
 
@@ -170,8 +182,9 @@ export function HostCapacityPoolsZonesPage() {
     }
   };
 
-  const handleDeleteZone = async (zone: StorageZone) => {
-    if (!liveLocationId) return;
+  const handleDeleteZone = async () => {
+    if (!liveLocationId || !confirmDeleteZone) return;
+    const zone = confirmDeleteZone;
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
@@ -179,8 +192,10 @@ export function HostCapacityPoolsZonesPage() {
         locationId: liveLocationId,
         zoneId: zone.id
       });
+      setConfirmDeleteZone(null);
       setSuccessMsg(`Deleted storage zone "${zone.name}".`);
     } catch (err) {
+      setConfirmDeleteZone(null);
       setErrorMsg(err instanceof Error ? err.message : "Cannot remove storage zone.");
     }
   };
@@ -229,13 +244,16 @@ export function HostCapacityPoolsZonesPage() {
     }
   };
 
-  const handleDeletePool = async (poolId: string) => {
-    if (!liveLocationId) return;
+  const handleDeletePool = async () => {
+    if (!liveLocationId || !confirmDeletePool) return;
+    const poolId = confirmDeletePool.id;
     setErrorMsg(null);
     try {
       await deletePoolMutation.mutateAsync({ locationId: liveLocationId, poolId });
+      setConfirmDeletePool(null);
       setSuccessMsg("Capacity pool deleted.");
     } catch (err) {
+      setConfirmDeletePool(null);
       setErrorMsg(err instanceof Error ? err.message : "Failed to delete capacity pool.");
     }
   };
@@ -245,7 +263,7 @@ export function HostCapacityPoolsZonesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -267,26 +285,34 @@ export function HostCapacityPoolsZonesPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {isAuthenticated && (
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => setShowAddPool(true)}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold shadow-sm transition"
+                leftIcon={<Plus className="h-4 w-4" />}
               >
-                <Plus className="h-4 w-4" />
-                <span>Add Capacity Pool</span>
-              </button>
+                Add Capacity Pool
+              </Button>
             )}
-            <button
+            <Button
               type="button"
+              size="sm"
               onClick={() => setShowAddZone(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
+              leftIcon={<Plus className="h-4 w-4" />}
             >
-              <Plus className="h-4 w-4" />
-              <span>Add Storage Zone</span>
-            </button>
+              Add Storage Zone
+            </Button>
           </div>
         </div>
-      </div>
+      </Card>
+
+      <HostLocationSetupTabs locationId={targetLocationId} querySuffix={querySuffix} />
+
+      <Alert variant="info" title="How Physical Zones &amp; Bookable Pools Work">
+        <strong>Physical Zones</strong> represent the locked rooms, steel racks, or cages where staff place bags at the counter.{" "}
+        <strong>Bookable Capacity Pools</strong> set the total unit inventory available to travellers during online checkout.
+      </Alert>
 
       {errorMsg && (
         <Alert variant="danger" title="Capacity Action Blocked">
@@ -295,13 +321,13 @@ export function HostCapacityPoolsZonesPage() {
       )}
 
       {successMsg && (
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-xl">
+        <Alert variant="success" onDismiss={() => setSuccessMsg(null)}>
           {successMsg}
-        </div>
+        </Alert>
       )}
 
       {/* Aggregate Capacity Overview */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+      <Card className="p-6 space-y-4">
         {isAuthenticated ? (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-sand-100 pb-4">
             <div>
@@ -381,7 +407,7 @@ export function HostCapacityPoolsZonesPage() {
             </div>
           )}
         </div>
-      </div>
+      </Card>
 
       {isAuthenticated ? (
         <>
@@ -389,20 +415,24 @@ export function HostCapacityPoolsZonesPage() {
           <div className="space-y-3">
             <h2 className="text-sm font-bold text-navy-950">Physical Storage Zones</h2>
             {zones.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs text-navy-600">
-                No physical storage zones created yet. Add at least one zone to organize compartments.
-              </div>
+              <EmptyState
+                mascot="suitcase-peek"
+                title="No physical storage zones created yet"
+                description="Add at least one locked room, steel rack, or compartment zone so counter staff can assign bags."
+                action={
+                  <Button type="button" size="sm" onClick={() => setShowAddZone(true)}>
+                    Add Storage Zone
+                  </Button>
+                }
+              />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {zones.map((zone) => (
-                  <div
-                    key={zone.id}
-                    className="bg-white rounded-2xl border border-sand-200 p-5 space-y-3 shadow-sm text-xs"
-                  >
+                  <Card key={zone.id} className="p-5 space-y-3 text-xs">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold px-2 py-0.5 rounded bg-navy-100 text-navy-900 border border-navy-200">
+                      <Badge variant="navy" size="sm" className="font-mono">
                         {zone.zoneType}
-                      </span>
+                      </Badge>
                       <span
                         className={`font-bold ${
                           zone.isActive ? "text-emerald-700" : "text-navy-500"
@@ -429,14 +459,14 @@ export function HostCapacityPoolsZonesPage() {
                       <button
                         type="button"
                         disabled={deleteZoneMutation.isPending}
-                        onClick={() => void handleDeleteZone(zone)}
+                        onClick={() => setConfirmDeleteZone(zone)}
                         aria-label={`Delete zone ${zone.name}`}
                         className="p-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
-                  </div>
+                  </Card>
                 ))}
               </div>
             )}
@@ -446,23 +476,32 @@ export function HostCapacityPoolsZonesPage() {
           <div className="space-y-3">
             <h2 className="text-sm font-bold text-navy-950">Booking Capacity Pools</h2>
             {pools.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs text-navy-600">
-                No capacity pools configured yet. Add a Shared or Dedicated pool before submitting this location for moderation.
-              </div>
+              <EmptyState
+                mascot="suitcase-peek"
+                title="No capacity pools configured yet"
+                description="Add a Shared or Dedicated capacity pool before submitting this location for moderation."
+                action={
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setShowAddPool(true)}
+                  >
+                    Add Capacity Pool
+                  </Button>
+                }
+              />
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {pools.map((pool) => {
                   const linkedZone = zones.find((z) => z.id === pool.zoneId);
                   return (
-                    <div
-                      key={pool.id}
-                      className="bg-white rounded-2xl border border-sand-200 p-5 space-y-3 shadow-sm text-xs"
-                    >
+                    <Card key={pool.id} className="p-5 space-y-3 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold px-2 py-0.5 rounded bg-sand-100 text-navy-900 border border-sand-300">
+                        <Badge variant="neutral" size="sm" className="font-mono">
                           {pool.poolType}
                           {pool.dedicatedBagCategory ? ` (${pool.dedicatedBagCategory})` : ""}
-                        </span>
+                        </Badge>
                         <span
                           className={`font-bold ${
                             pool.isActive ? "text-emerald-700" : "text-navy-500"
@@ -489,14 +528,14 @@ export function HostCapacityPoolsZonesPage() {
                         <button
                           type="button"
                           disabled={deletePoolMutation.isPending}
-                          onClick={() => void handleDeletePool(pool.id)}
+                          onClick={() => setConfirmDeletePool(pool)}
                           aria-label={`Delete pool ${pool.id}`}
                           className="p-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 transition"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                    </div>
+                    </Card>
                   );
                 })}
               </div>
@@ -509,14 +548,11 @@ export function HostCapacityPoolsZonesPage() {
           {demoLoc?.zones.map((zone) => {
             const percent = Math.round((zone.occupied / zone.capacity) * 100);
             return (
-              <div
-                key={zone.id}
-                className="bg-white rounded-2xl border border-sand-200 p-5 space-y-3 shadow-sm"
-              >
+              <Card key={zone.id} className="p-5 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-navy-100 text-navy-900 border border-navy-200">
+                  <Badge variant="navy" size="sm" className="font-mono">
                     {zone.code}
-                  </span>
+                  </Badge>
                   <span className="text-xs font-bold text-emerald-700">
                     {zone.capacity - zone.occupied} Free
                   </span>
@@ -539,259 +575,297 @@ export function HostCapacityPoolsZonesPage() {
                 >
                   Configure Zone Limits
                 </button>
-              </div>
+              </Card>
             );
           })}
         </div>
       )}
 
       {/* Add Storage Zone Modal */}
-      {showAddZone && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={(e) => {
-              if (!isAuthenticated) {
-                e.preventDefault();
-                setShowAddZone(false);
-                return;
-              }
-              void handleCreateZone(e);
-            }}
-            className="bg-white rounded-2xl border border-sand-200 max-w-md w-full p-6 space-y-4 shadow-xl text-xs"
-          >
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <h3 className="text-base font-bold text-navy-950">Add Physical Storage Zone</h3>
-              <button
-                type="button"
-                onClick={() => setShowAddZone(false)}
-                className="p-1 rounded-lg hover:bg-sand-100 text-navy-500"
-              >
-                <X className="h-5 w-5" />
-              </button>
+      <Modal
+        open={showAddZone}
+        onClose={() => setShowAddZone(false)}
+        closeLabel="Close add storage zone modal"
+        size="sm"
+        title="Add Physical Storage Zone"
+      >
+        <form
+          onSubmit={(e) => {
+            if (!isAuthenticated) {
+              e.preventDefault();
+              setShowAddZone(false);
+              return;
+            }
+            void handleCreateZone(e);
+          }}
+          className="space-y-4 text-xs"
+        >
+          <div className="space-y-3">
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Zone Display Name</label>
+              <input
+                type="text"
+                required
+                value={zoneName}
+                onChange={(e) => setZoneName(e.target.value)}
+                placeholder="e.g. Main Locked Steel Rack A"
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
+              />
             </div>
-            <div className="space-y-3">
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Zone Display Name</label>
-                <input
-                  type="text"
-                  required
-                  value={zoneName}
-                  onChange={(e) => setZoneName(e.target.value)}
-                  placeholder="e.g. Main Locked Steel Rack A"
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Zone Type</label>
-                <select
-                  aria-label="Zone Type"
-                  value={zoneType}
-                  onChange={(e) => setZoneType(e.target.value as StorageZoneType)}
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                >
-                  {STORAGE_ZONE_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Security Tier</label>
-                <select
-                  aria-label="Security Tier"
-                  value={securityTier}
-                  onChange={(e) => setSecurityTier(e.target.value as StorageSecurityTier)}
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                >
-                  {STORAGE_SECURITY_TIERS.map((tier) => (
-                    <option key={tier} value={tier}>
-                      {tier.replace(/_/g, " ")}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowAddZone(false)}
-                className="px-4 py-2 rounded-xl border border-sand-300 font-bold text-navy-800"
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Zone Type</label>
+              <select
+                aria-label="Zone Type"
+                value={zoneType}
+                onChange={(e) => setZoneType(e.target.value as StorageZoneType)}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={createZoneMutation.isPending}
-                className="px-4 py-2 rounded-xl bg-terracotta-500 text-white font-bold disabled:opacity-50"
-              >
-                {createZoneMutation.isPending ? "Adding..." : "Add Zone"}
-              </button>
+                {STORAGE_ZONE_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
             </div>
-          </form>
-        </div>
-      )}
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Security Tier</label>
+              <select
+                aria-label="Security Tier"
+                value={securityTier}
+                onChange={(e) => setSecurityTier(e.target.value as StorageSecurityTier)}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
+              >
+                {STORAGE_SECURITY_TIERS.map((tier) => (
+                  <option key={tier} value={tier}>
+                    {tier.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowAddZone(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" isLoading={createZoneMutation.isPending}>
+              {createZoneMutation.isPending ? "Adding..." : "Add Zone"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Add Capacity Pool Modal */}
-      {showAddPool && isAuthenticated && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={(e) => void handleCreatePool(e)}
-            className="bg-white rounded-2xl border border-sand-200 max-w-md w-full p-6 space-y-4 shadow-xl text-xs"
-          >
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <h3 className="text-base font-bold text-navy-950">Add Capacity Pool</h3>
-              <button
-                type="button"
-                onClick={() => setShowAddPool(false)}
-                className="p-1 rounded-lg hover:bg-sand-100 text-navy-500"
+      <Modal
+        open={Boolean(showAddPool && isAuthenticated)}
+        onClose={() => setShowAddPool(false)}
+        closeLabel="Close add capacity pool modal"
+        size="sm"
+        title="Add Capacity Pool"
+      >
+        <form onSubmit={(e) => void handleCreatePool(e)} className="space-y-4 text-xs">
+          <div className="space-y-3">
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Pool Type</label>
+              <select
+                aria-label="Pool Type"
+                value={poolType}
+                onChange={(e) => setPoolType(e.target.value as CapacityPoolType)}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
               >
-                <X className="h-5 w-5" />
-              </button>
+                {CAPACITY_POOL_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div className="space-y-3">
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Pool Type</label>
-                <select
-                  aria-label="Pool Type"
-                  value={poolType}
-                  onChange={(e) => setPoolType(e.target.value as CapacityPoolType)}
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                >
-                  {CAPACITY_POOL_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {poolType === "DEDICATED" && (
-                <div>
-                  <label className="block font-bold text-navy-900 mb-1">
-                    Dedicated Bag Category
-                  </label>
-                  <select
-                    aria-label="Dedicated Bag Category"
-                    value={dedicatedCategory}
-                    onChange={(e) => setDedicatedCategory(e.target.value as BagCategory)}
-                    className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                  >
-                    {BAG_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+            {poolType === "DEDICATED" && (
               <div>
                 <label className="block font-bold text-navy-900 mb-1">
-                  Linked Zone (Optional)
+                  Dedicated Bag Category
                 </label>
                 <select
-                  aria-label="Linked Zone"
-                  value={poolZoneId}
-                  onChange={(e) => setPoolZoneId(e.target.value)}
+                  aria-label="Dedicated Bag Category"
+                  value={dedicatedCategory}
+                  onChange={(e) => setDedicatedCategory(e.target.value as BagCategory)}
                   className="w-full rounded-xl border border-sand-300 px-3 py-2"
                 >
-                  <option value="">All Location Compartments</option>
-                  {zones.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.name} ({z.zoneType})
+                  {BAG_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
                     </option>
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Total Units</label>
-                <input
-                  type="number"
-                  min={1}
-                  required
-                  value={poolUnits}
-                  onChange={(e) => setPoolUnits(Number(e.target.value))}
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2 font-mono"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowAddPool(false)}
-                className="px-4 py-2 rounded-xl border border-sand-300 font-bold text-navy-800"
+            )}
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">
+                Linked Zone (Optional)
+              </label>
+              <select
+                aria-label="Linked Zone"
+                value={poolZoneId}
+                onChange={(e) => setPoolZoneId(e.target.value)}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={createPoolMutation.isPending}
-                className="px-4 py-2 rounded-xl bg-navy-900 text-white font-bold disabled:opacity-50"
-              >
-                {createPoolMutation.isPending ? "Saving..." : "Save Pool"}
-              </button>
+                <option value="">All Location Compartments</option>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    {z.name} ({z.zoneType})
+                  </option>
+                ))}
+              </select>
             </div>
-          </form>
-        </div>
-      )}
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Total Units</label>
+              <input
+                type="number"
+                min={1}
+                required
+                value={poolUnits}
+                onChange={(e) => setPoolUnits(Number(e.target.value))}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2 font-mono"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setShowAddPool(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="secondary"
+              size="sm"
+              isLoading={createPoolMutation.isPending}
+            >
+              {createPoolMutation.isPending ? "Saving..." : "Save Pool"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Edit Capacity Pool Modal */}
-      {editingPool && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={(e) => void handleSavePoolEdit(e)}
-            className="bg-white rounded-2xl border border-sand-200 max-w-md w-full p-6 space-y-4 shadow-xl text-xs"
-          >
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <h3 className="text-base font-bold text-navy-950">Update Capacity Pool Units</h3>
-              <button
-                type="button"
-                onClick={() => setEditingPool(null)}
-                className="p-1 rounded-lg hover:bg-sand-100 text-navy-500"
-              >
-                <X className="h-5 w-5" />
-              </button>
+      <Modal
+        open={Boolean(editingPool)}
+        onClose={() => setEditingPool(null)}
+        closeLabel="Close edit capacity pool modal"
+        size="sm"
+        title="Update Capacity Pool Units"
+      >
+        <form onSubmit={(e) => void handleSavePoolEdit(e)} className="space-y-4 text-xs">
+          <div className="space-y-3">
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Total Capacity Units</label>
+              <input
+                type="number"
+                min={1}
+                required
+                value={editPoolUnits}
+                onChange={(e) => setEditPoolUnits(Number(e.target.value))}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2 font-mono"
+              />
             </div>
-            <div className="space-y-3">
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Total Capacity Units</label>
-                <input
-                  type="number"
-                  min={1}
-                  required
-                  value={editPoolUnits}
-                  onChange={(e) => setEditPoolUnits(Number(e.target.value))}
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2 font-mono"
-                />
-              </div>
-              <label className="flex items-center gap-2 font-bold text-navy-900">
-                <input
-                  type="checkbox"
-                  checked={editPoolActive}
-                  onChange={(e) => setEditPoolActive(e.target.checked)}
-                  className="rounded text-terracotta-500"
-                />
-                <span>Pool Active for Traveller Reservations</span>
-              </label>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEditingPool(null)}
-                className="px-4 py-2 rounded-xl border border-sand-300 font-bold text-navy-800"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={updatePoolMutation.isPending}
-                className="px-4 py-2 rounded-xl bg-terracotta-500 text-white font-bold disabled:opacity-50"
-              >
-                {updatePoolMutation.isPending ? "Updating..." : "Update Pool"}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+            <label className="flex items-center gap-2 font-bold text-navy-900">
+              <input
+                type="checkbox"
+                checked={editPoolActive}
+                onChange={(e) => setEditPoolActive(e.target.checked)}
+                className="rounded text-terracotta-500"
+              />
+              <span>Pool Active for Traveller Reservations</span>
+            </label>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingPool(null)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" isLoading={updatePoolMutation.isPending}>
+              {updatePoolMutation.isPending ? "Updating..." : "Update Pool"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Confirm Delete Zone Modal */}
+      <Modal
+        open={Boolean(confirmDeleteZone)}
+        onClose={() => setConfirmDeleteZone(null)}
+        closeLabel="Close delete zone modal"
+        size="sm"
+        title="Delete Storage Zone?"
+        subtitle={confirmDeleteZone?.name}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDeleteZone(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              isLoading={deleteZoneMutation.isPending}
+              onClick={() => void handleDeleteZone()}
+            >
+              Delete Zone
+            </Button>
+          </>
+        }
+      >
+        <p className="text-xs text-navy-700 leading-relaxed">
+          Remove physical zone <strong>{confirmDeleteZone?.name}</strong>? Zones linked to active
+          bookings or capacity pools may need to be unlinked first.
+        </p>
+      </Modal>
+
+      {/* Confirm Delete Pool Modal */}
+      <Modal
+        open={Boolean(confirmDeletePool)}
+        onClose={() => setConfirmDeletePool(null)}
+        closeLabel="Close delete pool modal"
+        size="sm"
+        title="Delete Capacity Pool?"
+        subtitle={
+          confirmDeletePool
+            ? `${confirmDeletePool.poolType} (${confirmDeletePool.totalUnits} units)`
+            : undefined
+        }
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDeletePool(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              isLoading={deletePoolMutation.isPending}
+              onClick={() => void handleDeletePool()}
+            >
+              Delete Pool
+            </Button>
+          </>
+        }
+      >
+        <p className="text-xs text-navy-700 leading-relaxed">
+          Deleting this capacity pool removes its {confirmDeletePool?.totalUnits} bookable units
+          from future traveller availability calculations.
+        </p>
+      </Modal>
     </div>
   );
 }

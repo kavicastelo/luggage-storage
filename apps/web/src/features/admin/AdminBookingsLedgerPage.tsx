@@ -1,13 +1,15 @@
 import React, { useState } from "react";
-import { useLocation, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import {
   BOOKING_STATUSES,
   SYSTEM_PERMISSIONS,
-  type BookingStatus
+  type BookingDetail,
+  type BookingStatus,
+  type CustodyRecordDetail
 } from "@luggage-storage/contracts";
-import { Ban, Download, Eye, PackageCheck, Search, X } from "lucide-react";
+import { ArrowLeft, Ban, Download, Eye, ExternalLink, PackageCheck, Search, ZoomIn } from "lucide-react";
 import { PermissionGate } from "@/components/auth/PermissionGate";
-import { MascotIllustration } from "@/components/ui";
+import { Select, SlideOverDrawer } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { formatLkr } from "@/data/mock-marketplace";
 import {
@@ -20,10 +22,13 @@ import { downloadCsvFile, serializeCsv } from "@/lib/csv-export";
 import { formatBagCategoryLabel, formatDateTimeDisplay, formatLkrMinor } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
+  AdminImageLightboxModal,
   AdminPageHeader,
   AdminPaginationBar,
   AdminQueryErrorAlert,
+  AdminTableSkeleton,
   formatAdminBookingStatus,
   formatAdminRefundStatus,
   isUuid,
@@ -33,12 +38,332 @@ import { useAdminRole } from "./AdminDashboardLayout";
 
 type BookingFilterStatus = BookingStatus | "ALL";
 
+const PRIMARY_STATUS_TABS: Array<{ value: BookingFilterStatus; label: string }> = [
+  { value: "ALL", label: "All Statuses" },
+  { value: "CONFIRMED", label: "Confirmed" },
+  { value: "IN_STORAGE", label: "In Storage" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "DISPUTED", label: "Disputed" },
+  { value: "CANCELLED_BY_TRAVELLER", label: "Cancelled" }
+];
+
 const CANCELLABLE_ADMIN_STATUSES = new Set<string>([
   "PENDING_HOST_APPROVAL",
   "PENDING_PAYMENT",
   "CONFIRMED",
   "DISPUTED"
 ]);
+
+function BookingDetailInspectorContent({
+  detail,
+  detailLoading,
+  detailError,
+  detailErrorObj,
+  onRetryDetail,
+  custody,
+  custodyLoading,
+  custodyError,
+  custodyErrorObj,
+  onRetryCustody,
+  showCancelForm,
+  setShowCancelForm,
+  cancelReason,
+  setCancelReason,
+  cancelPending,
+  onCancelSubmit,
+  onPreviewPhoto
+}: {
+  detail: BookingDetail | undefined;
+  detailLoading: boolean;
+  detailError: boolean;
+  detailErrorObj: unknown;
+  onRetryDetail: () => void;
+  custody: CustodyRecordDetail | null | undefined;
+  custodyLoading: boolean;
+  custodyError: boolean;
+  custodyErrorObj: unknown;
+  onRetryCustody: () => void;
+  showCancelForm: boolean;
+  setShowCancelForm: (open: boolean) => void;
+  cancelReason: string;
+  setCancelReason: (val: string) => void;
+  cancelPending: boolean;
+  onCancelSubmit: (e: React.FormEvent) => void;
+  onPreviewPhoto: (img: { url: string; title?: string; caption?: string | null }) => void;
+}) {
+  if (detailError) {
+    return (
+      <AdminQueryErrorAlert
+        message={
+          detailErrorObj instanceof Error ? detailErrorObj.message : "Unable to load booking detail."
+        }
+        onRetry={onRetryDetail}
+      />
+    );
+  }
+
+  if (detailLoading || !detail) {
+    return <AdminCardListSkeleton count={3} />;
+  }
+
+  return (
+    <div className="space-y-5 text-xs">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 rounded-xl bg-sand-50 border border-sand-200">
+        <div>
+          <span className="text-[11px] font-bold text-sand-700 uppercase">Booking Status</span>
+          <p className="mt-1">
+            <span
+              className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(detail.status)}`}
+            >
+              {formatAdminBookingStatus(detail.status, detail.collectionAt).label}
+            </span>
+          </p>
+          <p className="text-[11px] text-sand-700 mt-1">Mode: {detail.bookingMode}</p>
+        </div>
+        <div>
+          <span className="text-[11px] font-bold text-sand-700 uppercase">
+            Traveller & Host Partner
+          </span>
+          <p className="font-bold text-navy-950 mt-0.5">
+            {detail.travellerDisplayName ?? detail.travellerUserId}
+          </p>
+          <p className="text-[11px] text-sand-700">
+            {detail.travellerEmailMasked ?? "Masked"} • Hub: {detail.location.name}
+          </p>
+        </div>
+        <div>
+          <span className="text-[11px] font-bold text-sand-700 uppercase">Schedule Window</span>
+          <p className="font-semibold text-navy-900 mt-0.5 tabular-nums">
+            Drop-off: {formatDateTimeDisplay(detail.dropOffAt)}
+          </p>
+          <p className="text-sand-700 tabular-nums">
+            Collection: {formatDateTimeDisplay(detail.collectionAt)}
+          </p>
+        </div>
+      </div>
+
+      {/* Line Items & Pricing Split */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="p-4 rounded-xl border border-sand-200 bg-white space-y-2">
+          <h3 className="font-extrabold uppercase tracking-wide text-navy-900">
+            Reserved Baggage Items
+          </h3>
+          <ul className="space-y-1">
+            {detail.items.map((item) => (
+              <li key={item.id} className="flex justify-between text-navy-900 tabular-nums">
+                <span>
+                  {item.quantity}x {formatBagCategoryLabel(item.bagCategory)} ({item.capacityUnits}{" "}
+                  units)
+                </span>
+                <span className="font-bold">
+                  {formatLkrMinor(item.lineTotalMinor, detail.currency)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="p-4 rounded-xl border border-sand-200 bg-white space-y-1.5 tabular-nums">
+          <h3 className="font-extrabold uppercase tracking-wide text-navy-900">
+            Non-Escrow Settlement Breakdown
+          </h3>
+          <div className="flex justify-between text-navy-950">
+            <span>Gross Charged</span>
+            <strong>{formatLkrMinor(detail.totalAmountMinor, detail.currency)}</strong>
+          </div>
+          {detail.pricingSnapshot?.platformCommissionMinor !== undefined && (
+            <div className="flex justify-between text-terracotta-700">
+              <span>Platform Commission</span>
+              <strong>
+                {formatLkrMinor(detail.pricingSnapshot.platformCommissionMinor, detail.currency)}
+              </strong>
+            </div>
+          )}
+          {detail.pricingSnapshot?.hostPayableMinor !== undefined && (
+            <div className="flex justify-between text-emerald-800">
+              <span>Net Host Payable</span>
+              <strong>
+                {formatLkrMinor(detail.pricingSnapshot.hostPayableMinor, detail.currency)}
+              </strong>
+            </div>
+          )}
+          {detail.refundSummary && (
+            <div className="flex justify-between text-rose-800 pt-1 border-t border-sand-200">
+              <span>
+                Refund ({detail.refundSummary.refundPercentage}% •{" "}
+                {formatAdminRefundStatus(detail.refundSummary.status).label})
+              </span>
+              <strong>{formatLkrMinor(detail.refundSummary.amountMinor, detail.currency)}</strong>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Chain of Custody Record */}
+      <div className="p-4 rounded-xl border border-sand-200 bg-white space-y-3">
+        <h3 className="font-extrabold uppercase tracking-wide text-navy-900">
+          Physical Chain of Custody & Bag Evidence
+        </h3>
+        {custodyError ? (
+          <AdminQueryErrorAlert
+            message={
+              custodyErrorObj instanceof Error
+                ? custodyErrorObj.message
+                : "Unable to load custody record."
+            }
+            onRetry={onRetryCustody}
+          />
+        ) : custodyLoading ? (
+          <AdminCardListSkeleton count={1} />
+        ) : !custody ? (
+          <p className="text-sand-700 italic">
+            No custody record initiated for this booking yet.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2 items-center">
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(custody.status)}`}
+              >
+                {custody.status}
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-sand-100 border border-sand-200 text-navy-900 font-semibold">
+                Handover: {custody.handoverCondition}
+              </span>
+              <span className="text-navy-900 tabular-nums">
+                Expected {custody.expectedBagCount} • Checked-In{" "}
+                {custody.checkedInBagCount ?? 0} • Released {custody.releasedBagCount ?? 0}
+              </span>
+              {custody.overdueMinutes > 0 && (
+                <span className="text-rose-700 font-bold tabular-nums">
+                  Overdue: {custody.overdueMinutes} min (
+                  {formatLkrMinor(custody.overdueFeeMinor, detail.currency)})
+                </span>
+              )}
+            </div>
+
+            {custody.bags.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {custody.bags.map((bag) => (
+                  <div
+                    key={bag.id}
+                    className="p-3 rounded-xl bg-sand-50 border border-sand-200 space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono font-bold text-navy-950">{bag.bagTagCode}</span>
+                      <span className="text-[11px] font-semibold text-sand-700">
+                        {formatBagCategoryLabel(bag.bagCategory)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-sand-700">
+                      Seal: {bag.securitySealNumber || "None recorded"}
+                    </p>
+                    {bag.conditionNotes && (
+                      <p className="text-[11px] text-navy-900">{bag.conditionNotes}</p>
+                    )}
+                    {bag.photoDownloadUrl && (
+                      <div className="pt-1 space-y-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onPreviewPhoto({
+                              url: bag.photoDownloadUrl!,
+                              title: `Custody Bag ${bag.bagTagCode}`,
+                              caption: bag.securitySealNumber
+                                ? `Seal ${bag.securitySealNumber}`
+                                : bag.conditionNotes
+                            })
+                          }
+                          className="group relative block w-full h-32 rounded-lg overflow-hidden border border-sand-200 bg-sand-100"
+                          aria-label={`Zoom evidence photo for ${bag.bagTagCode}`}
+                        >
+                          <img
+                            src={bag.photoDownloadUrl}
+                            alt={`Custody evidence for bag ${bag.bagTagCode}`}
+                            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
+                          />
+                          <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-navy-950/75 text-white text-[10px] font-bold">
+                            <ZoomIn className="h-3 w-3" /> Zoom
+                          </span>
+                        </button>
+                        <a
+                          href={bag.photoDownloadUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-terracotta-600 hover:underline"
+                        >
+                          <span>View Evidence Photo</span>
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Admin Cancel Booking (STRICT SUPERADMIN ONLY) */}
+      {CANCELLABLE_ADMIN_STATUSES.has(detail.status) && (
+        <PermissionGate
+          permission={SYSTEM_PERMISSIONS.ADMIN_BOOKING_MANAGE}
+          fallback={
+            <p className="text-sand-700 italic border-t border-sand-200 pt-3">
+              Platform-initiated cancellation requires Superadmin booking management permission.
+            </p>
+          }
+        >
+          <div className="border-t border-sand-200 pt-4 space-y-3">
+            {!showCancelForm ? (
+              <button
+                type="button"
+                onClick={() => setShowCancelForm(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition"
+              >
+                <Ban className="w-3.5 h-3.5" /> Admin Cancel Booking
+              </button>
+            ) : (
+              <form
+                onSubmit={onCancelSubmit}
+                className="p-4 rounded-xl bg-rose-50 border border-rose-200 space-y-3"
+              >
+                <p className="font-bold text-rose-950">
+                  Confirm Platform Cancellation (releases capacity hold & triggers refund workflow
+                  if paid)
+                </p>
+                <textarea
+                  rows={2}
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Reason for platform cancellation (min 3 chars)..."
+                  className="w-full px-3 py-2 rounded-xl border border-rose-300 bg-white text-xs text-navy-950"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    disabled={cancelPending}
+                    className="px-4 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold disabled:opacity-50 transition"
+                  >
+                    {cancelPending ? "Cancelling..." : "Execute Platform Cancellation"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCancelForm(false)}
+                    className="px-4 py-2 rounded-xl border border-sand-200 bg-white font-bold text-navy-900 hover:bg-sand-100 transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </PermissionGate>
+      )}
+    </div>
+  );
+}
 
 export function AdminBookingsLedgerPage() {
   const location = useLocation();
@@ -54,6 +379,9 @@ export function AdminBookingsLedgerPage() {
       search: location.search,
       isAuthenticated
     });
+  const querySuffix = showDemoPreview ? "?preview=demo" : "";
+
+  const isDedicatedDetailRoute = Boolean(params.id);
 
   const initialStatusParam = searchParams.get("status") as BookingStatus | null;
   const [statusFilter, setStatusFilter] = useState<BookingFilterStatus>(
@@ -68,15 +396,22 @@ export function AdminBookingsLedgerPage() {
 
   const inspectQueryParam = searchParams.get("inspect");
   const [localInspectId, setLocalInspectId] = useState<string | null>(null);
-  const inspectedBookingId =
-    (isUuid(params.id) ? params.id : null) ??
-    (isUuid(inspectQueryParam) ? inspectQueryParam : null) ??
-    (isUuid(localInspectId) ? localInspectId : null);
+  const inspectedBookingId = isDedicatedDetailRoute
+    ? isUuid(params.id)
+      ? params.id
+      : null
+    : (isUuid(inspectQueryParam) ? inspectQueryParam : null) ??
+      (isUuid(localInspectId) ? localInspectId : null);
 
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<{
+    url: string;
+    title?: string;
+    caption?: string | null;
+  } | null>(null);
 
   const bookingsQuery = useAdminBookingsQuery(
     {
@@ -85,7 +420,7 @@ export function AdminBookingsLedgerPage() {
       status: statusFilter === "ALL" ? undefined : statusFilter,
       search: appliedSearch || undefined
     },
-    { enabled: isAuthenticated && !showDemoPreview }
+    { enabled: isAuthenticated && !showDemoPreview && !isDedicatedDetailRoute }
   );
 
   const detailQuery = useAdminBookingDetailQuery(inspectedBookingId ?? undefined, {
@@ -100,6 +435,18 @@ export function AdminBookingsLedgerPage() {
 
   const bookings = bookingsQuery.data?.bookings ?? [];
   const total = bookingsQuery.data?.total ?? 0;
+
+  const updateStatusFilter = (nextStatus: BookingFilterStatus) => {
+    setStatusFilter(nextStatus);
+    setPage(1);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextStatus === "ALL") {
+      nextParams.delete("status");
+    } else {
+      nextParams.set("status", nextStatus);
+    }
+    setSearchParams(nextParams);
+  };
 
   const openInspector = (bookingId: string) => {
     setActionError(null);
@@ -180,29 +527,121 @@ export function AdminBookingsLedgerPage() {
     }
   };
 
+  if (isDedicatedDetailRoute) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-3">
+          <Link
+            to={`/admin/bookings${querySuffix}`}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-navy-900 hover:text-terracotta-600 transition"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span>← Back to Global Bookings</span>
+          </Link>
+        </div>
+
+        <AdminPageHeader
+          title={
+            detailQuery.data?.referenceCode
+              ? `Booking & Custody Dossier: ${detailQuery.data.referenceCode}`
+              : "Booking & Custody Dossier"
+          }
+          subtitle="Full-page reservation audit, non-escrow settlement split, and tamper-evident custody chain inspection."
+          badge={detailQuery.data?.status ?? "Booking Oversight"}
+          rightSlot={
+            <Link
+              to={`/admin/bookings${querySuffix}`}
+              className="px-3.5 py-2 rounded-xl border border-sand-200 bg-white hover:bg-sand-100 text-xs font-bold text-navy-900 transition"
+            >
+              All Bookings
+            </Link>
+          }
+        />
+
+        {effectiveAdminRole === "SUPPORT" && (
+          <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-sand-100 border border-sand-200 text-navy-900 text-xs font-bold">
+            Read-Only Support View (Platform Force-Cancel Restricted to Superadmin)
+          </div>
+        )}
+
+        {actionError && (
+          <AdminQueryErrorAlert
+            message={actionError}
+            onRetry={() => {
+              if (inspectedBookingId) void detailQuery.refetch();
+            }}
+          />
+        )}
+
+        {actionSuccess && (
+          <div
+            role="status"
+            className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-900"
+          >
+            {actionSuccess}
+          </div>
+        )}
+
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm">
+          {!isUuid(params.id) ? (
+            <AdminEmptyStateCard
+              title="Invalid Booking Identifier"
+              description="The requested booking ID is not a valid UUID."
+              actionTo={`/admin/bookings${querySuffix}`}
+              actionLabel="← Back to Global Bookings"
+            />
+          ) : (
+            <BookingDetailInspectorContent
+              detail={detailQuery.data}
+              detailLoading={detailQuery.isLoading}
+              detailError={detailQuery.isError}
+              detailErrorObj={detailQuery.error}
+              onRetryDetail={() => void detailQuery.refetch()}
+              custody={custodyQuery.data}
+              custodyLoading={custodyQuery.isLoading}
+              custodyError={custodyQuery.isError}
+              custodyErrorObj={custodyQuery.error}
+              onRetryCustody={() => void custodyQuery.refetch()}
+              showCancelForm={showCancelForm}
+              setShowCancelForm={setShowCancelForm}
+              cancelReason={cancelReason}
+              setCancelReason={setCancelReason}
+              cancelPending={cancelMutation.isPending}
+              onCancelSubmit={handleCancelSubmit}
+              onPreviewPhoto={setLightboxImage}
+            />
+          )}
+        </div>
+
+        <AdminImageLightboxModal
+          image={lightboxImage}
+          onClose={() => setLightboxImage(null)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
         title="Global Platform Bookings & Custody Oversight"
-        subtitle="Inspect platform-wide bookings, pricing splits, cancellation windows, and tamper-evident custody chain of custody photos."
+        subtitle="Inspect platform-wide bookings, pricing splits, cancellation windows, and tamper-evident chain of custody photos."
+        badge={showDemoPreview ? "Demo Preview" : "Booking Control"}
         rightSlot={
-          <div className="flex items-center gap-3">
-            {!showDemoPreview && bookings.length > 0 && (
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-800"
-              >
-                <Download className="w-3.5 h-3.5" /> Export CSV
-              </button>
-            )}
-            <MascotIllustration mascot="phone" size="sm" caption="Booking Control" />
-          </div>
+          !showDemoPreview && bookings.length > 0 ? (
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-sand-200 bg-white hover:bg-sand-100 text-xs font-bold text-navy-900 transition"
+            >
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+          ) : undefined
         }
       />
 
       {effectiveAdminRole === "SUPPORT" && (
-        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold">
+        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-sand-100 border border-sand-200 text-navy-900 text-xs font-bold">
           Read-Only Support View (Platform Force-Cancel Restricted to Superadmin)
         </div>
       )}
@@ -238,7 +677,7 @@ export function AdminBookingsLedgerPage() {
 
       {/* Search & Status Filters */}
       {!showDemoPreview && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+        <div className="bg-white rounded-2xl border border-sand-200 p-4 space-y-3 shadow-sm">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -248,18 +687,18 @@ export function AdminBookingsLedgerPage() {
             className="flex flex-wrap gap-2"
           >
             <div className="relative flex-1 min-w-[220px]">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 text-sand-700 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search by booking reference (LS-...)..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs"
+                className="w-full pl-9 pr-3 py-2 rounded-xl border border-sand-200 text-xs text-navy-950"
               />
             </div>
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
+              className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
             >
               Search Bookings
             </button>
@@ -271,58 +710,59 @@ export function AdminBookingsLedgerPage() {
                   setAppliedSearch("");
                   setPage(1);
                 }}
-                className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-700"
+                className="px-3 py-2 rounded-xl border border-sand-200 text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
               >
                 Clear
               </button>
             )}
           </form>
 
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setStatusFilter("ALL");
-                setPage(1);
-              }}
-              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition ${
-                statusFilter === "ALL"
-                  ? "bg-purple-700 text-white"
-                  : "bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              All Statuses
-            </button>
-            {BOOKING_STATUSES.map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => {
-                  setStatusFilter(st);
-                  setPage(1);
-                }}
-                className={`px-2.5 py-1 rounded-xl text-xs font-bold transition ${
-                  statusFilter === st
-                    ? "bg-purple-700 text-white"
-                    : "bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100"
-                }`}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1">
+            <div className="flex flex-wrap gap-1.5">
+              {PRIMARY_STATUS_TABS.map((tab) => (
+                <button
+                  key={tab.value}
+                  type="button"
+                  onClick={() => updateStatusFilter(tab.value)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                    statusFilter === tab.value
+                      ? "bg-navy-900 text-white shadow-sm"
+                      : "bg-sand-50 border border-sand-200 text-navy-900 hover:bg-sand-100"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="w-full lg:w-64">
+              <Select
+                aria-label="All booking statuses"
+                value={statusFilter}
+                onChange={(e) => updateStatusFilter(e.target.value as BookingFilterStatus)}
+                className="!h-9 !min-h-[36px] text-xs font-semibold"
               >
-                {st.replace(/_/g, " ")}
-              </button>
-            ))}
+                <option value="ALL">All Booking Statuses</option>
+                {BOOKING_STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {st.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
         </div>
       )}
 
       {/* Bookings Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
         {showDemoPreview ? (
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+          <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 flex items-center justify-between text-xs">
             <div>
-              <p className="font-bold text-slate-900">
+              <p className="font-bold text-navy-950">
                 Sample Reference • Colombo Fort Storage Hub
               </p>
-              <p className="text-slate-600 mt-0.5">
+              <p className="text-sand-700 mt-0.5">
                 {formatLkr(2400)} • 2 bags • Status: CONFIRMED (Demo Preview)
               </p>
             </div>
@@ -331,7 +771,7 @@ export function AdminBookingsLedgerPage() {
             </span>
           </div>
         ) : bookingsQuery.isLoading ? (
-          <p className="text-xs text-slate-500 py-4 text-center">Loading platform bookings...</p>
+          <AdminTableSkeleton rows={6} columns={6} />
         ) : bookings.length === 0 ? (
           <AdminEmptyStateCard
             title="No bookings match this filter"
@@ -341,7 +781,7 @@ export function AdminBookingsLedgerPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
+                <tr className="border-b border-sand-200 text-sand-700">
                   <th className="pb-2.5 pr-4 font-bold">Reference</th>
                   <th className="pb-2.5 pr-4 font-bold">Hub & Host</th>
                   <th className="pb-2.5 pr-4 font-bold">Schedule</th>
@@ -350,29 +790,36 @@ export function AdminBookingsLedgerPage() {
                   <th className="pb-2.5 font-bold text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-sand-100">
                 {bookings.map((b) => {
                   const statusMeta = formatAdminBookingStatus(b.status, b.collectionAt);
                   return (
-                    <tr key={b.id} className="hover:bg-slate-50">
+                    <tr key={b.id} className="hover:bg-sand-50/70 transition-colors">
                       <td className="py-3 pr-4">
-                        <p className="font-mono font-bold text-slate-900">{b.referenceCode}</p>
-                        <p className="text-[11px] text-slate-500">
+                        <Link
+                          to={`/admin/bookings/${b.id}${querySuffix}`}
+                          className="font-mono font-bold text-terracotta-600 hover:underline"
+                        >
+                          {b.referenceCode}
+                        </Link>
+                        <p className="text-[11px] text-sand-700">
                           {b.totalBags} bag(s) • {b.bookingMode}
                         </p>
                       </td>
                       <td className="py-3 pr-4">
-                        <p className="font-semibold text-slate-800">{b.location.name}</p>
-                        <p className="text-[11px] text-slate-500">
+                        <p className="font-semibold text-navy-950">{b.location.name}</p>
+                        <p className="text-[11px] text-sand-700">
                           {b.businessName ?? b.businessId.slice(0, 8)} •{" "}
-                          {b.travellerDisplayName ?? b.travellerEmailMasked ?? b.travellerUserId.slice(0, 8)}
+                          {b.travellerDisplayName ??
+                            b.travellerEmailMasked ??
+                            b.travellerUserId.slice(0, 8)}
                         </p>
                       </td>
-                      <td className="py-3 pr-4 text-[11px] text-slate-700">
+                      <td className="py-3 pr-4 text-[11px] text-navy-900 tabular-nums">
                         <div>Drop: {formatDateTimeDisplay(b.dropOffAt)}</div>
                         <div>Collect: {formatDateTimeDisplay(b.collectionAt)}</div>
                       </td>
-                      <td className="py-3 pr-4 font-bold text-slate-900">
+                      <td className="py-3 pr-4 font-bold text-navy-950 tabular-nums">
                         {formatLkrMinor(b.totalAmountMinor, b.currency)}
                       </td>
                       <td className="py-3 pr-4">
@@ -383,13 +830,15 @@ export function AdminBookingsLedgerPage() {
                         </span>
                       </td>
                       <td className="py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => openInspector(b.id)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold"
-                        >
-                          <Eye className="w-3.5 h-3.5" /> Inspect & Custody
-                        </button>
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openInspector(b.id)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Inspect & Custody
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -409,313 +858,70 @@ export function AdminBookingsLedgerPage() {
         )}
       </div>
 
-      {/* Booking & Custody Inspection Drawer */}
-      {inspectedBookingId && !showDemoPreview && (
-        <section
-          aria-label="Booking and Custody Inspection Drawer"
-          className="bg-white rounded-2xl border-2 border-purple-300 p-6 shadow-lg space-y-5"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">
-                Booking & Custody Inspector
-              </span>
-              <h2 className="text-lg font-extrabold text-slate-950 mt-0.5 flex items-center gap-2">
-                <PackageCheck className="w-4 h-4 text-purple-700" />
-                {detailQuery.data?.referenceCode ?? `Booking ${inspectedBookingId.slice(0, 8)}`}
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={closeInspector}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50"
+      {/* Booking & Custody Slide-Over Drawer (list view ?inspect=<uuid>) */}
+      <SlideOverDrawer
+        open={Boolean(inspectedBookingId && !showDemoPreview)}
+        onClose={closeInspector}
+        ariaLabel="Booking and Custody Inspection Drawer"
+        closeLabel="Close booking inspector"
+        size="xl"
+        title={
+          detailQuery.data?.referenceCode ??
+          (inspectedBookingId ? `Booking ${inspectedBookingId.slice(0, 8)}` : "Booking Inspector")
+        }
+        subtitle={
+          detailQuery.data
+            ? `${detailQuery.data.location.name} • ${detailQuery.data.businessName ?? ""}`
+            : undefined
+        }
+        badge={
+          detailQuery.data && (
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(
+                detailQuery.data.status
+              )}`}
             >
-              <X className="w-3.5 h-3.5" /> Close
-            </button>
-          </div>
+              {detailQuery.data.status}
+            </span>
+          )
+        }
+        footer={
+          inspectedBookingId ? (
+            <Link
+              to={`/admin/bookings/${inspectedBookingId}${querySuffix}`}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
+            >
+              <PackageCheck className="h-3.5 w-3.5" />
+              <span>Open Full Booking Page</span>
+            </Link>
+          ) : undefined
+        }
+      >
+        <BookingDetailInspectorContent
+          detail={detailQuery.data}
+          detailLoading={detailQuery.isLoading}
+          detailError={detailQuery.isError}
+          detailErrorObj={detailQuery.error}
+          onRetryDetail={() => void detailQuery.refetch()}
+          custody={custodyQuery.data}
+          custodyLoading={custodyQuery.isLoading}
+          custodyError={custodyQuery.isError}
+          custodyErrorObj={custodyQuery.error}
+          onRetryCustody={() => void custodyQuery.refetch()}
+          showCancelForm={showCancelForm}
+          setShowCancelForm={setShowCancelForm}
+          cancelReason={cancelReason}
+          setCancelReason={setCancelReason}
+          cancelPending={cancelMutation.isPending}
+          onCancelSubmit={handleCancelSubmit}
+          onPreviewPhoto={setLightboxImage}
+        />
+      </SlideOverDrawer>
 
-          {detailQuery.isError ? (
-            <AdminQueryErrorAlert
-              message={
-                detailQuery.error instanceof Error
-                  ? detailQuery.error.message
-                  : "Unable to load booking detail."
-              }
-              onRetry={() => void detailQuery.refetch()}
-            />
-          ) : detailQuery.isLoading || !detailQuery.data ? (
-            <p className="text-xs text-slate-500 py-4">Loading booking and custody detail...</p>
-          ) : (
-            <div className="space-y-5 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
-                    Booking Status
-                  </span>
-                  <p className="mt-1">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(detailQuery.data.status)}`}
-                    >
-                      {
-                        formatAdminBookingStatus(
-                          detailQuery.data.status,
-                          detailQuery.data.collectionAt
-                        ).label
-                      }
-                    </span>
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Mode: {detailQuery.data.bookingMode}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
-                    Traveller & Host Partner
-                  </span>
-                  <p className="font-bold text-slate-900 mt-0.5">
-                    {detailQuery.data.travellerDisplayName ?? detailQuery.data.travellerUserId}
-                  </p>
-                  <p className="text-[11px] text-slate-600">
-                    {detailQuery.data.travellerEmailMasked ?? "Masked"} • Hub:{" "}
-                    {detailQuery.data.location.name}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
-                    Schedule Window
-                  </span>
-                  <p className="font-semibold text-slate-800 mt-0.5">
-                    Drop-off: {formatDateTimeDisplay(detailQuery.data.dropOffAt)}
-                  </p>
-                  <p className="text-slate-600">
-                    Collection: {formatDateTimeDisplay(detailQuery.data.collectionAt)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Line Items & Pricing Split */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl border border-slate-200 space-y-2">
-                  <h3 className="font-extrabold uppercase tracking-wide text-slate-700">
-                    Reserved Baggage Items
-                  </h3>
-                  <ul className="space-y-1">
-                    {detailQuery.data.items.map((item) => (
-                      <li key={item.id} className="flex justify-between text-slate-800">
-                        <span>
-                          {item.quantity}x {formatBagCategoryLabel(item.bagCategory)} (
-                          {item.capacityUnits} units)
-                        </span>
-                        <span className="font-bold">
-                          {formatLkrMinor(item.lineTotalMinor, detailQuery.data?.currency)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="p-4 rounded-xl border border-slate-200 space-y-1.5">
-                  <h3 className="font-extrabold uppercase tracking-wide text-slate-700">
-                    Non-Escrow Settlement Breakdown
-                  </h3>
-                  <div className="flex justify-between">
-                    <span>Gross Charged</span>
-                    <strong>
-                      {formatLkrMinor(
-                        detailQuery.data.totalAmountMinor,
-                        detailQuery.data.currency
-                      )}
-                    </strong>
-                  </div>
-                  {detailQuery.data.pricingSnapshot?.platformCommissionMinor !== undefined && (
-                    <div className="flex justify-between text-purple-800">
-                      <span>Platform Commission</span>
-                      <strong>
-                        {formatLkrMinor(
-                          detailQuery.data.pricingSnapshot.platformCommissionMinor,
-                          detailQuery.data.currency
-                        )}
-                      </strong>
-                    </div>
-                  )}
-                  {detailQuery.data.pricingSnapshot?.hostPayableMinor !== undefined && (
-                    <div className="flex justify-between text-emerald-800">
-                      <span>Net Host Payable</span>
-                      <strong>
-                        {formatLkrMinor(
-                          detailQuery.data.pricingSnapshot.hostPayableMinor,
-                          detailQuery.data.currency
-                        )}
-                      </strong>
-                    </div>
-                  )}
-                  {detailQuery.data.refundSummary && (
-                    <div className="flex justify-between text-rose-800 pt-1 border-t border-slate-200">
-                      <span>
-                        Refund ({detailQuery.data.refundSummary.refundPercentage}% •{" "}
-                        {formatAdminRefundStatus(detailQuery.data.refundSummary.status).label})
-                      </span>
-                      <strong>
-                        {formatLkrMinor(
-                          detailQuery.data.refundSummary.amountMinor,
-                          detailQuery.data.currency
-                        )}
-                      </strong>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Chain of Custody Record */}
-              <div className="p-4 rounded-xl border border-slate-200 space-y-3">
-                <h3 className="font-extrabold uppercase tracking-wide text-slate-700">
-                  Physical Chain of Custody & Bag Evidence
-                </h3>
-                {custodyQuery.isError ? (
-                  <AdminQueryErrorAlert
-                    message={
-                      custodyQuery.error instanceof Error
-                        ? custodyQuery.error.message
-                        : "Unable to load custody record."
-                    }
-                    onRetry={() => void custodyQuery.refetch()}
-                  />
-                ) : custodyQuery.isLoading ? (
-                  <p className="text-slate-500">Loading custody record...</p>
-                ) : !custodyQuery.data ? (
-                  <p className="text-slate-500 italic">
-                    No custody record initiated for this booking yet.
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap gap-2 items-center">
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(custodyQuery.data.status)}`}
-                      >
-                        {custodyQuery.data.status}
-                      </span>
-                      <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 font-semibold">
-                        Handover: {custodyQuery.data.handoverCondition}
-                      </span>
-                      <span className="text-slate-700">
-                        Expected {custodyQuery.data.expectedBagCount} • Checked-In{" "}
-                        {custodyQuery.data.checkedInBagCount ?? 0} • Released{" "}
-                        {custodyQuery.data.releasedBagCount ?? 0}
-                      </span>
-                      {custodyQuery.data.overdueMinutes > 0 && (
-                        <span className="text-rose-700 font-bold">
-                          Overdue: {custodyQuery.data.overdueMinutes} min (
-                          {formatLkrMinor(
-                            custodyQuery.data.overdueFeeMinor,
-                            detailQuery.data.currency
-                          )}
-                          )
-                        </span>
-                      )}
-                    </div>
-
-                    {custodyQuery.data.bags.length > 0 && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                        {custodyQuery.data.bags.map((bag) => (
-                          <div
-                            key={bag.id}
-                            className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono font-bold text-slate-900">
-                                {bag.bagTagCode}
-                              </span>
-                              <span className="text-[11px] font-semibold text-slate-600">
-                                {formatBagCategoryLabel(bag.bagCategory)}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-slate-600">
-                              Seal: {bag.securitySealNumber || "None recorded"}
-                            </p>
-                            {bag.conditionNotes && (
-                              <p className="text-[11px] text-slate-700">{bag.conditionNotes}</p>
-                            )}
-                            {bag.photoDownloadUrl && (
-                              <a
-                                href={bag.photoDownloadUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-block text-[11px] font-bold text-purple-700 underline mt-1"
-                              >
-                                View Evidence Photo
-                              </a>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Admin Cancel Booking (STRICT SUPERADMIN ONLY) */}
-              {CANCELLABLE_ADMIN_STATUSES.has(detailQuery.data.status) && (
-                <PermissionGate
-                  permission={SYSTEM_PERMISSIONS.ADMIN_BOOKING_MANAGE}
-                  fallback={
-                    <p className="text-slate-500 italic border-t border-slate-200 pt-3">
-                      Platform-initiated cancellation requires Superadmin booking management
-                      permission.
-                    </p>
-                  }
-                >
-                  <div className="border-t border-slate-200 pt-4 space-y-3">
-                    {!showCancelForm ? (
-                      <button
-                        type="button"
-                        onClick={() => setShowCancelForm(true)}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold"
-                      >
-                        <Ban className="w-3.5 h-3.5" /> Admin Cancel Booking
-                      </button>
-                    ) : (
-                      <form
-                        onSubmit={handleCancelSubmit}
-                        className="p-4 rounded-xl bg-rose-50 border border-rose-200 space-y-3"
-                      >
-                        <p className="font-bold text-rose-950">
-                          Confirm Platform Cancellation (releases capacity hold & triggers refund
-                          workflow if paid)
-                        </p>
-                        <textarea
-                          rows={2}
-                          value={cancelReason}
-                          onChange={(e) => setCancelReason(e.target.value)}
-                          placeholder="Reason for platform cancellation (min 3 chars)..."
-                          className="w-full px-3 py-2 rounded-xl border border-rose-300 bg-white text-xs"
-                        />
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="submit"
-                            disabled={cancelMutation.isPending}
-                            className="px-4 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold disabled:opacity-50"
-                          >
-                            {cancelMutation.isPending
-                              ? "Cancelling..."
-                              : "Execute Platform Cancellation"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setShowCancelForm(false)}
-                            className="px-4 py-2 rounded-xl border border-slate-300 bg-white font-bold text-slate-700"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </form>
-                    )}
-                  </div>
-                </PermissionGate>
-              )}
-            </div>
-          )}
-        </section>
-      )}
+      <AdminImageLightboxModal
+        image={lightboxImage}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 }

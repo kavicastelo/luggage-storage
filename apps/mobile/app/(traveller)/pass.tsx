@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, Linking, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  Share,
+  TouchableOpacity,
+  StyleSheet
+} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { BookingDetail, CustodyPassResponse } from "@luggage-storage/contracts";
@@ -64,6 +74,8 @@ export default function TravellerCustodyPassScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isFromOfflineCache, setIsFromOfflineCache] = useState(false);
   const [savedOfflineAt, setSavedOfflineAt] = useState<string | null>(null);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
+  const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
 
   const loadLiveCustodyPass = useCallback(async () => {
     if (!bookingId || !isValidBookingUuid) {
@@ -178,6 +190,18 @@ export default function TravellerCustodyPassScreen() {
     detail && (detail.status === "CONFIRMED" || detail.status === "IN_STORAGE")
   );
 
+  const handleCopyOrSharePass = async () => {
+    if (!detail || !issuedPass) return;
+    const summaryText = `LuggageStorage Pass #${detail.referenceCode} | PIN: ${issuedPass.verificationPin}`;
+    if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.clipboard) {
+      await navigator.clipboard.writeText(summaryText).catch(() => {});
+      setCopiedNotice("Reference & PIN copied");
+      setTimeout(() => setCopiedNotice(null), 2500);
+      return;
+    }
+    await Share.share({ message: summaryText }).catch(() => {});
+  };
+
   if (!isValidBookingUuid) {
     return (
       <ScreenContainer
@@ -271,7 +295,13 @@ export default function TravellerCustodyPassScreen() {
 
             {issuedPass ? (
               <>
-                <View style={styles.qrSection}>
+                <TouchableOpacity
+                  style={styles.qrSection}
+                  onPress={() => setQrModalVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tap to enlarge custody QR code for counter scanning"
+                  testID="pass-qr-enlarge-trigger"
+                >
                   <QrCodeMatrix
                     value={issuedPass.qrToken}
                     size={200}
@@ -281,9 +311,9 @@ export default function TravellerCustodyPassScreen() {
                     Operation: {issuedPass.operation.replace("_", "-")}
                   </Text>
                   <Text style={styles.expiryNote}>
-                    Expires at {new Date(issuedPass.expiresAt).toLocaleTimeString()}
+                    Expires at {new Date(issuedPass.expiresAt).toLocaleTimeString()} · Tap QR to enlarge
                   </Text>
-                </View>
+                </TouchableOpacity>
 
                 <View style={styles.pinBox}>
                   <Text style={styles.pinLabel}>6-DIGIT FALLBACK PIN</Text>
@@ -292,6 +322,27 @@ export default function TravellerCustodyPassScreen() {
                     Provide this single-use PIN to partner counter staff if QR scanning is
                     unavailable.
                   </Text>
+                </View>
+
+                <View style={styles.passActionRow}>
+                  <Button
+                    title={copiedNotice ?? "Share / Copy Ref & PIN"}
+                    variant="outline"
+                    size="sm"
+                    style={styles.passActionFlex}
+                    leftIcon={<MobileIcon name="copy" size={14} color={mobileColors.navy[900]} />}
+                    onPress={() => {
+                      void handleCopyOrSharePass();
+                    }}
+                  />
+                  <Button
+                    title="Enlarge QR"
+                    variant="outline"
+                    size="sm"
+                    style={styles.passActionFlex}
+                    leftIcon={<MobileIcon name="qr-code" size={14} color={mobileColors.navy[900]} />}
+                    onPress={() => setQrModalVisible(true)}
+                  />
                 </View>
 
                 <Button
@@ -334,6 +385,47 @@ export default function TravellerCustodyPassScreen() {
           />
         </View>
       )}
+
+      <Modal
+        visible={qrModalVisible && Boolean(issuedPass && detail)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQrModalVisible(false)}
+        testID="pass-qr-enlarged-modal"
+      >
+        <View style={styles.qrModalBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setQrModalVisible(false)}
+            accessibilityLabel="Close enlarged QR pass"
+            accessibilityRole="button"
+          />
+          <View style={styles.qrModalCard}>
+            <Text style={styles.qrModalTitle}>#{detail?.referenceCode}</Text>
+            <Text style={styles.qrModalSubtitle}>
+              Hold steady for partner counter scanner
+            </Text>
+            {issuedPass ? (
+              <QrCodeMatrix
+                value={issuedPass.qrToken}
+                size={260}
+                accessibilityLabel={`Enlarged Custody QR for ${detail?.referenceCode ?? "booking"}`}
+              />
+            ) : null}
+            {issuedPass ? (
+              <Text style={styles.qrModalPin}>
+                PIN: {formatPin(issuedPass.verificationPin)}
+              </Text>
+            ) : null}
+            <Button
+              title="Done"
+              variant="primary"
+              fullWidth
+              onPress={() => setQrModalVisible(false)}
+            />
+          </View>
+        </View>
+      </Modal>
     </ScreenContainer>
   );
 }
@@ -370,6 +462,8 @@ const styles = StyleSheet.create({
   },
   ticketRef: {
     ...mobileTypography.headingMd,
+    fontFamily: "monospace",
+    fontVariant: ["tabular-nums"],
     color: mobileTextColors.primary
   },
   qrSection: {
@@ -404,8 +498,52 @@ const styles = StyleSheet.create({
   pinValue: {
     fontSize: 30,
     fontWeight: "800",
+    fontFamily: "monospace",
+    fontVariant: ["tabular-nums"],
     color: mobileColors.white,
     letterSpacing: 4
+  },
+  passActionRow: {
+    flexDirection: "row",
+    gap: mobileSpacing[2]
+  },
+  passActionFlex: {
+    flex: 1
+  },
+  qrModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(7, 14, 26, 0.84)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: mobileSpacing[5]
+  },
+  qrModalCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: mobileColors.white,
+    borderRadius: mobileRadius["2xl"],
+    padding: mobileSpacing[5],
+    alignItems: "center",
+    gap: mobileSpacing[3]
+  },
+  qrModalTitle: {
+    ...mobileTypography.headingMd,
+    fontFamily: "monospace",
+    fontVariant: ["tabular-nums"],
+    color: mobileColors.navy[950]
+  },
+  qrModalSubtitle: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted,
+    textAlign: "center"
+  },
+  qrModalPin: {
+    fontSize: 20,
+    fontWeight: "800",
+    fontFamily: "monospace",
+    fontVariant: ["tabular-nums"],
+    letterSpacing: 3,
+    color: mobileColors.navy[900]
   },
   pinHelp: {
     fontSize: 12,

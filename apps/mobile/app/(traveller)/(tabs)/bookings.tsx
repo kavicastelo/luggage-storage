@@ -7,7 +7,6 @@ import {
   type CurrencyCode
 } from "@luggage-storage/contracts";
 import {
-  Badge,
   BottomSheet,
   Button,
   Card,
@@ -194,7 +193,10 @@ export default function TravellerBookingsScreen() {
       </View>
 
       {actionBanner ? (
-        <Badge label={actionBanner} variant="success" icon="check-circle" />
+        <View style={styles.actionBannerBox} accessibilityRole="alert">
+          <MobileIcon name="check-circle" size={16} color={mobileStatusTokens.successIcon} />
+          <Text style={styles.actionBannerText}>{actionBanner}</Text>
+        </View>
       ) : null}
 
       {bookingsQuery.isLoading ? (
@@ -209,7 +211,7 @@ export default function TravellerBookingsScreen() {
         />
       ) : filteredBookings.length === 0 ? (
         <EmptyState
-          mascot="suitcase-walk"
+          mascot={activeTab === "ACTIVE" ? "suitcase-walk" : "sleeping"}
           title={`No ${activeTab.toLowerCase()} bookings`}
           description="Discover verified luggage storage hubs in Colombo, Kandy, Galle, Ella, or Negombo."
           actionTitle="Explore Hubs"
@@ -441,7 +443,25 @@ const styles = StyleSheet.create({
   refCode: {
     fontSize: 12,
     fontWeight: "700",
+    fontFamily: "monospace",
+    fontVariant: ["tabular-nums"],
     color: mobileColors.terracotta[600]
+  },
+  actionBannerBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  actionBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success,
+    fontWeight: "600",
+    flex: 1
   },
   locName: {
     ...mobileTypography.headingSm,

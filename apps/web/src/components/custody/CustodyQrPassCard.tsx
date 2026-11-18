@@ -1,6 +1,17 @@
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { RefreshCw, Printer, Clock, ShieldCheck, KeyRound, Copy, Check } from "lucide-react";
+import {
+  RefreshCw,
+  Printer,
+  Clock,
+  ShieldCheck,
+  KeyRound,
+  Copy,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ClipboardCheck
+} from "lucide-react";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -94,6 +105,7 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
 }) => {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [copiedToken, setCopiedToken] = useState(false);
+  const [showManualToken, setShowManualToken] = useState(false);
 
   useEffect(() => {
     if (!expiresAt) return;
@@ -105,8 +117,19 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
 
   const matrix = buildQrMatrixPath(qrPayload);
   const quietZone = 2;
-  const operationLabel = operation === "COLLECTION" ? "Collection Release" : "Check-In Drop-Off";
+  const isCollection = operation === "COLLECTION";
+  const operationLabel = isCollection ? "Collection Release" : "Check-In Drop-Off";
   const expiryInfo = expiresAt ? formatRemainingCountdown(expiresAt, nowMs) : null;
+
+  const handoverSteps = isCollection
+    ? [
+        "Show this QR code or read the 6-digit PIN to host counter staff.",
+        "Inspect unbroken tamper-evident seals before confirming release."
+      ]
+    : [
+        "Present this QR code or 6-digit backup PIN at the host counter.",
+        "Confirm serialized tamper-evident seals are applied to every bag."
+      ];
 
   const handleCopyToken = async () => {
     if (typeof navigator === "undefined" || !navigator.clipboard) return;
@@ -120,20 +143,22 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
   };
 
   return (
-    <Card className="border-2 border-navy-900 bg-white overflow-hidden">
-      <div className="bg-navy-900 text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+    <Card className="border-2 border-navy-900 bg-white overflow-hidden shadow-md">
+      {/* Boarding-Pass Header */}
+      <div className="bg-navy-950 text-white px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-terracotta-400" />
             <h3 className="text-lg font-extrabold tracking-tight">Digital Custody Pass</h3>
           </div>
           <p className="text-xs text-sand-300 mt-0.5">
-            Reference <span className="font-mono font-bold text-white">{`#${referenceCode}`}</span>
+            Reference{" "}
+            <span className="font-mono font-bold text-white">{`#${referenceCode}`}</span>
             {locationName ? ` • ${locationName}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant={operation === "COLLECTION" ? "warning" : "brand"} size="md">
+          <Badge variant={isCollection ? "warning" : "brand"} size="md">
             {operationLabel}
           </Badge>
           {isPreviewDemo && (
@@ -144,6 +169,7 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
         </div>
       </div>
 
+      {/* Main Ticket Body */}
       <div className="p-6 space-y-5">
         {expiryInfo?.expired && (
           <Alert variant="warning" title="Custody Pass Expired">
@@ -153,11 +179,11 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
-          {/* Scannable QR Code SVG */}
+          {/* Scannable QR Code SVG + Collapsible Manual Token */}
           <div className="flex flex-col items-center justify-center rounded-2xl border border-sand-200 bg-sand-50 p-5">
             {matrix ? (
               <div
-                className="bg-white p-3 rounded-xl border border-sand-200 shadow-xs"
+                className="bg-white p-3.5 rounded-xl border border-sand-200 shadow-sm"
                 data-qr-payload={qrPayload}
               >
                 <svg
@@ -186,24 +212,46 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
               </div>
             )}
 
-            <div className="mt-3 flex items-center gap-2 max-w-full">
-              <code className="text-[11px] font-mono text-sand-700 bg-white px-2.5 py-1 rounded-lg border border-sand-200 truncate max-w-[190px]">
-                {qrPayload}
-              </code>
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 print:hidden">
+              <button
+                type="button"
+                onClick={() => setShowManualToken((prev) => !prev)}
+                aria-expanded={showManualToken}
+                className="min-h-[44px] inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-sand-200 bg-white text-xs font-semibold text-navy-900 hover:bg-sand-100 transition-colors"
+              >
+                <span>Manual Token</span>
+                {showManualToken ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </button>
+
               <button
                 type="button"
                 onClick={handleCopyToken}
-                className="p-1.5 rounded-lg border border-sand-200 bg-white text-navy-900 hover:bg-sand-100"
-                title="Copy raw QR token"
-                aria-label="Copy raw QR token"
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center gap-1.5 px-3 rounded-lg border border-sand-200 bg-white text-navy-900 hover:bg-sand-100 transition-colors text-xs font-semibold"
+                title="Copy manual QR token"
+                aria-label="Copy manual QR token"
               >
                 {copiedToken ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  <Check className="h-4 w-4 text-emerald-600" />
                 ) : (
-                  <Copy className="h-3.5 w-3.5" />
+                  <Copy className="h-4 w-4" />
                 )}
+                <span aria-live="polite" className={copiedToken ? "text-emerald-700 font-bold" : ""}>
+                  {copiedToken ? "Copied" : "Copy"}
+                </span>
               </button>
             </div>
+
+            {showManualToken && (
+              <div className="mt-2.5 w-full rounded-lg border border-sand-200 bg-white px-3 py-2 text-center">
+                <code className="block text-[11px] font-mono text-sand-800 break-all select-all">
+                  {qrPayload}
+                </code>
+              </div>
+            )}
           </div>
 
           {/* 6-Digit Offline Fallback PIN & Custody Metadata */}
@@ -214,7 +262,7 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
                 6-Digit Fallback PIN
               </div>
               <p
-                className="text-3xl font-mono font-black tracking-[0.2em] text-navy-950 mt-1"
+                className="text-3xl font-mono font-black tracking-[0.2em] text-navy-950 mt-1 tabular-nums"
                 data-pin-value={verificationPin}
               >
                 {formatSixDigitPin(verificationPin)}
@@ -232,7 +280,7 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
                   Pass Validity
                 </span>
                 <span
-                  className={`font-mono font-bold ${
+                  className={`font-mono font-bold tabular-nums ${
                     expiryInfo.expired ? "text-rose-700" : "text-emerald-700"
                   }`}
                 >
@@ -242,7 +290,7 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
             )}
 
             {(zoneCode || sealIds.length > 0) && (
-              <div className="rounded-xl border border-sand-200 bg-white px-3.5 py-2.5 text-xs space-y-1">
+              <div className="rounded-xl border border-sand-200 bg-white px-3.5 py-2.5 text-xs space-y-1.5">
                 {zoneCode && (
                   <div className="flex justify-between">
                     <span className="text-sand-700">Storage Zone</span>
@@ -259,18 +307,44 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
                 )}
               </div>
             )}
+
+            {/* Concise 2-Step Counter Handover Checklist */}
+            <div className="rounded-xl border border-sand-200 bg-sand-50/70 px-3.5 py-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-navy-900">
+                <ClipboardCheck className="h-3.5 w-3.5 text-terracotta-600" />
+                2-Step Counter Handover
+              </div>
+              <ol className="space-y-1 text-xs text-sand-800 list-decimal list-inside">
+                {handoverSteps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-sand-200">
-          <div className="flex flex-wrap gap-2">
+      {/* Perforated Boarding-Pass Stub */}
+      <div className="relative border-t-2 border-dashed border-sand-200 bg-sand-50/60 px-6 py-4">
+        <span
+          aria-hidden="true"
+          className="hidden sm:block absolute -left-3 -top-3 w-6 h-6 rounded-full bg-sand-50 border-r border-sand-200"
+        />
+        <span
+          aria-hidden="true"
+          className="hidden sm:block absolute -right-3 -top-3 w-6 h-6 rounded-full bg-sand-50 border-l border-sand-200"
+        />
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2 print:hidden">
             {onRegenerate && (
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
+                size="md"
                 isLoading={isRegenerating}
                 onClick={onRegenerate}
+                className="print:hidden"
               >
                 <RefreshCw className="h-4 w-4" />
                 Regenerate Pass
@@ -279,7 +353,8 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
             <Button
               type="button"
               variant="secondary"
-              size="sm"
+              size="md"
+              className="print:hidden"
               onClick={() => {
                 if (onPrint) {
                   onPrint();
@@ -292,7 +367,7 @@ export const CustodyQrPassCard: React.FC<CustodyQrPassCardProps> = ({
               Print / Save Pass
             </Button>
           </div>
-          <p className="text-[11px] text-sand-600">
+          <p className="text-[11px] text-sand-700 font-medium">
             Present this pass to counter staff at drop-off and collection.
           </p>
         </div>

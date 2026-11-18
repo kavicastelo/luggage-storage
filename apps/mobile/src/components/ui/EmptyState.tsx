@@ -35,7 +35,7 @@ export function EmptyState({
   return (
     <Card variant="outlined" style={styles.container} testID={testID}>
       {mascot ? (
-        <MascotIllustration mascot={mascot} size="sm" />
+        <MascotIllustration mascot={mascot} size="md" variant="bare" decorative />
       ) : (
         <View style={styles.iconCircle}>
           <MobileIcon name={icon} size="xl" color={mobileColors.navy[700]} />

@@ -6,7 +6,8 @@ import {
   type BookingStatus,
   type RecordBookingExceptionRequest
 } from "@luggage-storage/contracts";
-import { AlertTriangle, CheckCircle2, ExternalLink, Search, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, Search, ShieldCheck } from "lucide-react";
+import { Alert, Button, Card, EmptyState, LoadingSkeleton, Modal } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { DEMO_BOOKINGS, DemoBookingRecord, formatLkr } from "@/data/mock-marketplace";
 import {
@@ -41,13 +42,16 @@ const EXCEPTION_CATEGORIES: Array<{
   { value: "OTHER", label: "Other Operational Exception" }
 ];
 
-const LIVE_STATUS_PILLS: Array<{ value: "ALL" | BookingStatus; label: string }> = [
+const PRIMARY_LIVE_TABS: Array<{ value: "ALL" | BookingStatus; label: string }> = [
   { value: "ALL", label: "All Bookings" },
   { value: "PENDING_HOST_APPROVAL", label: "Pending Approval" },
   { value: "CONFIRMED", label: "Confirmed" },
   { value: "IN_STORAGE", label: "In Storage" },
   { value: "COMPLETED", label: "Completed" },
-  { value: "DISPUTED", label: "Disputed" },
+  { value: "DISPUTED", label: "Disputed" }
+];
+
+const SECONDARY_LIVE_STATUSES: Array<{ value: BookingStatus; label: string }> = [
   { value: "PENDING_PAYMENT", label: "Pending Payment" },
   { value: "CANCELLED_BY_TRAVELLER", label: "Cancelled (Guest)" },
   { value: "CANCELLED_BY_HOST", label: "Cancelled (Host)" },
@@ -74,12 +78,13 @@ type PendingModalAction =
 
 function statusBadgeToneClass(tone: "brand" | "success" | "warning" | "danger" | "neutral"): string {
   switch (tone) {
+    case "brand":
+      return "bg-emerald-50 text-emerald-800 border border-emerald-200";
     case "success":
       return "bg-blue-50 text-blue-800 border border-blue-200";
     case "danger":
       return "bg-rose-50 text-rose-800 border border-rose-200";
     case "warning":
-    case "brand":
       return "bg-amber-50 text-amber-800 border border-amber-200";
     default:
       return "bg-sand-100 text-navy-700 border border-sand-300";
@@ -145,6 +150,12 @@ export function HostBookingManagementHubPage() {
     enabled: isAuthenticated && !showDemoBookings
   });
 
+  // Keep unfiltered hub bookings cached for urgent pending-approval count badge
+  const overviewCountQuery = useHostBookingsQuery(
+    liveLocationId ? { locationId: liveLocationId, limit: 50 } : { limit: 50 },
+    { enabled: isAuthenticated && !showDemoBookings }
+  );
+
   const liveBookingDetailQuery = useHostBookingDetailQuery(liveInspectedUuid, {
     enabled: Boolean(liveInspectedUuid)
   });
@@ -158,6 +169,14 @@ export function HostBookingManagementHubPage() {
   const exceptionMutation = useReportHostBookingExceptionMutation();
 
   const liveBookings = bookingsQuery.data?.bookings ?? [];
+
+  const pendingApprovalCount = useMemo(() => {
+    if (showDemoBookings) {
+      return demoBookings.filter((b) => b.status === "PENDING_HOST_APPROVAL").length;
+    }
+    const source = overviewCountQuery.data?.bookings ?? liveBookings;
+    return source.filter((b) => b.status === "PENDING_HOST_APPROVAL").length;
+  }, [showDemoBookings, demoBookings, overviewCountQuery.data, liveBookings]);
 
   const inspectedLiveBooking: BookingDetail | null = useMemo(() => {
     if (!liveInspectedUuid) return null;
@@ -312,7 +331,10 @@ export function HostBookingManagementHubPage() {
     cancelMutation.isPending ||
     exceptionMutation.isPending;
 
-  const statusPills = showDemoBookings
+  const isSecondaryStatusActive =
+    !showDemoBookings && SECONDARY_LIVE_STATUSES.some((s) => s.value === statusFilter);
+
+  const statusTabs = showDemoBookings
     ? DEMO_STATUS_PILLS.map((st) => ({
         value: st,
         label:
@@ -322,7 +344,7 @@ export function HostBookingManagementHubPage() {
               ? "Pending Approval"
               : st.replace("_", " ")
       }))
-    : LIVE_STATUS_PILLS;
+    : PRIMARY_LIVE_TABS;
 
   return (
     <div className="space-y-6">
@@ -338,16 +360,13 @@ export function HostBookingManagementHubPage() {
       )}
 
       {hubNotice && (
-        <div
-          role="status"
-          className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-xs font-bold text-emerald-950"
-        >
+        <Alert variant="success" onDismiss={() => setHubNotice(null)}>
           {hubNotice}
-        </div>
+        </Alert>
       )}
 
       {/* Header & Filter Bar */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-extrabold text-navy-950 tracking-tight">
@@ -358,8 +377,10 @@ export function HostBookingManagementHubPage() {
               custody audit trails.
             </p>
           </div>
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             disabled={showDemoBookings ? demoBookings.length === 0 : liveBookings.length === 0}
             onClick={() => {
               if (showDemoBookings && demoBookings[0]) {
@@ -368,14 +389,13 @@ export function HostBookingManagementHubPage() {
                 openLiveInspect(liveBookings[0]);
               }
             }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm transition"
+            leftIcon={<ShieldCheck className="h-4 w-4 text-emerald-400" />}
           >
-            <ShieldCheck className="h-4 w-4 text-emerald-400" />
-            <span>Inspect Custody Evidence</span>
-          </button>
+            Inspect Custody Evidence
+          </Button>
         </div>
 
-        {/* Search & Status Filter Pills */}
+        {/* Search & Condensed Operational Tabs */}
         <div className="mt-5 space-y-3">
           <div className="relative">
             <Search className="absolute left-3.5 top-3 h-4 w-4 text-navy-400" />
@@ -389,30 +409,75 @@ export function HostBookingManagementHubPage() {
               }
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full rounded-xl border border-sand-300 pl-10 pr-4 py-2.5 text-xs text-navy-900 placeholder:text-navy-400 focus:outline-none focus:ring-1 focus:ring-terracotta-500"
+              className="w-full rounded-xl border border-sand-300 pl-10 pr-4 py-2.5 text-xs text-navy-900 placeholder:text-navy-400 focus:outline-none focus:ring-2 focus:ring-terracotta-500/40"
             />
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {statusPills.map((pill) => (
-              <button
-                key={pill.value}
-                type="button"
-                onClick={() => setStatusFilter(pill.value)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                  statusFilter === pill.value
-                    ? "bg-navy-900 text-white"
-                    : "bg-sand-100 text-navy-700 hover:bg-sand-200"
-                }`}
-              >
-                {pill.label}
-              </button>
-            ))}
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Booking status filter">
+              {statusTabs.map((tab) => {
+                const isSelected = statusFilter === tab.value;
+                return (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={isSelected}
+                    onClick={() => setStatusFilter(tab.value)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                      isSelected
+                        ? "bg-navy-900 text-white shadow-sm"
+                        : "bg-sand-100 text-navy-700 hover:bg-sand-200"
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    {tab.value === "PENDING_HOST_APPROVAL" && pendingApprovalCount > 0 && (
+                      <span
+                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                          isSelected
+                            ? "bg-amber-400 text-navy-950"
+                            : "bg-amber-200 text-amber-950"
+                        }`}
+                      >
+                        {pendingApprovalCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {!showDemoBookings && (
+              <div className="flex items-center gap-2 text-xs">
+                <label htmlFor="secondary-booking-status" className="text-[11px] font-semibold text-navy-600">
+                  Other statuses:
+                </label>
+                <select
+                  id="secondary-booking-status"
+                  aria-label="Other booking statuses"
+                  value={isSecondaryStatusActive ? statusFilter : ""}
+                  onChange={(e) => setStatusFilter(e.target.value || "ALL")}
+                  className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                    isSecondaryStatusActive
+                      ? "bg-navy-900 text-white border-navy-900"
+                      : "bg-white text-navy-800 border-sand-300"
+                  }`}
+                >
+                  <option value="">Cancelled / Pending / Expired</option>
+                  {SECONDARY_LIVE_STATUSES.map((st) => (
+                    <option key={st.value} value={st.value}>
+                      {st.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Bookings Table */}
-      <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
+      <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
@@ -433,11 +498,12 @@ export function HostBookingManagementHubPage() {
               {showDemoBookings ? (
                 filteredDemoBookings.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={effectiveHostRole === "HOST_STAFF" ? 5 : 6}
-                      className="p-6 text-center text-navy-500"
-                    >
-                      No bookings match the selected criteria.
+                    <td colSpan={effectiveHostRole === "HOST_STAFF" ? 5 : 6} className="p-6">
+                      <EmptyState
+                        mascot="suitcase-peek"
+                        title="No bookings match the selected criteria"
+                        description="Try clearing your search query or switching to All Bookings."
+                      />
                     </td>
                   </tr>
                 ) : (
@@ -505,15 +571,22 @@ export function HostBookingManagementHubPage() {
                     );
                   })
                 )
+              ) : bookingsQuery.isLoading ? (
+                Array.from({ length: 4 }).map((_, idx) => (
+                  <tr key={idx}>
+                    <td colSpan={effectiveHostRole === "HOST_STAFF" ? 5 : 6} className="p-3.5">
+                      <LoadingSkeleton className="h-10 w-full" />
+                    </td>
+                  </tr>
+                ))
               ) : liveBookings.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={effectiveHostRole === "HOST_STAFF" ? 5 : 6}
-                    className="p-6 text-center text-navy-500"
-                  >
-                    {bookingsQuery.isLoading
-                      ? "Loading live host bookings..."
-                      : "No host bookings match the selected criteria."}
+                  <td colSpan={effectiveHostRole === "HOST_STAFF" ? 5 : 6} className="p-6">
+                    <EmptyState
+                      mascot="suitcase-peek"
+                      title="No host bookings match the selected criteria"
+                      description="Confirmed bookings, approval requests, and custody records for your active hub will appear here."
+                    />
                   </td>
                 </tr>
               ) : (
@@ -577,43 +650,25 @@ export function HostBookingManagementHubPage() {
                             </>
                           )}
                           {b.status === "CONFIRMED" && (
-                            <>
-                              <Link
-                                to={`/host/operations?ref=${encodeURIComponent(b.referenceCode)}&mode=checkin`}
-                                className="px-2.5 py-1.5 rounded-lg bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold text-xs transition"
-                              >
-                                Check-In Desk
-                              </Link>
-                              <button
-                                type="button"
-                                onClick={() => openLiveActionModal("CANCEL", b)}
-                                className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs transition"
-                              >
-                                Host Cancel
-                              </button>
-                            </>
+                            <Link
+                              to={`/host/operations?ref=${encodeURIComponent(b.referenceCode)}&mode=checkin`}
+                              className="px-2.5 py-1.5 rounded-lg bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold text-xs transition whitespace-nowrap"
+                            >
+                              Check-In Desk
+                            </Link>
                           )}
                           {b.status === "IN_STORAGE" && (
                             <Link
                               to={`/host/operations?ref=${encodeURIComponent(b.referenceCode)}&mode=checkout`}
-                              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition"
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition whitespace-nowrap"
                             >
                               Check-Out Desk
                             </Link>
                           )}
-                          {(b.status === "CONFIRMED" || b.status === "IN_STORAGE") && (
-                            <button
-                              type="button"
-                              onClick={() => openLiveActionModal("EXCEPTION", b)}
-                              className="px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs transition"
-                            >
-                              Report Exception
-                            </button>
-                          )}
                           <button
                             type="button"
                             onClick={() => openLiveInspect(b)}
-                            className="px-3 py-1.5 rounded-lg bg-navy-100 hover:bg-navy-200 text-navy-900 font-bold text-xs transition"
+                            className="px-3 py-1.5 rounded-lg bg-navy-100 hover:bg-navy-200 text-navy-900 font-bold text-xs transition whitespace-nowrap"
                           >
                             Investigate Custody
                           </button>
@@ -626,60 +681,48 @@ export function HostBookingManagementHubPage() {
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
 
       {/* Live Action Modal */}
-      {pendingAction && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={(e) => void handleConfirmLiveAction(e)}
-            className="bg-white rounded-2xl border border-sand-200 max-w-md w-full p-6 space-y-4 shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <h3 className="text-base font-bold text-navy-950">
-                {pendingAction.kind === "ACCEPT"
-                  ? "Approve Booking Request"
-                  : pendingAction.kind === "REJECT"
-                    ? "Decline Booking Request"
-                    : pendingAction.kind === "CANCEL"
-                      ? "Cancel Confirmed Booking"
-                      : "Report Custody / Booking Exception"}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setPendingAction(null)}
-                className="p-1.5 rounded-lg hover:bg-sand-100 text-navy-500"
-                aria-label="Close action modal"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-navy-700">
-              Booking{" "}
-              <span className="font-mono font-bold text-navy-950">
-                {pendingAction.booking.referenceCode}
-              </span>
-            </p>
-
+      <Modal
+        open={Boolean(pendingAction)}
+        onClose={() => setPendingAction(null)}
+        closeLabel="Close action modal"
+        size="md"
+        title={
+          pendingAction?.kind === "ACCEPT"
+            ? "Approve Booking Request"
+            : pendingAction?.kind === "REJECT"
+              ? "Decline Booking Request"
+              : pendingAction?.kind === "CANCEL"
+                ? "Cancel Confirmed Booking"
+                : "Report Custody / Booking Exception"
+        }
+        subtitle={pendingAction ? `Booking ${pendingAction.booking.referenceCode}` : undefined}
+      >
+        {pendingAction && (
+          <form onSubmit={(e) => void handleConfirmLiveAction(e)} className="space-y-4">
             {(pendingAction.kind === "CANCEL" || pendingAction.kind === "REJECT") && (
-              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 font-medium">
+              <Alert variant="warning">
                 {pendingAction.kind === "CANCEL"
                   ? "Host-initiated cancellation automatically records a 100% refund for the traveller."
                   : "Declining this request automatically records a 100% refund for any authorized payment."}
-              </div>
+              </Alert>
             )}
 
             {pendingAction.kind === "EXCEPTION" && (
               <>
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-950 font-medium">
+                <Alert variant="warning">
                   Recording an operational exception transitions the booking to{" "}
                   <strong>Custody Exception / Disputed</strong> and places settlement payouts on
                   hold pending platform review.
-                </div>
+                </Alert>
                 <div className="space-y-1 text-xs">
-                  <label className="block font-bold text-navy-900">Exception Category</label>
+                  <label htmlFor="exception-category-select" className="block font-bold text-navy-900">
+                    Exception Category
+                  </label>
                   <select
+                    id="exception-category-select"
                     value={exceptionCategory}
                     onChange={(e) =>
                       setExceptionCategory(
@@ -699,7 +742,7 @@ export function HostBookingManagementHubPage() {
             )}
 
             <div className="space-y-1 text-xs">
-              <label className="block font-bold text-navy-900">
+              <label htmlFor="booking-action-reason" className="block font-bold text-navy-900">
                 {pendingAction.kind === "ACCEPT"
                   ? "Approval Note (Optional)"
                   : pendingAction.kind === "EXCEPTION"
@@ -707,6 +750,7 @@ export function HostBookingManagementHubPage() {
                     : "Reason (min 3 characters)"}
               </label>
               <textarea
+                id="booking-action-reason"
                 rows={3}
                 value={actionReason}
                 onChange={(e) => setActionReason(e.target.value)}
@@ -720,26 +764,17 @@ export function HostBookingManagementHubPage() {
             </div>
 
             {actionError && (
-              <div
-                role="alert"
-                className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-900"
-              >
-                {actionError}
-              </div>
+              <Alert variant="danger">{actionError}</Alert>
             )}
 
             <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setPendingAction(null)}
-                className="px-4 py-2 rounded-xl border border-sand-300 text-xs font-bold text-navy-800"
-              >
+              <Button type="button" variant="outline" size="sm" onClick={() => setPendingAction(null)}>
                 Cancel
-              </button>
+              </Button>
               <button
                 type="submit"
                 disabled={isMutationBusy}
-                className={`px-4 py-2 rounded-xl text-white text-xs font-bold ${
+                className={`px-4 py-2 rounded-xl text-white text-xs font-bold transition ${
                   pendingAction.kind === "ACCEPT"
                     ? "bg-emerald-600 hover:bg-emerald-700"
                     : pendingAction.kind === "EXCEPTION"
@@ -751,32 +786,29 @@ export function HostBookingManagementHubPage() {
               </button>
             </div>
           </form>
-        </div>
-      )}
+        )}
+      </Modal>
 
-      {/* HD-008: Demo Custody Investigation Dossier */}
-      {showDemoBookings && inspectedDemoBooking && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-sand-200 max-w-2xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full bg-navy-900 text-white font-mono text-xs font-bold">
-                  Custody Audit
-                </span>
-                <h3 className="text-base font-bold text-navy-950">
-                  Custody Evidence — {inspectedDemoBooking.reference}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={closeInvestigationModal}
-                className="p-1.5 rounded-lg hover:bg-sand-100 text-navy-500"
-                aria-label="Close investigation modal"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
+      {/* Demo Custody Investigation Dossier */}
+      <Modal
+        open={Boolean(showDemoBookings && inspectedDemoBooking)}
+        onClose={closeInvestigationModal}
+        closeLabel="Close investigation modal"
+        size="lg"
+        title={
+          inspectedDemoBooking
+            ? `Custody Evidence — ${inspectedDemoBooking.reference}`
+            : "Custody Evidence"
+        }
+        subtitle="Custody Audit • Timestamped intake & seal evidence verified"
+        footer={
+          <Button type="button" variant="secondary" size="sm" onClick={closeInvestigationModal}>
+            Close Audit Dossier
+          </Button>
+        }
+      >
+        {inspectedDemoBooking && (
+          <div className="space-y-5">
             <div className="space-y-2 text-xs">
               <p className="font-bold text-navy-900 uppercase text-[10px] tracking-wider">
                 Custody Lifecycle Events
@@ -864,288 +896,283 @@ export function HostBookingManagementHubPage() {
                 </p>
               </div>
             </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-sand-100">
-              <span className="text-[11px] text-navy-500">
-                Timestamped intake &amp; seal evidence verified
-              </span>
-              <button
-                type="button"
-                onClick={closeInvestigationModal}
-                className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
-              >
-                Close Audit Dossier
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
-      {/* HD-008: Live Booking & Custody Investigation Dossier */}
-      {!showDemoBookings && liveInspectedUuid && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-sand-200 max-w-3xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full bg-navy-900 text-white font-mono text-xs font-bold">
-                  Custody Audit
-                </span>
-                <h3 className="text-base font-bold text-navy-950">
-                  Custody Evidence —{" "}
-                  {inspectedLiveBooking?.referenceCode || liveInspectedUuid.slice(0, 8)}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={closeInvestigationModal}
-                className="p-1.5 rounded-lg hover:bg-sand-100 text-navy-500"
-                aria-label="Close investigation modal"
-              >
-                <X className="h-5 w-5" />
-              </button>
+      {/* Live Booking & Custody Investigation Dossier */}
+      <Modal
+        open={Boolean(!showDemoBookings && liveInspectedUuid)}
+        onClose={closeInvestigationModal}
+        closeLabel="Close investigation modal"
+        size="xl"
+        title={`Custody Evidence — ${
+          inspectedLiveBooking?.referenceCode || liveInspectedUuid?.slice(0, 8) || ""
+        }`}
+        subtitle="Custody Audit • Server custody & status ledger synchronized"
+        footer={
+          <div className="w-full flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {inspectedLiveBooking?.status === "CONFIRMED" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeInvestigationModal();
+                    openLiveActionModal("CANCEL", inspectedLiveBooking);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs transition"
+                >
+                  Host Cancel
+                </button>
+              )}
+              {(inspectedLiveBooking?.status === "CONFIRMED" ||
+                inspectedLiveBooking?.status === "IN_STORAGE") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeInvestigationModal();
+                    openLiveActionModal("EXCEPTION", inspectedLiveBooking);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold text-xs transition"
+                >
+                  Report Exception
+                </button>
+              )}
             </div>
+            <Button type="button" variant="secondary" size="sm" onClick={closeInvestigationModal}>
+              Close Audit Dossier
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-5">
+          {(liveBookingDetailQuery.isError || liveCustodyDetailQuery.isError) && (
+            <HostQueryErrorAlert
+              message={
+                (liveBookingDetailQuery.error instanceof Error &&
+                  liveBookingDetailQuery.error.message) ||
+                (liveCustodyDetailQuery.error instanceof Error &&
+                  liveCustodyDetailQuery.error.message) ||
+                "Unable to load booking custody dossier."
+              }
+              onRetry={() => {
+                void liveBookingDetailQuery.refetch();
+                void liveCustodyDetailQuery.refetch();
+              }}
+            />
+          )}
 
-            {(liveBookingDetailQuery.isError || liveCustodyDetailQuery.isError) && (
-              <HostQueryErrorAlert
-                message={
-                  (liveBookingDetailQuery.error instanceof Error &&
-                    liveBookingDetailQuery.error.message) ||
-                  (liveCustodyDetailQuery.error instanceof Error &&
-                    liveCustodyDetailQuery.error.message) ||
-                  "Unable to load booking custody dossier."
-                }
-                onRetry={() => {
-                  void liveBookingDetailQuery.refetch();
-                  void liveCustodyDetailQuery.refetch();
-                }}
-              />
-            )}
+          {inspectedLiveBooking && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-1.5">
+                  <p className="font-bold text-navy-950">Traveller Information</p>
+                  <p className="text-navy-700">
+                    Name:{" "}
+                    <strong className="text-navy-900">
+                      {inspectedLiveBooking.travellerDisplayName ||
+                        `Guest (${inspectedLiveBooking.travellerUserId.slice(0, 8)})`}
+                    </strong>
+                  </p>
+                  <p className="text-navy-700">
+                    Email: {inspectedLiveBooking.travellerEmailMasked || "Verified Platform Account"}
+                  </p>
+                  <p className="text-navy-700">
+                    Schedule: {formatDateTimeDisplay(inspectedLiveBooking.dropOffAt)} →{" "}
+                    {formatDateTimeDisplay(inspectedLiveBooking.collectionAt)}
+                  </p>
+                  <p className="text-navy-700">
+                    Hub: {inspectedLiveBooking.location.name} ({inspectedLiveBooking.location.city})
+                  </p>
+                </div>
 
-            {inspectedLiveBooking && (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                  <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-1.5">
-                    <p className="font-bold text-navy-950">Traveller Information</p>
-                    <p className="text-navy-700">
-                      Name:{" "}
-                      <strong className="text-navy-900">
-                        {inspectedLiveBooking.travellerDisplayName ||
-                          `Guest (${inspectedLiveBooking.travellerUserId.slice(0, 8)})`}
-                      </strong>
-                    </p>
-                    <p className="text-navy-700">
-                      Email: {inspectedLiveBooking.travellerEmailMasked || "Verified Platform Account"}
-                    </p>
-                    <p className="text-navy-700">
-                      Schedule: {formatDateTimeDisplay(inspectedLiveBooking.dropOffAt)} →{" "}
-                      {formatDateTimeDisplay(inspectedLiveBooking.collectionAt)}
-                    </p>
-                    <p className="text-navy-700">
-                      Hub: {inspectedLiveBooking.location.name} ({inspectedLiveBooking.location.city})
-                    </p>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-1.5">
-                    <p className="font-bold text-navy-950">Booking &amp; Custody Summary</p>
-                    <p className="text-navy-700">
-                      Booked Bags:{" "}
-                      <strong className="text-navy-900">
-                        {inspectedLiveBooking.totalBags} Bags
-                      </strong>{" "}
-                      (
-                      {inspectedLiveBooking.items
-                        .map(
-                          (item) => `${item.quantity}× ${formatBagCategoryLabel(item.bagCategory)}`
-                        )
-                        .join(", ")}
+                <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-1.5">
+                  <p className="font-bold text-navy-950">Booking &amp; Custody Summary</p>
+                  <p className="text-navy-700">
+                    Booked Bags:{" "}
+                    <strong className="text-navy-900">
+                      {inspectedLiveBooking.totalBags} Bags
+                    </strong>{" "}
+                    (
+                    {inspectedLiveBooking.items
+                      .map(
+                        (item) => `${item.quantity}× ${formatBagCategoryLabel(item.bagCategory)}`
                       )
-                    </p>
-                    {effectiveHostRole !== "HOST_STAFF" &&
-                      inspectedLiveBooking.pricingSnapshot && (
-                        <p className="text-navy-700">
-                          Gross{" "}
-                          {formatLkrMinor(
-                            inspectedLiveBooking.totalAmountMinor,
-                            inspectedLiveBooking.currency
-                          )}{" "}
-                          •{" "}
-                          {inspectedLiveBooking.pricingSnapshot.hostPayableMinor !== undefined
-                            ? `Payable ${formatLkrMinor(
-                                inspectedLiveBooking.pricingSnapshot.hostPayableMinor,
-                                inspectedLiveBooking.currency
-                              )}`
-                            : "Breakdown pending"}
-                        </p>
-                      )}
-                    {inspectedLiveBooking.refundSummary && (
+                      .join(", ")}
+                    )
+                  </p>
+                  {effectiveHostRole !== "HOST_STAFF" &&
+                    inspectedLiveBooking.pricingSnapshot && (
                       <p className="text-navy-700">
-                        Refund:{" "}
-                        {formatRefundStatusDisplay(inspectedLiveBooking.refundSummary.status).label}{" "}
-                        (
+                        Gross{" "}
                         {formatLkrMinor(
-                          inspectedLiveBooking.refundSummary.amountMinor,
+                          inspectedLiveBooking.totalAmountMinor,
                           inspectedLiveBooking.currency
-                        )}
-                        )
+                        )}{" "}
+                        •{" "}
+                        {inspectedLiveBooking.pricingSnapshot.hostPayableMinor !== undefined
+                          ? `Payable ${formatLkrMinor(
+                              inspectedLiveBooking.pricingSnapshot.hostPayableMinor,
+                              inspectedLiveBooking.currency
+                            )}`
+                          : "Breakdown pending"}
                       </p>
                     )}
+                  {inspectedLiveBooking.refundSummary && (
                     <p className="text-navy-700">
-                      Operator:{" "}
-                      <span className="font-mono text-navy-900 font-bold">
-                        {user?.displayName || user?.email || "Authenticated Host Operator"}
-                      </span>
+                      Refund:{" "}
+                      {formatRefundStatusDisplay(inspectedLiveBooking.refundSummary.status).label}{" "}
+                      (
+                      {formatLkrMinor(
+                        inspectedLiveBooking.refundSummary.amountMinor,
+                        inspectedLiveBooking.currency
+                      )}
+                      )
                     </p>
-                  </div>
-                </div>
-
-                {/* Custody Tags, Seals & Evidence Photos */}
-                <div className="space-y-2 text-xs">
-                  <p className="font-bold text-navy-900 uppercase text-[10px] tracking-wider">
-                    Custody Lifecycle Events &amp; Tagged Luggage
-                  </p>
-                  {liveCustodyDetailQuery.data ? (
-                    <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-3 text-navy-800">
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sand-200 pb-2">
-                        <span>
-                          Custody Status:{" "}
-                          <strong className="text-navy-950">
-                            {liveCustodyDetailQuery.data.status.replace(/_/g, " ")}
-                          </strong>
-                        </span>
-                        <span>
-                          Checked In:{" "}
-                          <strong>{liveCustodyDetailQuery.data.checkedInBagCount ?? 0}</strong> /{" "}
-                          Expected{" "}
-                          <strong>{liveCustodyDetailQuery.data.expectedBagCount}</strong>
-                          {liveCustodyDetailQuery.data.releasedBagCount !== null
-                            ? ` • Released: ${liveCustodyDetailQuery.data.releasedBagCount}`
-                            : ""}
-                        </span>
-                      </div>
-
-                      {liveCustodyDetailQuery.data.exceptionNotes && (
-                        <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-950 flex items-start gap-2">
-                          <AlertTriangle className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
-                          <span>Exception: {liveCustodyDetailQuery.data.exceptionNotes}</span>
-                        </div>
-                      )}
-
-                      {liveCustodyDetailQuery.data.bags.length > 0 && (
-                        <div className="space-y-1.5">
-                          <p className="font-bold text-navy-950">Tagged Storage Items</p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {liveCustodyDetailQuery.data.bags.map((bag) => (
-                              <div
-                                key={bag.id}
-                                className="p-2.5 rounded-lg bg-white border border-sand-200 space-y-1"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <span className="font-mono font-bold text-navy-950">
-                                    {bag.bagTagCode}
-                                  </span>
-                                  <span className="text-[11px] text-navy-600">
-                                    {formatBagCategoryLabel(bag.bagCategory)}
-                                  </span>
-                                </div>
-                                {bag.securitySealNumber && (
-                                  <p className="text-[11px] text-navy-600">
-                                    Seal: <span className="font-mono">{bag.securitySealNumber}</span>
-                                  </p>
-                                )}
-                                {bag.conditionNotes && (
-                                  <p className="text-[11px] text-navy-600">
-                                    Notes: {bag.conditionNotes}
-                                  </p>
-                                )}
-                                {bag.photoDownloadUrl && (
-                                  <a
-                                    href={bag.photoDownloadUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-terracotta-600 hover:underline"
-                                  >
-                                    <span>View Evidence Photo</span>
-                                    <ExternalLink className="h-3 w-3" />
-                                  </a>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="space-y-2 pt-1">
-                        {liveCustodyDetailQuery.data.events.map((evt) => (
-                          <div key={evt.id} className="flex items-start gap-2">
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                            <div>
-                              <strong className="text-navy-950">{evt.eventType}</strong>
-                              <p className="text-[11px] text-navy-500">
-                                {formatDateTimeDisplay(evt.createdAt)} • Actor {evt.actorRole} •{" "}
-                                {evt.previousStatus ? `${evt.previousStatus} → ` : ""}
-                                {evt.newStatus}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 text-navy-700 space-y-2">
-                      <p className="font-semibold text-navy-900">
-                        Awaiting Physical Intake Handover
-                      </p>
-                      <p className="text-[11px] text-navy-600">
-                        Custody bag tags and counter inspection events will appear here once physical
-                        intake is completed at the counter desk.
-                      </p>
-                    </div>
                   )}
+                  <p className="text-navy-700">
+                    Operator:{" "}
+                    <span className="font-mono text-navy-900 font-bold">
+                      {user?.displayName || user?.email || "Authenticated Host Operator"}
+                    </span>
+                  </p>
                 </div>
+              </div>
 
-                {/* Booking Status Transition History */}
-                {inspectedLiveBooking.statusHistory.length > 0 && (
-                  <div className="space-y-2 text-xs">
-                    <p className="font-bold text-navy-900 uppercase text-[10px] tracking-wider">
-                      Booking Status History
-                    </p>
-                    <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 space-y-1.5">
-                      {inspectedLiveBooking.statusHistory.map((hist) => (
-                        <div
-                          key={hist.id}
-                          className="flex flex-wrap items-center justify-between gap-2 text-[11px]"
-                        >
-                          <span className="font-semibold text-navy-900">
-                            {hist.previousStatus ? `${hist.previousStatus} → ` : ""}
-                            {hist.newStatus}
-                            {hist.reason ? ` — ${hist.reason}` : ""}
-                          </span>
-                          <span className="text-navy-500">
-                            {formatDateTimeDisplay(hist.createdAt)}
-                          </span>
+              {/* Custody Tags, Seals & Evidence Photos */}
+              <div className="space-y-2 text-xs">
+                <p className="font-bold text-navy-900 uppercase text-[10px] tracking-wider">
+                  Custody Lifecycle Events &amp; Tagged Luggage
+                </p>
+                {liveCustodyDetailQuery.data ? (
+                  <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-3 text-navy-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sand-200 pb-2">
+                      <span>
+                        Custody Status:{" "}
+                        <strong className="text-navy-950">
+                          {liveCustodyDetailQuery.data.status.replace(/_/g, " ")}
+                        </strong>
+                      </span>
+                      <span>
+                        Checked In:{" "}
+                        <strong>{liveCustodyDetailQuery.data.checkedInBagCount ?? 0}</strong> /{" "}
+                        Expected{" "}
+                        <strong>{liveCustodyDetailQuery.data.expectedBagCount}</strong>
+                        {liveCustodyDetailQuery.data.releasedBagCount !== null
+                          ? ` • Released: ${liveCustodyDetailQuery.data.releasedBagCount}`
+                          : ""}
+                      </span>
+                    </div>
+
+                    {liveCustodyDetailQuery.data.exceptionNotes && (
+                      <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-950 flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
+                        <span>Exception: {liveCustodyDetailQuery.data.exceptionNotes}</span>
+                      </div>
+                    )}
+
+                    {liveCustodyDetailQuery.data.bags.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="font-bold text-navy-950">Tagged Storage Items</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {liveCustodyDetailQuery.data.bags.map((bag) => (
+                            <div
+                              key={bag.id}
+                              className="p-2.5 rounded-lg bg-white border border-sand-200 space-y-1"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-mono font-bold text-navy-950">
+                                  {bag.bagTagCode}
+                                </span>
+                                <span className="text-[11px] text-navy-600">
+                                  {formatBagCategoryLabel(bag.bagCategory)}
+                                </span>
+                              </div>
+                              {bag.securitySealNumber && (
+                                <p className="text-[11px] text-navy-600">
+                                  Seal: <span className="font-mono">{bag.securitySealNumber}</span>
+                                </p>
+                              )}
+                              {bag.conditionNotes && (
+                                <p className="text-[11px] text-navy-600">
+                                  Notes: {bag.conditionNotes}
+                                </p>
+                              )}
+                              {bag.photoDownloadUrl && (
+                                <a
+                                  href={bag.photoDownloadUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold text-terracotta-600 hover:underline"
+                                >
+                                  <span>View Evidence Photo</span>
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2 pt-1">
+                      {liveCustodyDetailQuery.data.events.map((evt) => (
+                        <div key={evt.id} className="flex items-start gap-2">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <strong className="text-navy-950">{evt.eventType}</strong>
+                            <p className="text-[11px] text-navy-500">
+                              {formatDateTimeDisplay(evt.createdAt)} • Actor {evt.actorRole} •{" "}
+                              {evt.previousStatus ? `${evt.previousStatus} → ` : ""}
+                              {evt.newStatus}
+                            </p>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 text-navy-700 space-y-2">
+                    <p className="font-semibold text-navy-900">
+                      Awaiting Physical Intake Handover
+                    </p>
+                    <p className="text-[11px] text-navy-600">
+                      Custody bag tags and counter inspection events will appear here once physical
+                      intake is completed at the counter desk.
+                    </p>
+                  </div>
                 )}
-              </>
-            )}
+              </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-sand-100">
-              <span className="text-[11px] text-navy-500">
-                Server custody &amp; status ledger synchronized
-              </span>
-              <button
-                type="button"
-                onClick={closeInvestigationModal}
-                className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
-              >
-                Close Audit Dossier
-              </button>
-            </div>
-          </div>
+              {/* Booking Status Transition History */}
+              {inspectedLiveBooking.statusHistory.length > 0 && (
+                <div className="space-y-2 text-xs">
+                  <p className="font-bold text-navy-900 uppercase text-[10px] tracking-wider">
+                    Booking Status History
+                  </p>
+                  <div className="p-3.5 rounded-xl bg-sand-50 border border-sand-200 space-y-1.5">
+                    {inspectedLiveBooking.statusHistory.map((hist) => (
+                      <div
+                        key={hist.id}
+                        className="flex flex-wrap items-center justify-between gap-2 text-[11px]"
+                      >
+                        <span className="font-semibold text-navy-900">
+                          {hist.previousStatus ? `${hist.previousStatus} → ` : ""}
+                          {hist.newStatus}
+                          {hist.reason ? ` — ${hist.reason}` : ""}
+                        </span>
+                        <span className="text-navy-500">
+                          {formatDateTimeDisplay(hist.createdAt)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

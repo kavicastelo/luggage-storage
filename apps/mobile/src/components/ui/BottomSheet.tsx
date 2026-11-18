@@ -1,5 +1,14 @@
 import React from "react";
-import { Modal, View, Text, ScrollView, StyleSheet } from "react-native";
+import {
+  Modal,
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   mobileColors,
@@ -37,7 +46,16 @@ export function BottomSheet({
       onRequestClose={onClose}
       testID={testID ?? "bottom-sheet"}
     >
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <Pressable
+          style={styles.backdropTap}
+          onPress={onClose}
+          accessibilityLabel={`Dismiss ${title}`}
+          accessibilityRole="button"
+        />
         <View
           style={[
             styles.sheet,
@@ -63,11 +81,12 @@ export function BottomSheet({
             style={styles.scroll}
             contentContainerStyle={styles.body}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           >
             {children}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -77,6 +96,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: mobileSurfaces.overlay,
     justifyContent: "flex-end"
+  },
+  backdropTap: {
+    flex: 1
   },
   sheet: {
     backgroundColor: mobileColors.card,
@@ -123,4 +145,3 @@ const styles = StyleSheet.create({
     paddingBottom: mobileSpacing[2]
   }
 });
-

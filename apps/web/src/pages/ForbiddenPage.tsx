@@ -1,6 +1,8 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ShieldAlert, ArrowLeft, Home } from "lucide-react";
+import { Card } from "@/components/ui/Card";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
+import { ArrowLeft, Home } from "lucide-react";
 
 export function ForbiddenPage() {
   const location = useLocation();
@@ -11,52 +13,70 @@ export function ForbiddenPage() {
     requiredRoles?: string[];
   } | null;
 
+  const hasTechnicalDetails =
+    import.meta.env.DEV &&
+    Boolean(state?.requiredPermission || (state?.requiredRoles && state.requiredRoles.length > 0));
+
   return (
-    <div className="max-w-md mx-auto my-12 bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center">
-      <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
-        <ShieldAlert className="h-8 w-8" />
+    <Card className="max-w-md mx-auto my-12 bg-white p-8 shadow-md text-center space-y-5">
+      <MascotIllustration
+        mascot="shrug"
+        size="lg"
+        variant="bare"
+        badgeText="Access Restricted"
+        decorative
+      />
+
+      <div>
+        <h1 className="text-2xl font-extrabold text-navy-950">Access Restricted</h1>
+        <p className="text-sm text-sand-700 mt-2 leading-relaxed">
+          You do not have the required account role or permissions to view this section of the
+          marketplace.
+        </p>
       </div>
 
-      <h1 className="text-2xl font-bold text-slate-900">403 — Access Denied</h1>
-      <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-        You do not have the required permissions or role privileges to view this section of the marketplace.
-      </p>
-
-      {state?.requiredPermission && (
-        <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-lg text-left">
-          <p className="text-xs text-slate-500 font-medium">Missing required permission:</p>
-          <code className="text-xs text-red-600 font-mono font-semibold block mt-0.5">
-            {state.requiredPermission}
-          </code>
-        </div>
+      {hasTechnicalDetails && (
+        <details className="text-left rounded-xl border border-sand-200 bg-sand-50 p-3 text-xs">
+          <summary className="cursor-pointer font-semibold text-navy-900">
+            Technical Details (Developer)
+          </summary>
+          <div className="mt-2 space-y-2">
+            {state?.requiredPermission && (
+              <div>
+                <p className="text-sand-700 font-medium">Missing required permission:</p>
+                <code className="text-rose-700 font-mono font-semibold block mt-0.5">
+                  {state.requiredPermission}
+                </code>
+              </div>
+            )}
+            {state?.requiredRoles && state.requiredRoles.length > 0 && (
+              <div>
+                <p className="text-sand-700 font-medium">Required system role(s):</p>
+                <code className="text-rose-700 font-mono font-semibold block mt-0.5">
+                  {state.requiredRoles.join(", ")}
+                </code>
+              </div>
+            )}
+          </div>
+        </details>
       )}
 
-      {state?.requiredRoles && (
-        <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-lg text-left">
-          <p className="text-xs text-slate-500 font-medium">Required system role(s):</p>
-          <code className="text-xs text-red-600 font-mono font-semibold block mt-0.5">
-            {state.requiredRoles.join(", ")}
-          </code>
-        </div>
-      )}
-
-      <div className="mt-8 flex flex-col sm:flex-row gap-3">
+      <div className="pt-2 flex flex-col sm:flex-row gap-3">
         <Link
           to="/profile"
-          className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-sm transition"
+          className="min-h-[44px] flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-4 bg-sand-100 hover:bg-sand-200 text-navy-900 font-semibold rounded-xl text-sm transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>My Profile</span>
         </Link>
         <Link
           to="/"
-          className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm"
+          className="min-h-[44px] flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-4 bg-terracotta-500 hover:bg-terracotta-600 text-white font-semibold rounded-xl text-sm transition-colors shadow-sm"
         >
           <Home className="h-4 w-4" />
           <span>Home</span>
         </Link>
       </div>
-    </div>
+    </Card>
   );
 }
-

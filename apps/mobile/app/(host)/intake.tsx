@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, Image, StyleSheet } from "react-native";
+import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { BAG_CATEGORIES, type BagCategory } from "@luggage-storage/contracts";
@@ -14,7 +14,6 @@ import {
   MobileIcon,
   SafeHeader,
   ScreenContainer,
-  SelectionCard,
   StatusBadge,
   TextInput
 } from "../../src/components";
@@ -231,6 +230,19 @@ export default function HostIntakeScreen() {
     );
   }
 
+  const stickyFooter = detail ? (
+    <View style={styles.stickyFooter}>
+      <Button
+        title="Confirm Check-In into Vault"
+        isLoading={checkInMutation.isPending}
+        onPress={() => {
+          void handleConfirmCheckIn();
+        }}
+        fullWidth
+      />
+    </View>
+  ) : undefined;
+
   return (
     <ScreenContainer
       keyboardAvoiding
@@ -241,6 +253,7 @@ export default function HostIntakeScreen() {
           onBack={() => router.back()}
         />
       }
+      footer={stickyFooter}
       testID="host-intake-screen"
     >
       {bookingQuery.isLoading ? (
@@ -269,163 +282,186 @@ export default function HostIntakeScreen() {
             </Text>
           </Card>
 
-          <Card variant="default" style={styles.cardGap}>
-            <FormSection
-              title="1. Handover Credential"
-              subtitle={
-                qrToken
-                  ? "QR pass pre-verified from counter scanner."
-                  : "Enter the traveller's 6-digit check-in fallback PIN."
-              }
-            >
-              {qrToken ? (
-                <Badge label="Verified QR Pass Attached" variant="success" icon="check-circle" />
-              ) : (
-                <TextInput
-                  label="Traveller 6-Digit PIN"
-                  required
-                  keyboardType="numeric"
-                  maxLength={6}
-                  value={pinCode}
-                  onChangeText={setPinCode}
-                  placeholder="6-digit PIN"
-                />
-              )}
-            </FormSection>
-          </Card>
+          <FormSection
+            title="1. Handover Credential"
+            subtitle={
+              qrToken
+                ? "QR pass pre-verified from counter scanner."
+                : "Enter the traveller's 6-digit check-in fallback PIN."
+            }
+          >
+            {qrToken ? (
+              <Badge label="Verified QR Pass Attached" variant="success" icon="check-circle" />
+            ) : (
+              <TextInput
+                label="Traveller 6-Digit PIN"
+                required
+                keyboardType="numeric"
+                maxLength={6}
+                value={pinCode}
+                onChangeText={setPinCode}
+                placeholder="6-digit PIN"
+              />
+            )}
+          </FormSection>
 
-          <Card variant="default" style={styles.cardGap}>
-            <FormSection
-              title={`2. Physical Bag Tags & Seals (${bags.length})`}
-              subtitle="Assign tag codes, security seals, and storage zones per checked-in bag."
-              rightSlot={
-                <Button title="Add Bag" size="sm" variant="outline" onPress={handleAddBagRow} />
-              }
-            >
-              {bags.map((bag, idx) => (
-                <View key={`bag-${idx}`} style={styles.bagBox}>
-                  <View style={styles.headerRow}>
-                    <Text style={styles.bagHeading}>Bag #{idx + 1}</Text>
-                    {bags.length > 1 ? (
-                      <Button
-                        title="Remove"
-                        size="sm"
-                        variant="ghost"
-                        onPress={() => handleRemoveBagRow(idx)}
-                      />
-                    ) : null}
-                  </View>
-
-                  <TextInput
-                    label="Bag Tag Code"
-                    required
-                    value={bag.bagTagCode}
-                    onChangeText={(val) => updateBagField(idx, { bagTagCode: val })}
-                  />
-                  <TextInput
-                    label="Security Seal Serial"
-                    value={bag.securitySealNumber}
-                    onChangeText={(val) => updateBagField(idx, { securitySealNumber: val })}
-                    placeholder="SEAL-LK-10001"
-                  />
-
-                  <Text style={styles.fieldLabel}>Bag Size Category</Text>
-                  <View style={styles.choicesWrap}>
-                    {BAG_CATEGORIES.map((cat) => (
-                      <SelectionCard
-                        key={cat}
-                        title={cat.replace("BAG_", "")}
-                        selected={bag.bagCategory === cat}
-                        onPress={() => updateBagField(idx, { bagCategory: cat })}
-                      />
-                    ))}
-                  </View>
-
-                  {zones.length > 0 ? (
-                    <>
-                      <Text style={styles.fieldLabel}>Storage Zone</Text>
-                      {zones.map((z) => (
-                        <SelectionCard
-                          key={z.id}
-                          title={`${z.name} (${z.zoneType})`}
-                          selected={bag.zoneId === z.id}
-                          onPress={() => updateBagField(idx, { zoneId: z.id })}
-                        />
-                      ))}
-                    </>
+          <FormSection
+            title={`2. Physical Bag Tags & Seals (${bags.length})`}
+            subtitle="Assign tag codes, security seals, and storage zones per checked-in bag."
+            rightSlot={
+              <Button title="Add Bag" size="sm" variant="outline" onPress={handleAddBagRow} />
+            }
+          >
+            {bags.map((bag, idx) => (
+              <View key={`bag-${idx}`} style={styles.bagBox}>
+                <View style={styles.headerRow}>
+                  <Text style={styles.bagHeading}>Bag #{idx + 1}</Text>
+                  {bags.length > 1 ? (
+                    <Button
+                      title="Remove"
+                      size="sm"
+                      variant="ghost"
+                      onPress={() => handleRemoveBagRow(idx)}
+                    />
                   ) : null}
-
-                  <TextInput
-                    label="Counter Notes (Optional)"
-                    value={bag.conditionNotes}
-                    onChangeText={(val) => updateBagField(idx, { conditionNotes: val })}
-                    placeholder="Existing handle wear noted"
-                  />
                 </View>
-              ))}
 
-              {isCountMismatch ? (
                 <TextInput
-                  label="Bag Count Mismatch Reason"
+                  label="Bag Tag Code"
                   required
-                  value={bagCountExceptionReason}
-                  onChangeText={setBagCountExceptionReason}
-                  placeholder="Traveller checked in different number of bags"
+                  value={bag.bagTagCode}
+                  onChangeText={(val) => updateBagField(idx, { bagTagCode: val })}
                 />
-              ) : null}
-            </FormSection>
-          </Card>
+                <TextInput
+                  label="Security Seal Serial"
+                  value={bag.securitySealNumber}
+                  onChangeText={(val) => updateBagField(idx, { securitySealNumber: val })}
+                  placeholder="SEAL-LK-10001"
+                />
 
-          <Card variant="outlined" style={styles.photoCard}>
-            <FormSection
-              title="3. Optional Counter Visual Reference Photo"
-              subtitle="Optional on-device visual reference only. A counter photo does NOT verify pristine condition or waive standard custody inspection."
-            >
-              {localPhotoUri ? (
-                <Image source={{ uri: localPhotoUri }} style={styles.previewImg} />
-              ) : null}
-              <View style={styles.photoBtnRow}>
-                <Button
-                  title="Take Photo"
-                  size="sm"
-                  variant="outline"
-                  leftIcon={<MobileIcon name="camera" size={16} color={mobileColors.navy[900]} />}
-                  onPress={() => {
-                    void handleCaptureCameraPhoto();
-                  }}
-                  style={styles.flexBtn}
-                />
-                <Button
-                  title="Choose Image"
-                  size="sm"
-                  variant="outline"
-                  onPress={() => {
-                    void handlePickLibraryPhoto();
-                  }}
-                  style={styles.flexBtn}
+                <Text style={styles.fieldLabel}>Bag Size Category</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipsScrollRow}
+                >
+                  {BAG_CATEGORIES.map((cat) => {
+                    const selected = bag.bagCategory === cat;
+                    return (
+                      <TouchableOpacity
+                        key={cat}
+                        style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                        onPress={() => updateBagField(idx, { bagCategory: cat })}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text
+                          style={[
+                            styles.pillChipText,
+                            selected ? styles.pillChipTextActive : null
+                          ]}
+                        >
+                          {cat.replace("BAG_", "")}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {zones.length > 0 ? (
+                  <>
+                    <Text style={styles.fieldLabel}>Storage Zone</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.chipsScrollRow}
+                    >
+                      {zones.map((z) => {
+                        const selected = bag.zoneId === z.id;
+                        return (
+                          <TouchableOpacity
+                            key={z.id}
+                            style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                            onPress={() => updateBagField(idx, { zoneId: z.id })}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                          >
+                            <Text
+                              style={[
+                                styles.pillChipText,
+                                selected ? styles.pillChipTextActive : null
+                              ]}
+                            >
+                              {z.name} ({z.zoneType})
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                ) : null}
+
+                <TextInput
+                  label="Counter Notes (Optional)"
+                  value={bag.conditionNotes}
+                  onChangeText={(val) => updateBagField(idx, { conditionNotes: val })}
+                  placeholder="Existing handle wear noted"
                 />
               </View>
-              <Button
-                title={photoSkipped ? "Counter Photo Skipped" : "Skip Counter Photo"}
-                size="sm"
-                variant="ghost"
-                onPress={() => {
-                  setLocalPhotoUri(null);
-                  setPhotoSkipped(true);
-                }}
+            ))}
+
+            {isCountMismatch ? (
+              <TextInput
+                label="Bag Count Mismatch Reason"
+                required
+                value={bagCountExceptionReason}
+                onChangeText={setBagCountExceptionReason}
+                placeholder="Traveller checked in different number of bags"
               />
-            </FormSection>
-          </Card>
+            ) : null}
+          </FormSection>
+
+          <FormSection
+            title="3. Optional Counter Visual Reference Photo"
+            subtitle="Optional on-device visual reference only. A counter photo does NOT verify pristine condition or waive standard custody inspection."
+            style={styles.photoCard}
+          >
+            {localPhotoUri ? (
+              <Image source={{ uri: localPhotoUri }} style={styles.previewImg} />
+            ) : null}
+            <View style={styles.photoBtnRow}>
+              <Button
+                title="Take Photo"
+                size="sm"
+                variant="outline"
+                leftIcon={<MobileIcon name="camera" size={16} color={mobileColors.navy[900]} />}
+                onPress={() => {
+                  void handleCaptureCameraPhoto();
+                }}
+                style={styles.flexBtn}
+              />
+              <Button
+                title="Choose Image"
+                size="sm"
+                variant="outline"
+                onPress={() => {
+                  void handlePickLibraryPhoto();
+                }}
+                style={styles.flexBtn}
+              />
+            </View>
+            <Button
+              title={photoSkipped ? "Counter Photo Skipped" : "Skip Counter Photo"}
+              size="sm"
+              variant="ghost"
+              onPress={() => {
+                setLocalPhotoUri(null);
+                setPhotoSkipped(true);
+              }}
+            />
+          </FormSection>
 
           {submitError ? <ErrorState title="Check-In Error" message={submitError} /> : null}
-
-          <Button
-            title="Confirm Check-In into Vault"
-            isLoading={checkInMutation.isPending}
-            onPress={() => {
-              void handleConfirmCheckIn();
-            }}
-          />
         </View>
       )}
     </ScreenContainer>
@@ -472,6 +508,40 @@ const styles = StyleSheet.create({
   },
   choicesWrap: {
     gap: mobileSpacing[2]
+  },
+  chipsScrollRow: {
+    flexDirection: "row",
+    gap: mobileSpacing[2],
+    paddingVertical: 2
+  },
+  pillChip: {
+    minHeight: 44,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.white,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  pillChipActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  pillChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileTextColors.primary
+  },
+  pillChipTextActive: {
+    color: mobileColors.white
+  },
+  stickyFooter: {
+    backgroundColor: mobileColors.card,
+    borderTopWidth: 1,
+    borderTopColor: mobileColors.border,
+    paddingHorizontal: mobileSpacing[4],
+    paddingVertical: mobileSpacing[3]
   },
   photoCard: {
     backgroundColor: mobileStatusTokens.infoBg,

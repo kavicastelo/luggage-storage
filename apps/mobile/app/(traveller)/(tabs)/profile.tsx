@@ -27,12 +27,13 @@ interface MenuRowProps {
   title: string;
   subtitle?: string;
   onPress: () => void;
+  isLast?: boolean;
 }
 
-function MenuRow({ icon, title, subtitle, onPress }: MenuRowProps) {
+function MenuRow({ icon, title, subtitle, onPress, isLast = false }: MenuRowProps) {
   return (
     <TouchableOpacity
-      style={styles.menuRow}
+      style={[styles.menuRow, isLast ? styles.menuRowLast : null]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={title}
@@ -47,6 +48,18 @@ function MenuRow({ icon, title, subtitle, onPress }: MenuRowProps) {
       <MobileIcon name="chevron-right" size={18} color={mobileTextColors.muted} />
     </TouchableOpacity>
   );
+}
+
+const ROLE_DISPLAY_LABELS: Record<string, string> = {
+  TRAVELLER: "Traveller",
+  HOST_OWNER: "Host Partner",
+  HOST_STAFF: "Counter Staff",
+  PLATFORM_ADMIN: "Platform Admin",
+  SUPERADMIN: "Superadmin"
+};
+
+function formatRoleLabel(role: string): string {
+  return ROLE_DISPLAY_LABELS[role] ?? role.replace(/_/g, " ");
 }
 
 export default function TravellerProfileScreen() {
@@ -76,7 +89,7 @@ export default function TravellerProfileScreen() {
       {!isAuthenticated || !user ? (
         <Card variant="elevated" style={styles.guestCard}>
           <MascotIllustration mascot="wave" size="sm" />
-          <Text style={styles.guestTitle}>Sign in to BagBox Sri Lanka</Text>
+          <Text style={styles.guestTitle}>Sign in to LuggageStorage Sri Lanka</Text>
           <Text style={styles.guestBody}>
             Manage your luggage reservations, digital custody passes, saved hubs, and partner host
             workspace across devices.
@@ -98,11 +111,11 @@ export default function TravellerProfileScreen() {
             <View style={styles.identityTop}>
               <View style={styles.avatar}>
                 <Text style={styles.avatarText}>
-                  {(user.displayName || user.email || "B").slice(0, 1).toUpperCase()}
+                  {(user.displayName || user.email || "L").slice(0, 1).toUpperCase()}
                 </Text>
               </View>
               <View style={styles.identityTextCol}>
-                <Text style={styles.displayName}>{user.displayName || "BagBox Member"}</Text>
+                <Text style={styles.displayName}>{user.displayName || "LuggageStorage Member"}</Text>
                 <Text style={styles.emailText}>{user.email}</Text>
               </View>
             </View>
@@ -115,7 +128,7 @@ export default function TravellerProfileScreen() {
                 size="sm"
               />
               {(user.roles ?? []).map((r) => (
-                <Badge key={r} label={r} variant="navy" size="sm" />
+                <Badge key={r} label={formatRoleLabel(r)} variant="navy" size="sm" />
               ))}
             </View>
 
@@ -147,6 +160,7 @@ export default function TravellerProfileScreen() {
               title="Active Sessions"
               subtitle="Inspect and revoke signed-in devices"
               onPress={() => router.push("/(account)/sessions")}
+              isLast
             />
           </Card>
 
@@ -157,7 +171,7 @@ export default function TravellerProfileScreen() {
             <Text style={styles.hostBody}>
               {isHostCapable
                 ? "Switch to Host Workspace to approve requests, scan custody QR passes, and manage your Sri Lanka hubs."
-                : "Register your hotel, café, or shop in Sri Lanka as a verified BagBox custody partner."}
+                : "Register your hotel, café, or shop in Sri Lanka as a verified LuggageStorage custody partner."}
             </Text>
             <Button
               title={isHostCapable ? "Open Host Workspace" : "Start Host Onboarding"}
@@ -171,8 +185,9 @@ export default function TravellerProfileScreen() {
             <MenuRow
               icon="compass"
               title="Platform Tour"
-              subtitle="Revisit quick guide on how BagBox works"
+              subtitle="Revisit quick guide on how LuggageStorage works"
               onPress={() => router.push("/(traveller)/onboarding")}
+              isLast={!__DEV__}
             />
             {__DEV__ ? (
               <MenuRow
@@ -180,6 +195,7 @@ export default function TravellerProfileScreen() {
                 title="Developer Icon Catalogue"
                 subtitle="Inspect all lucide-react-native UI icons"
                 onPress={() => router.push("/(dev)/icons")}
+                isLast
               />
             ) : null}
           </Card>
@@ -282,6 +298,9 @@ const styles = StyleSheet.create({
     gap: mobileSpacing[3],
     borderBottomWidth: 1,
     borderBottomColor: mobileColors.sand[200]
+  },
+  menuRowLast: {
+    borderBottomWidth: 0
   },
   menuIconWrap: {
     width: 36,

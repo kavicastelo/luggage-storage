@@ -5,7 +5,6 @@ import {
   Clock,
   ShieldCheck,
   CheckCircle2,
-  AlertTriangle,
   CalendarX2,
   Luggage,
   ArrowLeft,
@@ -28,6 +27,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import {
   buildTravellerScheduleQuery,
   isUuid,
@@ -78,11 +78,11 @@ export function LocationProfileDetailPage() {
       ) ?? DEMO_LOCATIONS[0];
 
     return (
-      <div className="space-y-8 pb-12 max-w-6xl mx-auto">
+      <div className="space-y-8 pb-24 lg:pb-12 max-w-6xl mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             to={`/search?${forwardScheduleQs}`}
-            className="inline-flex items-center gap-1.5 text-sm font-bold text-navy-900 hover:text-terracotta-600"
+            className="min-h-[44px] inline-flex items-center gap-1.5 text-sm font-bold text-navy-900 hover:text-terracotta-600 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Search
@@ -124,7 +124,7 @@ export function LocationProfileDetailPage() {
                 Dedicated Storage Compartments
               </h2>
               <p className="text-sm text-sand-700">
-                {demoLoc.zones.length} designated zones available during inspection preview.
+                {demoLoc.zones.length} designated storage zones available during inspection preview.
               </p>
             </Card>
           </div>
@@ -135,7 +135,7 @@ export function LocationProfileDetailPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-sand-700">Medium Daily Cap</span>
-                  <span className="font-bold text-navy-950">
+                  <span className="font-bold text-navy-950 tabular-nums">
                     {formatLkr(demoLoc.dailyCapLkr.MEDIUM)}
                   </span>
                 </div>
@@ -145,11 +145,39 @@ export function LocationProfileDetailPage() {
               </div>
               <Link
                 to={`/checkout/${demoLoc.id}?${forwardScheduleQs}`}
-                className="block w-full text-center px-4 py-3 rounded-xl bg-terracotta-500 text-white font-bold text-sm hover:bg-terracotta-600"
+                className="min-h-[44px] flex items-center justify-center w-full text-center px-4 py-3 rounded-xl bg-terracotta-500 text-white font-bold text-sm hover:bg-terracotta-600 transition-colors"
               >
                 Book This Hub
               </Link>
             </Card>
+
+            <Card className="p-4 bg-white">
+              <MascotIllustration
+                mascot="suitcase-hug"
+                size="sm"
+                variant="inline"
+                badgeText="Verified Custody"
+                caption="Checked-in bags are sealed and matched to your single-use QR & 6-digit PIN."
+              />
+            </Card>
+          </div>
+        </div>
+
+        {/* Sticky Mobile Bottom CTA */}
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-sand-200 px-4 py-3 shadow-lg">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold text-sand-600">Standard Day Cap</p>
+              <p className="text-base font-black text-navy-950 tabular-nums">
+                {formatLkr(demoLoc.dailyCapLkr.MEDIUM)}
+              </p>
+            </div>
+            <Link
+              to={`/checkout/${demoLoc.id}?${forwardScheduleQs}`}
+              className="min-h-[44px] inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-terracotta-500 text-white font-bold text-sm hover:bg-terracotta-600 transition-colors"
+            >
+              Book This Hub
+            </Link>
           </div>
         </div>
       </div>
@@ -159,18 +187,26 @@ export function LocationProfileDetailPage() {
   // Live Mode — Non-UUID identifier
   if (!validLiveUuid) {
     return (
-      <div className="max-w-3xl mx-auto py-12 space-y-6">
-        <Alert variant="warning" title="Storage Location Not Found">
+      <div className="max-w-2xl mx-auto py-12 space-y-6 text-center">
+        <MascotIllustration
+          mascot="shrug"
+          size="lg"
+          variant="bare"
+          badgeText="Hub Not Found"
+        />
+        <Alert variant="warning" title="Storage Location Not Found" className="text-left">
           The requested location identifier is invalid or missing. Browse active hubs from the
           search directory.
         </Alert>
-        <Link
-          to="/search"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-900 text-white text-sm font-bold"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Browse Verified Hubs
-        </Link>
+        <div className="flex justify-center">
+          <Link
+            to="/search"
+            className="min-h-[44px] inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-navy-900 text-white text-sm font-bold hover:bg-navy-800 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Browse Verified Hubs
+          </Link>
+        </div>
       </div>
     );
   }
@@ -182,13 +218,20 @@ export function LocationProfileDetailPage() {
   const sortedHours = detail
     ? [...detail.openingHours].sort((a, b) => a.dayOfWeek - b.dayOfWeek)
     : [];
+  const capacitySummary = detail?.capacitySummary ?? null;
+
+  const mobileRateText = detail?.pricingPolicy
+    ? formatLkrMinor(detail.pricingPolicy.baseRateMinor, detail.pricingPolicy.currency)
+    : detail?.baseRateMinor
+    ? formatLkrMinor(detail.baseRateMinor, detail.currency)
+    : "Live quote at checkout";
 
   return (
-    <div className="space-y-8 pb-12 max-w-6xl mx-auto">
+    <div className="space-y-8 pb-24 lg:pb-12 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link
           to={`/search?${forwardScheduleQs}`}
-          className="inline-flex items-center gap-1.5 text-sm font-bold text-navy-900 hover:text-terracotta-600"
+          className="min-h-[44px] inline-flex items-center gap-1.5 text-sm font-bold text-navy-900 hover:text-terracotta-600 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Search
@@ -355,7 +398,7 @@ export function LocationProfileDetailPage() {
 
           {/* Operating Hours & Schedule Exceptions */}
           <Card className="p-6 bg-white space-y-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-extrabold text-navy-950 flex items-center gap-2">
                 <Clock className="h-5 w-5 text-terracotta-500" />
                 Operating Hours
@@ -435,26 +478,33 @@ export function LocationProfileDetailPage() {
               Dedicated Storage Compartments
             </h2>
             {detail ? (
-              <div className="space-y-3">
+              capacitySummary ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-sand-700">
+                    {capacitySummary.activePoolCount} active storage{" "}
+                    {capacitySummary.activePoolCount === 1 ? "zone" : "zones"} with{" "}
+                    <span className="font-bold text-navy-950">
+                      {capacitySummary.totalMaxCapacityUnits} bag capacity slots
+                    </span>
+                    . Live slot availability is checked against your exact drop-off and collection
+                    window at checkout.
+                  </p>
+                  {capacitySummary.supportedBagCategories.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {capacitySummary.supportedBagCategories.map((cat) => (
+                        <Badge key={cat} variant="neutral" size="sm">
+                          {formatBagCategoryLabel(cat)}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <p className="text-sm text-sand-700">
-                  {detail.capacitySummary.activePoolCount} configured storage{" "}
-                  {detail.capacitySummary.activePoolCount === 1 ? "pool" : "pools"} with{" "}
-                  <span className="font-bold text-navy-950">
-                    {detail.capacitySummary.totalMaxCapacityUnits} maximum capacity units
-                  </span>
-                  . Live slot availability is checked against your exact drop-off and collection
-                  window at checkout.
+                  Dedicated storage compartments are verified live against your drop-off and
+                  collection schedule at checkout.
                 </p>
-                {detail.capacitySummary.supportedBagCategories.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {detail.capacitySummary.supportedBagCategories.map((cat) => (
-                      <Badge key={cat} variant="neutral" size="sm">
-                        {formatBagCategoryLabel(cat)}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-              </div>
+              )
             ) : (
               <LoadingSkeleton variant="text" className="w-2/3" />
             )}
@@ -469,7 +519,7 @@ export function LocationProfileDetailPage() {
               {detail?.pricingPolicy && (
                 <p className="text-xs text-sand-700 mt-1">
                   Billed {formatPricingUnitLabel(detail.pricingPolicy.pricingUnit)} • Base rate{" "}
-                  <span className="font-bold text-navy-950">
+                  <span className="font-bold text-navy-950 tabular-nums">
                     {formatLkrMinor(
                       detail.pricingPolicy.baseRateMinor,
                       detail.pricingPolicy.currency
@@ -489,7 +539,7 @@ export function LocationProfileDetailPage() {
                     <span className="font-semibold text-sand-800">
                       {formatBagCategoryLabel(tier.bagCategory)}
                     </span>
-                    <span className="font-mono font-bold text-navy-950">
+                    <span className="font-mono font-bold text-navy-950 tabular-nums">
                       {formatLkrMinor(tier.rateMinor, detail.pricingPolicy!.currency)}
                     </span>
                   </div>
@@ -498,7 +548,7 @@ export function LocationProfileDetailPage() {
             ) : detail?.baseRateMinor ? (
               <div className="flex items-center justify-between py-2 border-y border-sand-200 text-sm">
                 <span className="text-sand-700">Standard bag base rate</span>
-                <span className="font-mono font-bold text-navy-950">
+                <span className="font-mono font-bold text-navy-950 tabular-nums">
                   {formatLkrMinor(detail.baseRateMinor, detail.currency)}
                 </span>
               </div>
@@ -516,7 +566,7 @@ export function LocationProfileDetailPage() {
               </div>
               <p>
                 Free 100% refund when cancelled &gt;2h before drop-off; 50% refund within 2h before
-                drop-off. Protected by ledger-backed marketplace settlement accountability.
+                drop-off. Protected by transparent booking and settlement accountability.
               </p>
             </div>
 
@@ -529,7 +579,7 @@ export function LocationProfileDetailPage() {
             {detail ? (
               <Link
                 to={`/checkout/${detail.id}?${forwardScheduleQs}`}
-                className="block w-full text-center px-4 py-3 rounded-xl bg-terracotta-500 text-white font-bold text-sm hover:bg-terracotta-600 transition-colors shadow-sm"
+                className="min-h-[44px] flex items-center justify-center w-full text-center px-4 py-3 rounded-xl bg-terracotta-500 text-white font-bold text-sm hover:bg-terracotta-600 transition-colors shadow-sm"
               >
                 Book This Hub
               </Link>
@@ -540,15 +590,35 @@ export function LocationProfileDetailPage() {
             )}
           </Card>
 
-          <Card className="p-4 bg-white text-xs text-sand-700 flex items-start gap-2.5">
-            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-            <span>
-              Check-in requires your Digital Custody Pass QR or 6-digit backup PIN issued upon
-              confirmation.
-            </span>
+          <Card className="p-4 bg-white">
+            <MascotIllustration
+              mascot="suitcase-hug"
+              size="sm"
+              variant="inline"
+              badgeText="Verified Custody"
+              caption="Check-in requires your Digital Custody Pass QR or 6-digit backup PIN issued upon confirmation."
+            />
           </Card>
         </div>
       </div>
+
+      {/* Sticky Mobile Bottom CTA Bar */}
+      {detail && (
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-sand-200 px-4 py-3 shadow-lg">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold text-sand-600">Standard Rate</p>
+              <p className="text-base font-black text-navy-950 tabular-nums">{mobileRateText}</p>
+            </div>
+            <Link
+              to={`/checkout/${detail.id}?${forwardScheduleQs}`}
+              className="min-h-[44px] inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-terracotta-500 text-white font-bold text-sm hover:bg-terracotta-600 transition-colors shadow-sm"
+            >
+              Book This Hub
+            </Link>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

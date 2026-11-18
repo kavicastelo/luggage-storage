@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { Building2, CheckCircle2, Download, Info, X } from "lucide-react";
+import { Building2, CheckCircle2, Download } from "lucide-react";
+import { Alert, Badge, Button, Card, EmptyState, LoadingSkeleton, Modal } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { formatLkr } from "@/data/mock-marketplace";
 import {
@@ -54,6 +55,7 @@ export function HostPayoutAccountsHistoryPage() {
   });
   const updateBusinessMutation = useUpdateBusinessMutation();
 
+  const [activeView, setActiveView] = useState<"ALL" | "BATCHES" | "PAYABLES">("ALL");
   const [showEditBankModal, setShowEditBankModal] = useState(false);
   const [bankNameInput, setBankNameInput] = useState("");
   const [branchCodeInput, setBranchCodeInput] = useState("");
@@ -102,7 +104,12 @@ export function HostPayoutAccountsHistoryPage() {
 
   const openEditModal = () => {
     setModalError(null);
-    if (!showDemo) {
+    if (showDemo) {
+      setBankNameInput("Commercial Bank of Ceylon PLC");
+      setBranchCodeInput("001");
+      setAccountNameInput("Ceylon Transit Hospitality (Pvt) Ltd");
+      setAccountNumberInput("");
+    } else {
       setBankNameInput(liveBankName ?? "");
       setBranchCodeInput(liveBranchCode ?? "");
       setAccountNameInput(liveAccountName ?? activeBusiness?.legalBusinessName ?? "");
@@ -264,7 +271,7 @@ export function HostPayoutAccountsHistoryPage() {
       )}
 
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-extrabold text-navy-950 tracking-tight">
@@ -278,52 +285,47 @@ export function HostPayoutAccountsHistoryPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {!showDemo && (
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={handleExportPayoutCsv}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-sand-300 hover:bg-sand-50 text-navy-900 text-xs font-bold transition"
+                leftIcon={<Download className="h-4 w-4 text-terracotta-600" />}
               >
-                <Download className="h-4 w-4 text-terracotta-600" />
-                <span>Export CSV</span>
-              </button>
+                Export CSV
+              </Button>
             )}
-            <button
+            <Button
               type="button"
+              size="sm"
               disabled={!showDemo && !activeBusiness}
               onClick={openEditModal}
-              className="px-4 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 disabled:opacity-50 text-white text-xs font-bold shadow-sm transition"
             >
               Update Bank Details
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Mode & Governance Notice */}
       {showDemo ? (
-        <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <strong className="text-navy-950">Payout Accounts (Demo Record):</strong> Bank
-            beneficiary details and batch settlement records are illustrative fixtures for demo
-            preview.
-          </div>
-        </div>
+        <Alert variant="info">
+          <strong className="text-navy-950">Payout Accounts (Demo Record):</strong> Bank
+          beneficiary details and batch settlement records are illustrative fixtures for demo
+          preview.
+        </Alert>
       ) : (
-          <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-          <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <strong className="text-navy-950">Beneficiary &amp; Settlement Notice:</strong> Bank
-            details saved below are encrypted and used for{" "}
-            {activeBusiness?.tradeName || "your host organization"} payout batches and remittance
-            statements.
-          </div>
-        </div>
+        <Alert variant="info">
+          <strong className="text-navy-950">Beneficiary &amp; Settlement Notice:</strong> Bank
+          details saved below are encrypted and used for{" "}
+          {activeBusiness?.tradeName || "your host organization"} payout batches and remittance
+          statements.
+        </Alert>
       )}
 
       {/* Primary Settlement Bank Card */}
       {showDemo ? (
-        <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+        <Card className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="h-10 w-10 rounded-xl bg-navy-900 text-white flex items-center justify-center font-bold">
@@ -334,9 +336,9 @@ export function HostPayoutAccountsHistoryPage() {
                 <p className="text-xs text-navy-600">Colombo Fort Corporate Branch (Code 001)</p>
               </div>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200">
+            <Badge variant="warning" size="sm">
               Sample Bank Record (Demo)
-            </span>
+            </Badge>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 text-xs">
@@ -353,9 +355,14 @@ export function HostPayoutAccountsHistoryPage() {
               <p className="font-bold text-navy-900">CEFT / SLIPS (Same-Day Clearing)</p>
             </div>
           </div>
-        </div>
+        </Card>
+      ) : businessesQuery.isLoading || payoutQuery.isLoading ? (
+        <Card className="p-6 space-y-3">
+          <LoadingSkeleton className="h-10 w-64" />
+          <LoadingSkeleton className="h-14 w-full" />
+        </Card>
       ) : liveBankName && liveAccountMasked ? (
-        <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+        <Card className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="h-10 w-10 rounded-xl bg-navy-900 text-white flex items-center justify-center font-bold">
@@ -368,9 +375,9 @@ export function HostPayoutAccountsHistoryPage() {
                 </p>
               </div>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+            <Badge variant="success" size="sm">
               Beneficiary On File
-            </span>
+            </Badge>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 text-xs">
@@ -389,20 +396,52 @@ export function HostPayoutAccountsHistoryPage() {
               <p className="font-bold text-navy-900">CEFT / SLIPS (Same-Day Clearing)</p>
             </div>
           </div>
-        </div>
+        </Card>
       ) : (
-        <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs text-navy-600 shadow-sm">
-          <p className="font-bold text-navy-950 mb-1">No Settlement Bank Account Configured</p>
-          <p>
-            Submit corporate bank beneficiary details via Update Bank Details so payouts can be
-            routed cleanly when batch disbursement runs.
-          </p>
+        <EmptyState
+          mascot="key"
+          title="No Settlement Bank Account Configured"
+          description="Submit corporate bank beneficiary details via Update Bank Details so payouts can be routed cleanly when batch disbursement runs."
+          action={
+            <Button
+              type="button"
+              size="sm"
+              disabled={!activeBusiness}
+              onClick={openEditModal}
+            >
+              Update Bank Details
+            </Button>
+          }
+        />
+      )}
+
+      {/* Live Section View Switcher */}
+      {!showDemo && (
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            { id: "ALL" as const, label: "All Settlement Views" },
+            { id: "BATCHES" as const, label: `Payout Batches (${liveBatches.length})` },
+            { id: "PAYABLES" as const, label: `Settlement Payables (${livePayables.length})` }
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveView(tab.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
+                activeView === tab.id
+                  ? "bg-navy-900 text-white shadow-sm"
+                  : "bg-white border border-sand-200 text-navy-700 hover:bg-sand-50"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       )}
 
       {/* Live Settlement Payout Batches */}
-      {!showDemo && (
-        <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
+      {!showDemo && (activeView === "ALL" || activeView === "BATCHES") && (
+        <Card className="overflow-hidden">
           <div className="p-4 border-b border-sand-200 flex items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-bold text-navy-950">Settlement Payout Batches</h3>
@@ -411,14 +450,15 @@ export function HostPayoutAccountsHistoryPage() {
               </p>
             </div>
             {liveBatches.length > 0 && (
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={handleExportBatchCsv}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 hover:bg-sand-50 text-navy-900 text-xs font-bold transition"
+                leftIcon={<Download className="h-3.5 w-3.5 text-terracotta-600" />}
               >
-                <Download className="h-3.5 w-3.5 text-terracotta-600" />
-                <span>Export Remittance CSV</span>
-              </button>
+                Export Remittance CSV
+              </Button>
             )}
           </div>
           <div className="overflow-x-auto">
@@ -434,7 +474,13 @@ export function HostPayoutAccountsHistoryPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-sand-100">
-                {liveBatches.length === 0 ? (
+                {payoutBatchesQuery.isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="p-4">
+                      <LoadingSkeleton className="h-10 w-full" />
+                    </td>
+                  </tr>
+                ) : liveBatches.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="p-6 text-center text-navy-500">
                       No settlement payout batches generated for this organization yet.
@@ -474,203 +520,188 @@ export function HostPayoutAccountsHistoryPage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Batch / Settlement Payable History */}
-      <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
-        <div className="p-4 border-b border-sand-200">
-          <h3 className="text-sm font-bold text-navy-950">
-            {showDemo ? "Recent Weekly Batch Transfers" : "Host Settlement Payables Overview"}
-          </h3>
-        </div>
-        <div className="overflow-x-auto">
-          {showDemo ? (
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-sand-50 border-b border-sand-200 text-navy-500 uppercase font-bold text-[10px] tracking-wider">
-                  <th className="p-3.5">Batch ID</th>
-                  <th className="p-3.5">Date</th>
-                  <th className="p-3.5">Amount (LKR)</th>
-                  <th className="p-3.5">Transfer Ref</th>
-                  <th className="p-3.5">Status</th>
-                  <th className="p-3.5 text-right">Advice</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-sand-100">
-                {demoBatches.map((batch) => (
-                  <tr key={batch.id} className="hover:bg-sand-50/70 transition">
-                    <td className="p-3.5 font-mono font-bold text-navy-900">{batch.id}</td>
-                    <td className="p-3.5 text-navy-700">{batch.date}</td>
-                    <td className="p-3.5 font-bold text-emerald-700">
-                      {formatLkr(batch.amountLkr)}
-                    </td>
-                    <td className="p-3.5 font-mono text-navy-600">{batch.ref}</td>
-                    <td className="p-3.5">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                        {batch.status}
-                      </span>
-                    </td>
-                    <td className="p-3.5 text-right">
-                      <button
-                        type="button"
-                        className="text-terracotta-600 hover:text-terracotta-700 font-bold"
-                      >
-                        Download Sample PDF (Demo Action)
-                      </button>
-                    </td>
+      {(showDemo || activeView === "ALL" || activeView === "PAYABLES") && (
+        <Card className="overflow-hidden">
+          <div className="p-4 border-b border-sand-200">
+            <h3 className="text-sm font-bold text-navy-950">
+              {showDemo ? "Recent Weekly Batch Transfers" : "Host Settlement Payables Overview"}
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            {showDemo ? (
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-sand-50 border-b border-sand-200 text-navy-500 uppercase font-bold text-[10px] tracking-wider">
+                    <th className="p-3.5">Batch ID</th>
+                    <th className="p-3.5">Date</th>
+                    <th className="p-3.5">Amount (LKR)</th>
+                    <th className="p-3.5">Transfer Ref</th>
+                    <th className="p-3.5">Status</th>
+                    <th className="p-3.5 text-right">Advice</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-sand-50 border-b border-sand-200 text-navy-500 uppercase font-bold text-[10px] tracking-wider">
-                  <th className="p-3.5">Booking Reference</th>
-                  <th className="p-3.5">Accrued Date</th>
-                  <th className="p-3.5">Net Payable</th>
-                  <th className="p-3.5">Eligible Date</th>
-                  <th className="p-3.5">Settlement Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-sand-100">
-                {livePayables.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="p-6 text-center text-navy-500">
-                      No host settlement payables or payout batches recorded yet.
-                    </td>
-                  </tr>
-                ) : (
-                  livePayables.map((p) => (
-                    <tr key={p.id} className="hover:bg-sand-50/70 transition">
-                      <td className="p-3.5 font-mono font-bold text-navy-900">
-                        {p.referenceCode || p.bookingId.slice(0, 8)}
-                      </td>
-                      <td className="p-3.5 text-navy-700">{formatDateTimeDisplay(p.accruedAt)}</td>
+                </thead>
+                <tbody className="divide-y divide-sand-100">
+                  {demoBatches.map((batch) => (
+                    <tr key={batch.id} className="hover:bg-sand-50/70 transition">
+                      <td className="p-3.5 font-mono font-bold text-navy-900">{batch.id}</td>
+                      <td className="p-3.5 text-navy-700">{batch.date}</td>
                       <td className="p-3.5 font-bold text-emerald-700">
-                        {formatLkrMinor(p.netPayableMinor, p.currency)}
+                        {formatLkr(batch.amountLkr)}
                       </td>
-                      <td className="p-3.5 text-navy-600">
-                        {p.eligibleAt ? formatDateTimeDisplay(p.eligibleAt) : "Awaiting Check-Out"}
-                      </td>
+                      <td className="p-3.5 font-mono text-navy-600">{batch.ref}</td>
                       <td className="p-3.5">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                            p.status === "ELIGIBLE"
-                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                              : p.status === "ON_HOLD"
-                                ? "bg-amber-50 text-amber-950 border-amber-300"
-                                : "bg-sand-100 text-navy-700 border-sand-300"
-                          }`}
-                        >
-                          {p.status}
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          {batch.status}
                         </span>
                       </td>
+                      <td className="p-3.5 text-right">
+                        <button
+                          type="button"
+                          className="text-terracotta-600 hover:text-terracotta-700 font-bold"
+                        >
+                          Download Sample PDF (Demo Action)
+                        </button>
+                      </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-sand-50 border-b border-sand-200 text-navy-500 uppercase font-bold text-[10px] tracking-wider">
+                    <th className="p-3.5">Booking Reference</th>
+                    <th className="p-3.5">Accrued Date</th>
+                    <th className="p-3.5">Net Payable</th>
+                    <th className="p-3.5">Eligible Date</th>
+                    <th className="p-3.5">Settlement Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-sand-100">
+                  {financeQuery.isLoading ? (
+                    <tr>
+                      <td colSpan={5} className="p-4">
+                        <LoadingSkeleton className="h-10 w-full" />
+                      </td>
+                    </tr>
+                  ) : livePayables.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-6 text-center text-navy-500">
+                        No host settlement payables or payout batches recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    livePayables.map((p) => (
+                      <tr key={p.id} className="hover:bg-sand-50/70 transition">
+                        <td className="p-3.5 font-mono font-bold text-navy-900">
+                          {p.referenceCode || p.bookingId.slice(0, 8)}
+                        </td>
+                        <td className="p-3.5 text-navy-700">{formatDateTimeDisplay(p.accruedAt)}</td>
+                        <td className="p-3.5 font-bold text-emerald-700">
+                          {formatLkrMinor(p.netPayableMinor, p.currency)}
+                        </td>
+                        <td className="p-3.5 text-navy-600">
+                          {p.eligibleAt ? formatDateTimeDisplay(p.eligibleAt) : "Awaiting Check-Out"}
+                        </td>
+                        <td className="p-3.5">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              p.status === "ELIGIBLE"
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                                : p.status === "ON_HOLD"
+                                  ? "bg-amber-50 text-amber-950 border-amber-300"
+                                  : "bg-sand-100 text-navy-700 border-sand-300"
+                            }`}
+                          >
+                            {p.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Update Bank Beneficiary Modal */}
-      {showEditBankModal && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={(e) => void handleSaveBankDetails(e)}
-            className="bg-white rounded-2xl border border-sand-200 max-w-md w-full p-6 space-y-4 shadow-xl"
-          >
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <h3 className="text-base font-bold text-navy-950">Update Settlement Bank Details</h3>
-              <button
-                type="button"
-                onClick={() => setShowEditBankModal(false)}
-                className="p-1 rounded-lg hover:bg-sand-100 text-navy-500"
-                aria-label="Close bank details modal"
-              >
-                <X className="h-5 w-5" />
-              </button>
+      <Modal
+        open={showEditBankModal}
+        onClose={() => setShowEditBankModal(false)}
+        closeLabel="Close bank details modal"
+        size="sm"
+        title="Update Settlement Bank Details"
+        subtitle="Updates apply to upcoming settlement batches without altering your organization's verified operating status."
+      >
+        <form onSubmit={(e) => void handleSaveBankDetails(e)} className="space-y-4 text-xs">
+          <div className="space-y-3">
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Bank Name</label>
+              <input
+                type="text"
+                value={bankNameInput}
+                onChange={(e) => setBankNameInput(e.target.value)}
+                placeholder="Enter bank name"
+                className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+              />
             </div>
-            <p className="text-xs text-navy-600">
-              Updates apply to upcoming settlement batches without altering your organization&apos;s
-              verified operating status.
-            </p>
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Bank Name</label>
-                <input
-                  type="text"
-                  value={showDemo ? "Commercial Bank of Ceylon PLC" : bankNameInput}
-                  onChange={(e) => setBankNameInput(e.target.value)}
-                  placeholder="Enter bank name"
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Branch Code</label>
-                <input
-                  type="text"
-                  value={branchCodeInput}
-                  onChange={(e) => setBranchCodeInput(e.target.value)}
-                  placeholder="e.g. 001 or CMB-FORT"
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">
-                  Account Holder / Beneficiary Name
-                </label>
-                <input
-                  type="text"
-                  value={accountNameInput}
-                  onChange={(e) => setAccountNameInput(e.target.value)}
-                  placeholder="Corporate or proprietor beneficiary name"
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Account Number</label>
-                <input
-                  type="text"
-                  value={accountNumberInput}
-                  onChange={(e) => setAccountNumberInput(e.target.value)}
-                  placeholder="Enter 10-12 digit account number"
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono"
-                />
-              </div>
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Branch Code</label>
+              <input
+                type="text"
+                value={branchCodeInput}
+                onChange={(e) => setBranchCodeInput(e.target.value)}
+                placeholder="e.g. 001 or CMB-FORT"
+                className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono"
+              />
             </div>
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">
+                Account Holder / Beneficiary Name
+              </label>
+              <input
+                type="text"
+                value={accountNameInput}
+                onChange={(e) => setAccountNameInput(e.target.value)}
+                placeholder="Corporate or proprietor beneficiary name"
+                className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Account Number</label>
+              <input
+                type="text"
+                value={accountNumberInput}
+                onChange={(e) => setAccountNumberInput(e.target.value)}
+                placeholder="Enter 10-12 digit account number"
+                className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono"
+              />
+            </div>
+          </div>
 
-            {modalError && (
-              <div
-                role="alert"
-                className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-900"
-              >
-                {modalError}
-              </div>
-            )}
+          {modalError && <Alert variant="danger">{modalError}</Alert>}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowEditBankModal(false)}
-                className="px-4 py-2 rounded-xl border border-sand-300 text-xs font-bold text-navy-800"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={updateBusinessMutation.isPending}
-                className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold"
-              >
-                {updateBusinessMutation.isPending ? "Saving..." : "Save Bank Details"}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowEditBankModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" isLoading={updateBusinessMutation.isPending}>
+              {updateBusinessMutation.isPending ? "Saving..." : "Save Bank Details"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -7,17 +7,15 @@ import {
 } from "@luggage-storage/contracts";
 import {
   CheckCircle2,
-  KeyRound,
   Search,
   ShieldAlert,
   ShieldCheck,
   UserCog,
   UserMinus,
-  UserPlus,
-  X
+  UserPlus
 } from "lucide-react";
 import { PermissionGate } from "@/components/auth/PermissionGate";
-import { MascotIllustration } from "@/components/ui";
+import { Modal, SlideOverDrawer } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
   useAdminPermissionsQuery,
@@ -36,10 +34,12 @@ import {
 import { formatDateTimeDisplay } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
   AdminPageHeader,
   AdminPaginationBar,
   AdminQueryErrorAlert,
+  AdminTableSkeleton,
   isUuid,
   statusBadgeToneClasses
 } from "./admin-helpers";
@@ -86,6 +86,7 @@ export function AdminUsersRbacPage() {
   >(null);
   const [reasonInput, setReasonInput] = useState("");
   const [roleToAssign, setRoleToAssign] = useState<string>(SYSTEM_ROLES[0]);
+  const [pendingRevokeRole, setPendingRevokeRole] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
@@ -131,6 +132,7 @@ export function AdminUsersRbacPage() {
     setActionError(null);
     setActionSuccess(null);
     setLifecycleAction(null);
+    setPendingRevokeRole(null);
     setReasonInput("");
     setLocalInspectId(userId);
     const nextParams = new URLSearchParams(searchParams);
@@ -141,6 +143,7 @@ export function AdminUsersRbacPage() {
   const closeInspector = () => {
     setLocalInspectId(null);
     setLifecycleAction(null);
+    setPendingRevokeRole(null);
     setReasonInput("");
     setActionError(null);
     if (searchParams.has("inspect")) {
@@ -222,18 +225,20 @@ export function AdminUsersRbacPage() {
     }
   };
 
-  const handleRevokeRole = async (roleCode: string) => {
-    if (!inspectedUserId) return;
+  const handleConfirmRevokeRole = async () => {
+    if (!inspectedUserId || !pendingRevokeRole) return;
     setActionError(null);
     setActionSuccess(null);
     try {
       const res = await revokeRoleMutation.mutateAsync({
         userId: inspectedUserId,
-        roleCode
+        roleCode: pendingRevokeRole
       });
       setActionSuccess(res.message);
+      setPendingRevokeRole(null);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Unable to revoke user role.");
+      setPendingRevokeRole(null);
     }
   };
 
@@ -244,7 +249,7 @@ export function AdminUsersRbacPage() {
       <AdminPageHeader
         title="Platform Users, Account Lifecycle & RBAC"
         subtitle="Manage traveller, host, support, and superadmin account statuses, active sessions, verified email states, and system RBAC role assignments."
-        rightSlot={<MascotIllustration mascot="key" size="sm" caption="Identity RBAC" />}
+        badge={showDemoPreview ? "Demo Preview" : "Identity RBAC"}
       />
 
       {usersQuery.isError && (
@@ -287,8 +292,8 @@ export function AdminUsersRbacPage() {
             onClick={() => setActiveTab("users")}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
               activeTab === "users"
-                ? "bg-purple-700 text-white"
-                : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+                ? "bg-navy-900 text-white shadow-sm"
+                : "bg-white border border-sand-200 text-navy-900 hover:bg-sand-100"
             }`}
           >
             Users Directory & Lifecycle
@@ -298,8 +303,8 @@ export function AdminUsersRbacPage() {
             onClick={() => setActiveTab("matrix")}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
               activeTab === "matrix"
-                ? "bg-purple-700 text-white"
-                : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+                ? "bg-navy-900 text-white shadow-sm"
+                : "bg-white border border-sand-200 text-navy-900 hover:bg-sand-100"
             }`}
           >
             Roles & Permissions Matrix ({roles.length})
@@ -308,14 +313,14 @@ export function AdminUsersRbacPage() {
       )}
 
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-3 text-xs">
-          <p className="font-bold text-slate-900">Role-Based Access Control (Demo Preview)</p>
-          <p className="text-slate-600">
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-3 text-xs shadow-sm">
+          <p className="font-bold text-navy-950">Role-Based Access Control (Demo Preview)</p>
+          <p className="text-sand-700">
             System RBAC matrix covers SUPERADMIN, SUPPORT, HOST_OWNER, HOST_STAFF, and TRAVELLER.
           </p>
         </div>
       ) : activeTab === "matrix" ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-5 text-xs">
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-5 text-xs shadow-sm">
           {rolesQuery.isError && (
             <AdminQueryErrorAlert
               message={
@@ -326,52 +331,58 @@ export function AdminUsersRbacPage() {
               onRetry={() => void rolesQuery.refetch()}
             />
           )}
-          <div className="space-y-3">
-            <h2 className="text-sm font-extrabold text-slate-950">System Roles Breakdown</h2>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {roles.map((r) => (
-                <div
-                  key={r.id}
-                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-purple-900 text-sm">{r.code}</span>
-                    <span className="text-[11px] font-semibold text-slate-600">
-                      {r.permissions.length} permission(s)
-                    </span>
-                  </div>
-                  <p className="text-slate-700">{r.description || r.name}</p>
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    {r.permissions.map((perm) => (
-                      <span
-                        key={perm}
-                        className="px-2 py-0.5 rounded-md bg-white border border-slate-200 font-mono text-[10px] text-slate-700"
-                      >
-                        {perm}
-                      </span>
-                    ))}
-                  </div>
+          {rolesQuery.isLoading ? (
+            <AdminCardListSkeleton count={3} />
+          ) : (
+            <>
+              <div className="space-y-3">
+                <h2 className="text-sm font-extrabold text-navy-950">System Roles Breakdown</h2>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {roles.map((r) => (
+                    <div
+                      key={r.id}
+                      className="p-4 rounded-xl border border-sand-200 bg-sand-50/70 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono font-bold text-navy-950 text-sm">{r.code}</span>
+                        <span className="text-[11px] font-semibold text-sand-700 tabular-nums">
+                          {r.permissions.length} permission(s)
+                        </span>
+                      </div>
+                      <p className="text-navy-900">{r.description || r.name}</p>
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {r.permissions.map((perm) => (
+                          <span
+                            key={perm}
+                            className="px-2 py-0.5 rounded-md bg-white border border-sand-200 font-mono text-[10px] text-navy-900"
+                          >
+                            {perm}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
 
-          <div className="space-y-2 border-t border-slate-200 pt-4">
-            <h3 className="text-sm font-extrabold text-slate-950">
-              Permission Catalog ({permissions.length})
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-              {permissions.map((perm) => (
-                <div
-                  key={perm.id}
-                  className="p-2.5 rounded-xl border border-slate-200 bg-white space-y-0.5"
-                >
-                  <p className="font-mono font-bold text-slate-900 text-[11px]">{perm.code}</p>
-                  <p className="text-[11px] text-slate-600">{perm.name}</p>
+              <div className="space-y-2 border-t border-sand-200 pt-4">
+                <h3 className="text-sm font-extrabold text-navy-950">
+                  Permission Catalog ({permissions.length})
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {permissions.map((perm) => (
+                    <div
+                      key={perm.id}
+                      className="p-2.5 rounded-xl border border-sand-200 bg-white space-y-0.5"
+                    >
+                      <p className="font-mono font-bold text-navy-950 text-[11px]">{perm.code}</p>
+                      <p className="text-[11px] text-sand-700">{perm.name}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -382,16 +393,16 @@ export function AdminUsersRbacPage() {
               setAppliedSearch(searchInput.trim());
               setPage(1);
             }}
-            className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-1 md:grid-cols-4 gap-3 text-xs"
+            className="bg-white rounded-2xl border border-sand-200 p-4 grid grid-cols-1 md:grid-cols-4 gap-3 text-xs shadow-sm"
           >
             <div className="md:col-span-2 relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 text-sand-700 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search by user email or display name..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300"
+                className="w-full pl-9 pr-3 py-2 rounded-xl border border-sand-200 text-navy-950"
               />
             </div>
             <select
@@ -400,7 +411,7 @@ export function AdminUsersRbacPage() {
                 setStatusFilter(e.target.value as UserStatus | "");
                 setPage(1);
               }}
-              className="px-3 py-2 rounded-xl border border-slate-300 bg-white"
+              className="px-3 py-2 rounded-xl border border-sand-200 bg-white text-navy-950"
             >
               {USER_STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value || "all"} value={opt.value}>
@@ -415,7 +426,7 @@ export function AdminUsersRbacPage() {
                   setRoleFilter(e.target.value);
                   setPage(1);
                 }}
-                className="flex-1 px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                className="flex-1 px-3 py-2 rounded-xl border border-sand-200 bg-white text-navy-950"
               >
                 <option value="">All Roles</option>
                 {SYSTEM_ROLES.map((r) => (
@@ -426,7 +437,7 @@ export function AdminUsersRbacPage() {
               </select>
               <button
                 type="submit"
-                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
               >
                 Search
               </button>
@@ -434,9 +445,9 @@ export function AdminUsersRbacPage() {
           </form>
 
           {/* Users Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
             {usersQuery.isLoading ? (
-              <p className="text-xs text-slate-500 py-4 text-center">Loading platform users...</p>
+              <AdminTableSkeleton rows={6} columns={5} />
             ) : users.length === 0 ? (
               <AdminEmptyStateCard
                 title="No users match these filters"
@@ -446,7 +457,7 @@ export function AdminUsersRbacPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 text-slate-500">
+                    <tr className="border-b border-sand-200 text-sand-700">
                       <th className="pb-2.5 pr-4 font-bold">Account</th>
                       <th className="pb-2.5 pr-4 font-bold">Roles</th>
                       <th className="pb-2.5 pr-4 font-bold">Email Verified</th>
@@ -454,26 +465,26 @@ export function AdminUsersRbacPage() {
                       <th className="pb-2.5 font-bold text-right">Governance</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-sand-100">
                     {users.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-50">
+                      <tr key={u.id} className="hover:bg-sand-50/70 transition-colors">
                         <td className="py-3 pr-4">
-                          <p className="font-bold text-slate-900">{u.displayName}</p>
-                          <p className="text-[11px] text-slate-500">{u.email}</p>
+                          <p className="font-bold text-navy-950">{u.displayName}</p>
+                          <p className="text-[11px] text-sand-700">{u.email}</p>
                         </td>
                         <td className="py-3 pr-4">
                           <div className="flex flex-wrap gap-1">
                             {u.roles.map((r) => (
                               <span
                                 key={r}
-                                className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-900 border border-purple-200 text-[10px] font-bold"
+                                className="px-2 py-0.5 rounded-full bg-terracotta-50 text-terracotta-800 border border-terracotta-200 text-[10px] font-bold"
                               >
                                 {r}
                               </span>
                             ))}
                           </div>
                         </td>
-                        <td className="py-3 pr-4 text-[11px]">
+                        <td className="py-3 pr-4 text-[11px] text-navy-900">
                           {u.isEmailVerified ? "Verified" : "Unverified"}
                         </td>
                         <td className="py-3 pr-4">
@@ -487,7 +498,7 @@ export function AdminUsersRbacPage() {
                           <button
                             type="button"
                             onClick={() => openInspector(u.id)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
                           >
                             <UserCog className="w-3.5 h-3.5" /> Manage User
                           </button>
@@ -511,31 +522,31 @@ export function AdminUsersRbacPage() {
         </>
       )}
 
-      {/* User Governance & RBAC Drawer */}
-      {inspectedUserId && !showDemoPreview && (
-        <section
-          aria-label="User Governance Drawer"
-          className="bg-white rounded-2xl border-2 border-purple-300 p-6 shadow-lg space-y-5 text-xs"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">
-                Account & RBAC Governance
-              </span>
-              <h2 className="text-lg font-extrabold text-slate-950 mt-0.5 flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-purple-700" />
-                {userDetailQuery.data?.displayName ?? `User ${inspectedUserId.slice(0, 8)}`}
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={closeInspector}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-700 hover:bg-slate-50"
+      {/* User Governance & RBAC Slide-Over Drawer */}
+      <SlideOverDrawer
+        open={Boolean(inspectedUserId && !showDemoPreview)}
+        onClose={closeInspector}
+        ariaLabel="User Governance Drawer"
+        closeLabel="Close user governance drawer"
+        size="xl"
+        title={
+          userDetailQuery.data?.displayName ??
+          (inspectedUserId ? `User ${inspectedUserId.slice(0, 8)}` : "Account & RBAC Governance")
+        }
+        subtitle={userDetailQuery.data?.email}
+        badge={
+          userDetailQuery.data && (
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(
+                userDetailQuery.data.status
+              )}`}
             >
-              <X className="w-3.5 h-3.5" /> Close
-            </button>
-          </div>
-
+              {userDetailQuery.data.status}
+            </span>
+          )
+        }
+      >
+        <div className="space-y-5 text-xs">
           {userDetailQuery.isError ? (
             <AdminQueryErrorAlert
               message={
@@ -546,23 +557,25 @@ export function AdminUsersRbacPage() {
               onRetry={() => void userDetailQuery.refetch()}
             />
           ) : userDetailQuery.isLoading || !userDetailQuery.data ? (
-            <p className="text-slate-500">Loading user profile and effective permissions...</p>
+            <AdminCardListSkeleton count={3} />
           ) : (
             <div className="space-y-5">
               {/* Summary Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-xl bg-sand-50 border border-sand-200">
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Email & Verification
                   </span>
-                  <p className="font-bold text-slate-900 mt-0.5">{userDetailQuery.data.email}</p>
-                  <p className="text-[11px] text-slate-600">
+                  <p className="font-bold text-navy-950 mt-0.5 break-all">
+                    {userDetailQuery.data.email}
+                  </p>
+                  <p className="text-[11px] text-sand-700 tabular-nums">
                     {userDetailQuery.data.isEmailVerified ? "Email Verified" : "Email Unverified"} •{" "}
                     Active Sessions: {userDetailQuery.data.activeSessionCount}
                   </p>
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Account Status
                   </span>
                   <p className="mt-1">
@@ -572,7 +585,7 @@ export function AdminUsersRbacPage() {
                       {userDetailQuery.data.status}
                     </span>
                   </p>
-                  <p className="text-[11px] text-slate-500 mt-1">
+                  <p className="text-[11px] text-sand-700 mt-1 tabular-nums">
                     Last Login:{" "}
                     {userDetailQuery.data.lastLoginAt
                       ? formatDateTimeDisplay(userDetailQuery.data.lastLoginAt)
@@ -580,14 +593,14 @@ export function AdminUsersRbacPage() {
                   </p>
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Linked Domain Profiles
                   </span>
-                  <p className="text-slate-800 mt-0.5">
+                  <p className="text-navy-900 mt-0.5">
                     Traveller Profile:{" "}
                     {userDetailQuery.data.travellerProfile ? "Active" : "None"}
                   </p>
-                  <p className="text-slate-800">
+                  <p className="text-navy-900">
                     Host Profile:{" "}
                     {userDetailQuery.data.hostProfile
                       ? `${userDetailQuery.data.hostProfile.displayName} (${userDetailQuery.data.hostProfile.status})`
@@ -597,8 +610,8 @@ export function AdminUsersRbacPage() {
               </div>
 
               {/* Account Lifecycle Actions */}
-              <div className="space-y-3 border-t border-slate-200 pt-4">
-                <h3 className="font-extrabold uppercase tracking-wide text-slate-700">
+              <div className="space-y-3 border-t border-sand-200 pt-4">
+                <h3 className="font-extrabold uppercase tracking-wide text-navy-900">
                   Account Lifecycle Controls
                 </h3>
                 <div className="flex flex-wrap gap-2">
@@ -611,7 +624,7 @@ export function AdminUsersRbacPage() {
                           setLifecycleAction("SUSPEND");
                           setReasonInput("");
                         }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition"
                       >
                         <ShieldAlert className="w-3.5 h-3.5" /> Suspend User
                       </button>
@@ -626,7 +639,7 @@ export function AdminUsersRbacPage() {
                           setLifecycleAction("REINSTATE");
                           setReasonInput("");
                         }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition"
                       >
                         <ShieldCheck className="w-3.5 h-3.5" /> Reinstate User
                       </button>
@@ -641,7 +654,7 @@ export function AdminUsersRbacPage() {
                           setLifecycleAction("DEACTIVATE");
                           setReasonInput("");
                         }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition"
                       >
                         <UserMinus className="w-3.5 h-3.5" /> Deactivate User
                       </button>
@@ -656,7 +669,7 @@ export function AdminUsersRbacPage() {
                           setLifecycleAction("REACTIVATE");
                           setReasonInput("");
                         }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition"
                       >
                         <UserPlus className="w-3.5 h-3.5" /> Reactivate User
                       </button>
@@ -671,7 +684,7 @@ export function AdminUsersRbacPage() {
                           setLifecycleAction("VERIFY_EMAIL");
                           setReasonInput("");
                         }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" /> Verify Email
                       </button>
@@ -682,9 +695,9 @@ export function AdminUsersRbacPage() {
                 {lifecycleAction && (
                   <form
                     onSubmit={handleLifecycleSubmit}
-                    className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3"
+                    className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-3"
                   >
-                    <p className="font-bold text-slate-900">
+                    <p className="font-bold text-navy-950">
                       Confirm Account Action: {lifecycleAction}
                     </p>
                     <textarea
@@ -696,7 +709,7 @@ export function AdminUsersRbacPage() {
                           ? "Required governance reason (min 3 chars)..."
                           : "Optional governance note (min 3 chars if entered)..."
                       }
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                      className="w-full px-3 py-2 rounded-xl border border-sand-200 bg-white text-navy-950"
                     />
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -708,14 +721,14 @@ export function AdminUsersRbacPage() {
                           reactivateMutation.isPending ||
                           verifyEmailMutation.isPending
                         }
-                        className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                        className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
                       >
                         Confirm {lifecycleAction}
                       </button>
                       <button
                         type="button"
                         onClick={() => setLifecycleAction(null)}
-                        className="px-4 py-2 rounded-xl border border-slate-300 font-bold text-slate-700 bg-white"
+                        className="px-4 py-2 rounded-xl border border-sand-200 font-bold text-navy-900 bg-white hover:bg-sand-100 transition"
                       >
                         Cancel
                       </button>
@@ -725,21 +738,21 @@ export function AdminUsersRbacPage() {
               </div>
 
               {/* Assigned Roles & Assignment/Revocation Controls */}
-              <div className="space-y-3 border-t border-slate-200 pt-4">
-                <h3 className="font-extrabold uppercase tracking-wide text-slate-700">
+              <div className="space-y-3 border-t border-sand-200 pt-4">
+                <h3 className="font-extrabold uppercase tracking-wide text-navy-900">
                   Assigned System Roles
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   {userDetailQuery.data.roles.map((r) => (
                     <div
                       key={r}
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-50 border border-purple-200 text-purple-950 font-bold"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-terracotta-50 border border-terracotta-200 text-terracotta-900 font-bold"
                     >
                       <span>{r}</span>
                       <PermissionGate permission={SYSTEM_PERMISSIONS.ADMIN_ROLE_REVOKE}>
                         <button
                           type="button"
-                          onClick={() => void handleRevokeRole(r)}
+                          onClick={() => setPendingRevokeRole(r)}
                           disabled={revokeRoleMutation.isPending}
                           className="text-rose-700 hover:text-rose-900 underline text-[11px]"
                         >
@@ -753,7 +766,7 @@ export function AdminUsersRbacPage() {
                 <PermissionGate
                   permission={SYSTEM_PERMISSIONS.ADMIN_ROLE_ASSIGN}
                   fallback={
-                    <p className="text-slate-500 italic">
+                    <p className="text-sand-700 italic">
                       Role assignment and revocation are restricted to Superadmin.
                     </p>
                   }
@@ -762,7 +775,7 @@ export function AdminUsersRbacPage() {
                     <select
                       value={roleToAssign}
                       onChange={(e) => setRoleToAssign(e.target.value)}
-                      className="px-3 py-2 rounded-xl border border-slate-300 bg-white font-semibold"
+                      className="px-3 py-2 rounded-xl border border-sand-200 bg-white font-semibold text-navy-950"
                     >
                       {availableRoleCodes.map((code) => (
                         <option key={code} value={code}>
@@ -774,7 +787,7 @@ export function AdminUsersRbacPage() {
                       type="button"
                       onClick={() => void handleAssignRole()}
                       disabled={assignRoleMutation.isPending}
-                      className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold"
+                      className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold transition"
                     >
                       {assignRoleMutation.isPending ? "Assigning..." : "Assign Role"}
                     </button>
@@ -783,16 +796,15 @@ export function AdminUsersRbacPage() {
               </div>
 
               {/* Effective Permissions */}
-              <div className="space-y-2 border-t border-slate-200 pt-4">
-                <h3 className="font-extrabold uppercase tracking-wide text-slate-700">
-                  Effective Permissions (
-                  {userPermissionsQuery.data?.permissions.length ?? 0})
+              <div className="space-y-2 border-t border-sand-200 pt-4">
+                <h3 className="font-extrabold uppercase tracking-wide text-navy-900">
+                  Effective Permissions ({userPermissionsQuery.data?.permissions.length ?? 0})
                 </h3>
                 <div className="flex flex-wrap gap-1.5">
                   {(userPermissionsQuery.data?.permissions ?? []).map((perm) => (
                     <span
                       key={perm}
-                      className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 font-mono text-[10px] text-slate-700"
+                      className="px-2 py-0.5 rounded-md bg-sand-100 border border-sand-200 font-mono text-[10px] text-navy-900"
                     >
                       {perm}
                     </span>
@@ -801,8 +813,45 @@ export function AdminUsersRbacPage() {
               </div>
             </div>
           )}
-        </section>
-      )}
+        </div>
+      </SlideOverDrawer>
+
+      {/* 2-Step Confirmation Modal before Revoking Role */}
+      <Modal
+        open={Boolean(pendingRevokeRole)}
+        onClose={() => setPendingRevokeRole(null)}
+        size="sm"
+        title="Confirm Role Revocation"
+        subtitle={
+          userDetailQuery.data
+            ? `Revoke ${pendingRevokeRole} from ${userDetailQuery.data.email}`
+            : undefined
+        }
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setPendingRevokeRole(null)}
+              className="px-4 py-2 rounded-xl border border-sand-200 bg-white text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={revokeRoleMutation.isPending}
+              onClick={() => void handleConfirmRevokeRole()}
+              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold disabled:opacity-50 transition"
+            >
+              {revokeRoleMutation.isPending ? "Revoking..." : "Confirm Revoke Role"}
+            </button>
+          </>
+        }
+      >
+        <p className="text-xs text-navy-900 leading-relaxed">
+          Revoking <strong className="font-mono">{pendingRevokeRole}</strong> immediately removes all
+          permissions granted by this role from the user&apos;s active sessions.
+        </p>
+      </Modal>
     </div>
   );
 }

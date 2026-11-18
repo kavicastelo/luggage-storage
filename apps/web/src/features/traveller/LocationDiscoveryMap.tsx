@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { MapPin, Compass, ShieldAlert } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -53,9 +53,45 @@ function projectCoordinates(
   const minLng = rawMinLng - padLng;
   const maxLng = rawMaxLng + padLng;
 
-  const xPct = Math.min(92, Math.max(8, ((lng - minLng) / (maxLng - minLng)) * 100));
-  const yPct = Math.min(90, Math.max(10, (1 - (lat - minLat) / (maxLat - minLat)) * 100));
+  const xPct = Math.min(90, Math.max(10, ((lng - minLng) / (maxLng - minLng)) * 100));
+  const yPct = Math.min(88, Math.max(12, (1 - (lat - minLat) / (maxLat - minLat)) * 100));
   return { xPct, yPct };
+}
+
+function computeSpreadCoordinates(locations: DiscoveryMapPoint[]): Map<string, { xPct: number; yPct: number }> {
+  const placed: Array<{ id: string; xPct: number; yPct: number }> = [];
+  const result = new Map<string, { xPct: number; yPct: number }>();
+
+  for (const loc of locations) {
+    const base = projectCoordinates(
+      locations,
+      loc.approximateLatitude,
+      loc.approximateLongitude
+    );
+    let xPct = base.xPct;
+    let yPct = base.yPct;
+
+    let collisionCount = 0;
+    for (const prev of placed) {
+      const dx = Math.abs(prev.xPct - xPct);
+      const dy = Math.abs(prev.yPct - yPct);
+      if (dx < 8 && dy < 8) {
+        collisionCount += 1;
+      }
+    }
+
+    if (collisionCount > 0) {
+      const angle = collisionCount * 2.1;
+      const radius = 5 + collisionCount * 2.5;
+      xPct = Math.min(90, Math.max(10, base.xPct + Math.cos(angle) * radius));
+      yPct = Math.min(88, Math.max(12, base.yPct + Math.sin(angle) * radius));
+    }
+
+    placed.push({ id: loc.id, xPct, yPct });
+    result.set(loc.id, { xPct, yPct });
+  }
+
+  return result;
 }
 
 export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
@@ -64,10 +100,17 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
   onSelectLocation
 }) => {
   const mapTilerKey = (import.meta.env.VITE_MAPTILER_KEY as string | undefined)?.trim();
-  const validLocations = locations.filter(
-    (loc) =>
-      Number.isFinite(loc.approximateLatitude) && Number.isFinite(loc.approximateLongitude)
+  const validLocations = useMemo(
+    () =>
+      locations.filter(
+        (loc) =>
+          Number.isFinite(loc.approximateLatitude) && Number.isFinite(loc.approximateLongitude)
+      ),
+    [locations]
   );
+
+  const pinPositions = useMemo(() => computeSpreadCoordinates(validLocations), [validLocations]);
+
   const activePoint =
     validLocations.find((loc) => loc.id === selectedLocationId) ?? validLocations[0] ?? null;
 
@@ -96,7 +139,7 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
         </Badge>
       </div>
 
-      <div className="relative h-72 bg-gradient-to-br from-navy-900 via-navy-800 to-navy-950 overflow-hidden">
+      <div className="relative h-72 sm:h-80 bg-gradient-to-br from-navy-900 via-navy-800 to-navy-950 overflow-hidden">
         {mapTilerStaticUrl && (
           <img
             src={mapTilerStaticUrl}
@@ -125,26 +168,23 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
           <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-6 text-sand-200">
             <MapPin className="h-8 w-8 text-terracotta-400 mb-2" />
             <p className="text-sm font-semibold">No transit zones match the current filter</p>
-            <p className="text-xs text-sand-400 mt-1">
+            <p className="text-xs text-sand-300 mt-1">
               Adjust your city or keyword filters to view verified custody hubs.
             </p>
           </div>
         ) : (
           <div className="relative z-10 h-full w-full">
             {validLocations.map((loc) => {
-              const { xPct, yPct } = projectCoordinates(
-                validLocations,
-                loc.approximateLatitude,
-                loc.approximateLongitude
-              );
+              const coords = pinPositions.get(loc.id) ?? { xPct: 50, yPct: 50 };
               const isSelected = activePoint?.id === loc.id;
               return (
                 <button
                   key={loc.id}
                   type="button"
+                  aria-pressed={isSelected}
                   onClick={() => onSelectLocation?.(loc.id)}
-                  style={{ left: `${xPct}%`, top: `${yPct}%` }}
-                  className={`absolute -translate-x-1/2 -translate-y-1/2 px-2.5 py-1 rounded-full text-xs font-bold shadow-md transition-transform flex items-center gap-1 ${
+                  style={{ left: `${coords.xPct}%`, top: `${coords.yPct}%` }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 min-h-[36px] px-2.5 py-1 rounded-full text-xs font-bold shadow-md transition-transform flex items-center gap-1 tabular-nums ${
                     isSelected
                       ? "bg-terracotta-500 text-white scale-110 ring-2 ring-white z-20"
                       : "bg-white text-navy-950 hover:bg-terracotta-50 z-10"
@@ -163,19 +203,18 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
       {activePoint && (
         <div className="p-4 border-t border-sand-200 bg-sand-50 space-y-2">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-bold uppercase tracking-wide text-terracotta-700">
                 {activePoint.city} • {activePoint.approximateArea}
               </p>
-              <p className="text-sm font-extrabold text-navy-950">{activePoint.name}</p>
-              <p className="text-[11px] font-mono text-sand-600 mt-0.5">
-                Approx. corridor: {activePoint.approximateLatitude.toFixed(3)},{" "}
-                {activePoint.approximateLongitude.toFixed(3)}
+              <p className="text-sm font-extrabold text-navy-950 truncate">{activePoint.name}</p>
+              <p className="text-xs text-sand-700 mt-0.5">
+                Transit precinct: {activePoint.approximateArea}
               </p>
             </div>
             <Link
               to={activePoint.href}
-              className="shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg bg-navy-900 text-white hover:bg-navy-800"
+              className="shrink-0 min-h-[44px] inline-flex items-center text-xs font-bold px-3.5 py-2 rounded-xl bg-navy-900 text-white hover:bg-navy-800 transition-colors"
             >
               Details
             </Link>

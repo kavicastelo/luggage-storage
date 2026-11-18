@@ -7,7 +7,11 @@ import {
 import { validateWithZod } from "../lib/validation";
 import { authApi } from "../services/auth-api";
 import { useAuthStore } from "../store/useAuthStore";
-import { Mail, CheckCircle2, AlertCircle, Loader2, ArrowLeft, KeyRound } from "lucide-react";
+import { Alert } from "@/components/ui/Alert";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
+import { Mail, ArrowLeft, KeyRound } from "lucide-react";
 
 export function VerifyEmailPage() {
   const { isAuthenticated, refreshUser } = useAuthStore();
@@ -94,138 +98,140 @@ export function VerifyEmailPage() {
 
   if (isVerified) {
     return (
-      <div className="max-w-md mx-auto my-8 bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center">
-        <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+      <Card className="max-w-md mx-auto my-8 bg-white p-8 shadow-md text-center space-y-5">
+        <MascotIllustration mascot="jump" size="md" variant="bare" decorative />
+        <div>
+          <h1 className="text-2xl font-extrabold text-navy-950">Email Verified</h1>
+          <p className="text-sm text-sand-700 mt-2 leading-relaxed">
+            {isAuthenticated
+              ? "Your email address has been verified and your account profile is up to date."
+              : "Your email address has been verified and your account is now active. You may now sign in."}
+          </p>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900">Email Verified</h1>
-        <p className="text-sm text-slate-600 mt-3 leading-relaxed">
-          {isAuthenticated
-            ? "Your email address has been verified and your account profile is up to date."
-            : "Your email address has been verified and your account is now active. You may now sign in."}
-        </p>
-        <div className="mt-8">
-          <Link
-            to={isAuthenticated ? "/profile" : "/login"}
-            className="inline-block w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm text-center"
-          >
-            {isAuthenticated ? "Continue to Profile" : "Continue to Sign In"}
-          </Link>
-        </div>
-      </div>
+        <Link
+          to={isAuthenticated ? "/profile" : "/login"}
+          className="min-h-[44px] inline-flex items-center justify-center w-full py-2.5 px-4 bg-terracotta-500 hover:bg-terracotta-600 text-white font-semibold rounded-xl text-sm transition shadow-sm"
+        >
+          {isAuthenticated ? "Continue to Profile" : "Continue to Sign In"}
+        </Link>
+      </Card>
     );
   }
 
   return (
-    <div className="max-w-md mx-auto my-8 bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+    <Card className="max-w-md mx-auto my-8 bg-white p-8 shadow-md">
       <Link
         to="/login"
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 mb-6 transition"
+        className="min-h-[44px] inline-flex items-center gap-1.5 text-xs font-semibold text-sand-700 hover:text-navy-950 mb-4 transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
         <span>Back to sign in</span>
       </Link>
 
-      <div className="text-center mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Verify Your Email</h1>
-        <p className="text-sm text-slate-500 mt-2">
+      <div className="text-center mb-6 space-y-2">
+        <MascotIllustration mascot="phone" size="sm" variant="bare" decorative />
+        <h1 className="text-2xl font-extrabold text-navy-950">Verify Your Email</h1>
+        <p className="text-sm text-sand-700">
           Enter the verification token sent to your email address or request a new verification link.
         </p>
       </div>
 
       {serverError && (
-        <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-red-700">{serverError}</div>
-        </div>
+        <Alert variant="danger" className="mb-6">
+          {serverError}
+        </Alert>
       )}
 
       {resendMessage && (
-        <div className="mb-6 p-4 rounded-lg bg-emerald-50 border border-emerald-200 flex items-start gap-3">
-          <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-emerald-800">{resendMessage}</div>
-        </div>
+        <Alert variant="success" className="mb-6">
+          {resendMessage}
+        </Alert>
       )}
 
       <form onSubmit={handleVerifySubmit} className="space-y-4" noValidate>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="token">
+          <label className="block text-sm font-semibold text-navy-900 mb-1.5" htmlFor="token">
             Verification token
           </label>
           <div className="relative">
-            <KeyRound className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="token"
               type="text"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.token)}
+              aria-describedby={fieldErrors.token ? "verify-token-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-4 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.token
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
               placeholder="Paste verification token from email"
               disabled={isVerifying}
             />
           </div>
           {fieldErrors.token && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.token}</p>
+            <p
+              id="verify-token-error"
+              role="alert"
+              className="mt-1.5 text-xs font-medium text-rose-600"
+            >
+              {fieldErrors.token}
+            </p>
           )}
         </div>
 
-        <button
-          type="submit"
-          disabled={isVerifying}
-          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-lg text-sm transition flex items-center justify-center gap-2 shadow-sm"
-        >
-          {isVerifying ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Verifying email...</span>
-            </>
-          ) : (
-            <span>Verify Email Address</span>
-          )}
-        </button>
+        <Button type="submit" variant="primary" isLoading={isVerifying} className="w-full">
+          {isVerifying ? "Verifying email..." : "Verify Email Address"}
+        </Button>
       </form>
 
-      <div className="my-6 border-t border-slate-200 pt-6">
-        <h2 className="text-sm font-semibold text-slate-800 mb-2">
+      <div className="my-6 border-t border-sand-200 pt-6">
+        <h2 className="text-sm font-bold text-navy-950 mb-3">
           Need a new verification link?
         </h2>
         <form onSubmit={handleResendSubmit} className="space-y-3" noValidate>
-          <div className="relative">
-            <Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
-            <input
-              id="resend-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="you@example.com"
-              disabled={isResending}
-            />
-          </div>
-          {fieldErrors.email && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
-          )}
-          <button
-            type="submit"
-            disabled={isResending}
-            className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-sm transition flex items-center justify-center gap-2"
-          >
-            {isResending ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Sending new link...</span>
-              </>
-            ) : (
-              <span>Resend Verification Email</span>
+          <div>
+            <label
+              htmlFor="resend-email"
+              className="block text-xs font-semibold text-navy-900 mb-1.5"
+            >
+              Account email address
+            </label>
+            <div className="relative">
+              <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
+              <input
+                id="resend-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={fieldErrors.email ? "resend-email-error" : undefined}
+                className={`w-full min-h-[44px] pl-10 pr-4 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
+                  fieldErrors.email
+                    ? "border-rose-500 focus:ring-rose-500/40"
+                    : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
+                }`}
+                placeholder="you@example.com"
+                disabled={isResending}
+              />
+            </div>
+            {fieldErrors.email && (
+              <p
+                id="resend-email-error"
+                role="alert"
+                className="mt-1.5 text-xs font-medium text-rose-600"
+              >
+                {fieldErrors.email}
+              </p>
             )}
-          </button>
+          </div>
+          <Button type="submit" variant="outline" isLoading={isResending} className="w-full">
+            {isResending ? "Sending new link..." : "Resend Verification Email"}
+          </Button>
         </form>
       </div>
-    </div>
+    </Card>
   );
 }
-

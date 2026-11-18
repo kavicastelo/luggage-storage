@@ -69,12 +69,26 @@ export default function HostVaultScreen() {
   );
 
   const bookings = useMemo(() => bookingsQuery.data?.bookings ?? [], [bookingsQuery.data]);
-  const nowMs = Date.now();
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
-  const activeStored = useMemo(
-    () => bookings.filter((b) => b.status === "IN_STORAGE"),
-    [bookings]
-  );
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const activeStored = useMemo(() => {
+    const stored = bookings.filter((b) => b.status === "IN_STORAGE");
+    return [...stored].sort((a, b) => {
+      const aTime = new Date(a.collectionAt).getTime();
+      const bTime = new Date(b.collectionAt).getTime();
+      const aOverdue = aTime < nowMs ? 0 : 1;
+      const bOverdue = bTime < nowMs ? 0 : 1;
+      if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+      return aTime - bTime;
+    });
+  }, [bookings, nowMs]);
   const overdueItems = useMemo(
     () => activeStored.filter((b) => new Date(b.collectionAt).getTime() < nowMs),
     [activeStored, nowMs]
@@ -192,7 +206,10 @@ export default function HostVaultScreen() {
         </Card>
 
         {releaseSuccess ? (
-          <Badge label={releaseSuccess} variant="success" icon="check-circle" />
+          <View style={styles.successBanner} accessibilityRole="alert">
+            <MobileIcon name="check-circle" size={16} color={mobileStatusTokens.successIcon} />
+            <Text style={styles.successBannerText}>{releaseSuccess}</Text>
+          </View>
         ) : null}
 
         <View style={styles.tabsRow}>
@@ -230,7 +247,7 @@ export default function HostVaultScreen() {
           />
         ) : listForTab.length === 0 ? (
           <EmptyState
-            mascot="suitcase-hug"
+            mascot={activeTab === "OVERDUE" ? "alarm-clock" : "suitcase-hug"}
             title={`No ${activeTab.toLowerCase()} luggage`}
             description="Current stored luggage awaiting pickup or overdue alert follow-up appears here."
           />
@@ -372,6 +389,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     color: mobileTextColors.secondary
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  successBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success,
+    fontWeight: "600",
+    flex: 1
   },
   tabsRow: {
     flexDirection: "row",

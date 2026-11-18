@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   ConfirmDialog,
+  EmptyState,
   ErrorState,
   LoadingSkeleton,
   MobileIcon,
@@ -96,6 +97,12 @@ export default function MobileSessionsScreen() {
 
       {isLoading ? (
         <LoadingSkeleton count={3} />
+      ) : sessions.length === 0 ? (
+        <EmptyState
+          mascot="sleeping"
+          title="No Active Sessions"
+          description="There are currently no active device sessions on this account."
+        />
       ) : (
         <View style={styles.list}>
           {sessions.map((session) => (
@@ -140,14 +147,16 @@ export default function MobileSessionsScreen() {
         </View>
       )}
 
-      <Button
-        title="Sign Out From All Devices"
-        variant="danger"
-        leftIcon={<MobileIcon name="log-out" size="sm" color={mobileColors.white} />}
-        onPress={() => setConfirmLogoutAll(true)}
-        fullWidth
-        style={styles.logoutAllBtn}
-      />
+      {sessions.length > 0 ? (
+        <Button
+          title="Sign Out From All Devices"
+          variant="danger"
+          leftIcon={<MobileIcon name="log-out" size="sm" color={mobileColors.white} />}
+          onPress={() => setConfirmLogoutAll(true)}
+          fullWidth
+          style={styles.logoutAllBtn}
+        />
+      ) : null}
 
       <ConfirmDialog
         visible={Boolean(revokeTarget)}

@@ -3,10 +3,10 @@ import { View, Text, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { ForgotPasswordRequestSchema } from "@luggage-storage/contracts";
 import {
-  Badge,
   Button,
   Card,
   ErrorState,
+  MascotIllustration,
   MobileIcon,
   SafeHeader,
   ScreenContainer,
@@ -14,7 +14,14 @@ import {
 } from "../../src/components";
 import { validateWithZod } from "../../src/lib/validation";
 import { authApi } from "../../src/services/auth-api";
-import { mobileColors, mobileSpacing, mobileTextColors, mobileTypography } from "../../src/lib/theme";
+import {
+  mobileColors,
+  mobileRadius,
+  mobileSpacing,
+  mobileStatusTokens,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
 
 export default function MobileForgotPasswordScreen() {
   const router = useRouter();
@@ -60,7 +67,11 @@ export default function MobileForgotPasswordScreen() {
     >
       {isSubmitted ? (
         <Card variant="elevated" style={styles.card}>
-          <Badge label="Instructions Sent" variant="success" icon="check-circle" />
+          <View style={styles.statusBanner}>
+            <MobileIcon name="check-circle" size="sm" color={mobileStatusTokens.successIcon} />
+            <Text style={styles.statusBannerText}>Reset instructions dispatched</Text>
+          </View>
+          <MascotIllustration mascot="phone" size="sm" variant="bare" decorative />
           <Text style={styles.heading}>Check Your Inbox</Text>
           <Text style={styles.subtext}>
             If an account is associated with{" "}
@@ -88,7 +99,7 @@ export default function MobileForgotPasswordScreen() {
       ) : (
         <Card variant="elevated" style={styles.card}>
           <View style={styles.intro}>
-            <MobileIcon name="key" size="xl" variant="primary" />
+            <MascotIllustration mascot="key" size="sm" variant="bare" decorative />
             <Text style={styles.heading}>Forgot Password?</Text>
             <Text style={styles.subtext}>
               Enter your registered email address to receive a single-use password reset token.
@@ -104,6 +115,10 @@ export default function MobileForgotPasswordScreen() {
             placeholder="you@example.com"
             autoCapitalize="none"
             keyboardType="email-address"
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              void handleSubmit();
+            }}
             value={email}
             onChangeText={setEmail}
             errorText={fieldErrors.email}
@@ -160,5 +175,19 @@ const styles = StyleSheet.create({
   noteText: {
     ...mobileTypography.bodySm,
     flex: 1
+  },
+  statusBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  statusBannerText: {
+    ...mobileTypography.label,
+    color: mobileStatusTokens.success
   }
 });

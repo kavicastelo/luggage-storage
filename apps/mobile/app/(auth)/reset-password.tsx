@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, TextInput as RNTextInput } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ResetPasswordRequestSchema } from "@luggage-storage/contracts";
 import {
-  Badge,
   Button,
   Card,
   ErrorState,
+  MascotIllustration,
   MobileIcon,
   SafeHeader,
   ScreenContainer,
@@ -15,11 +15,19 @@ import {
 import { validateWithZod } from "../../src/lib/validation";
 import { authApi } from "../../src/services/auth-api";
 import { ApiClientError } from "../../src/services/api-client";
-import { mobileSpacing, mobileTextColors, mobileTypography } from "../../src/lib/theme";
+import {
+  mobileRadius,
+  mobileSpacing,
+  mobileStatusTokens,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
 
 export default function MobileResetPasswordScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ token?: string }>();
+  const newPasswordRef = useRef<React.ComponentRef<typeof RNTextInput>>(null);
+  const confirmPasswordRef = useRef<React.ComponentRef<typeof RNTextInput>>(null);
 
   const [token, setToken] = useState(typeof params.token === "string" ? params.token : "");
   const [newPassword, setNewPassword] = useState("");
@@ -78,7 +86,11 @@ export default function MobileResetPasswordScreen() {
     >
       {isDone ? (
         <Card variant="elevated" style={styles.card}>
-          <Badge label="Password Updated" variant="success" icon="check-circle" />
+          <View style={styles.statusBanner}>
+            <MobileIcon name="check-circle" size="sm" color={mobileStatusTokens.successIcon} />
+            <Text style={styles.statusBannerText}>Password Updated</Text>
+          </View>
+          <MascotIllustration mascot="jump" size="sm" variant="bare" decorative />
           <Text style={styles.heading}>Password Reset Complete</Text>
           <Text style={styles.subtext}>
             All prior sessions were terminated for security. Sign in now with your new password.
@@ -92,7 +104,7 @@ export default function MobileResetPasswordScreen() {
       ) : (
         <Card variant="elevated" style={styles.card}>
           <View style={styles.intro}>
-            <MobileIcon name="lock" size="xl" variant="primary" />
+            <MascotIllustration mascot="key" size="sm" variant="bare" decorative />
             <Text style={styles.heading}>Choose a New Password</Text>
             <Text style={styles.subtext}>
               Paste the recovery token from your email link (or open the deep link directly).
@@ -107,30 +119,40 @@ export default function MobileResetPasswordScreen() {
             leftIcon="key"
             placeholder="Paste reset token"
             autoCapitalize="none"
+            returnKeyType="next"
+            onSubmitEditing={() => newPasswordRef.current?.focus()}
             value={token}
             onChangeText={setToken}
             errorText={fieldErrors.token}
           />
 
           <TextInput
+            ref={newPasswordRef}
             label="New Password"
             required
             leftIcon="lock"
             placeholder="Minimum 8 characters"
             secureTextEntry
             enablePasswordToggle
+            returnKeyType="next"
+            onSubmitEditing={() => confirmPasswordRef.current?.focus()}
             value={newPassword}
             onChangeText={setNewPassword}
             errorText={fieldErrors.newPassword}
           />
 
           <TextInput
+            ref={confirmPasswordRef}
             label="Confirm New Password"
             required
             leftIcon="lock"
             placeholder="Re-enter password"
             secureTextEntry
             enablePasswordToggle
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              void handleSubmit();
+            }}
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             errorText={fieldErrors.confirmPassword}
@@ -164,5 +186,19 @@ const styles = StyleSheet.create({
     ...mobileTypography.bodyMd,
     color: mobileTextColors.muted,
     textAlign: "center"
+  },
+  statusBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  statusBannerText: {
+    ...mobileTypography.label,
+    color: mobileStatusTokens.success
   }
 });

@@ -8,7 +8,6 @@ import {
   type RecordBookingExceptionRequest
 } from "@luggage-storage/contracts";
 import {
-  Badge,
   BottomSheet,
   Button,
   Card,
@@ -16,6 +15,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingSkeleton,
+  MobileIcon,
   SafeHeader,
   ScreenContainer,
   SelectionCard,
@@ -35,6 +35,7 @@ import {
   mobileColors,
   mobileRadius,
   mobileSpacing,
+  mobileStatusTokens,
   mobileTextColors,
   mobileTypography
 } from "../../src/lib/theme";
@@ -72,6 +73,8 @@ export default function HostRequestsScreen() {
   const [activeTab, setActiveTab] = useState<RequestTab>("PENDING");
   const [actionBanner, setActionBanner] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingAcceptId, setPendingAcceptId] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const [rejectTarget, setRejectTarget] = useState<BookingDetail | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -85,6 +88,10 @@ export default function HostRequestsScreen() {
   const [exceptionReason, setExceptionReason] = useState("");
 
   const allBookings = useMemo(() => bookingsQuery.data?.bookings ?? [], [bookingsQuery.data]);
+  const pendingCount = useMemo(
+    () => allBookings.filter((b) => b.status === "PENDING_HOST_APPROVAL").length,
+    [allBookings]
+  );
 
   const filtered = useMemo(() => {
     switch (activeTab) {
@@ -104,11 +111,14 @@ export default function HostRequestsScreen() {
   const handleAccept = async (booking: BookingDetail) => {
     setActionError(null);
     setActionBanner(null);
+    setPendingAcceptId(booking.id);
     try {
       await acceptMutation.mutateAsync({ bookingId: booking.id, data: {} });
       setActionBanner(`Approved #${booking.referenceCode}. Traveller can now complete LKR payment.`);
     } catch (err) {
       setActionError(normalizeApiError(err).message);
+    } finally {
+      setPendingAcceptId(null);
     }
   };
 
@@ -117,10 +127,10 @@ export default function HostRequestsScreen() {
       return;
     }
     if (rejectReason.trim().length < 3) {
-      setActionError("Provide a rejection reason (at least 3 characters).");
+      setModalError("Provide a rejection reason (at least 3 characters).");
       return;
     }
-    setActionError(null);
+    setModalError(null);
     try {
       await rejectMutation.mutateAsync({
         bookingId: rejectTarget.id,
@@ -130,7 +140,7 @@ export default function HostRequestsScreen() {
       setRejectTarget(null);
       setRejectReason("");
     } catch (err) {
-      setActionError(normalizeApiError(err).message);
+      setModalError(normalizeApiError(err).message);
     }
   };
 
@@ -139,10 +149,10 @@ export default function HostRequestsScreen() {
       return;
     }
     if (cancelReason.trim().length < 3) {
-      setActionError("Provide a host cancellation reason (at least 3 characters).");
+      setModalError("Provide a host cancellation reason (at least 3 characters).");
       return;
     }
-    setActionError(null);
+    setModalError(null);
     try {
       await cancelMutation.mutateAsync({
         bookingId: cancelTarget.id,
@@ -152,7 +162,7 @@ export default function HostRequestsScreen() {
       setCancelTarget(null);
       setCancelReason("");
     } catch (err) {
-      setActionError(normalizeApiError(err).message);
+      setModalError(normalizeApiError(err).message);
     }
   };
 
@@ -161,10 +171,10 @@ export default function HostRequestsScreen() {
       return;
     }
     if (exceptionReason.trim().length < 5) {
-      setActionError("Provide incident details (at least 5 characters).");
+      setModalError("Provide incident details (at least 5 characters).");
       return;
     }
-    setActionError(null);
+    setModalError(null);
     try {
       await reportExceptionMutation.mutateAsync({
         bookingId: exceptionTarget.id,
@@ -177,7 +187,7 @@ export default function HostRequestsScreen() {
       setExceptionTarget(null);
       setExceptionReason("");
     } catch (err) {
-      setActionError(normalizeApiError(err).message);
+      setModalError(normalizeApiError(err).message);
     }
   };
 
@@ -198,10 +208,10 @@ export default function HostRequestsScreen() {
       <View style={styles.tabsRow}>
         {(
           [
-            { key: "PENDING", label: "Pending" },
-            { key: "UPCOMING", label: "Upcoming" },
-            { key: "ACTIVE", label: "Active" },
-            { key: "PAST", label: "Past" }
+            { key: "PENDING", label: "Pending", badge: pendingCount },
+            { key: "UPCOMING", label: "Upcoming", badge: 0 },
+            { key: "ACTIVE", label: "Active", badge: 0 },
+            { key: "PAST", label: "Past", badge: 0 }
           ] as const
         ).map((tab) => {
           const active = activeTab === tab.key;
@@ -213,13 +223,25 @@ export default function HostRequestsScreen() {
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
             >
-              <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+              <View style={styles.tabLabelRow}>
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+                {tab.badge > 0 ? (
+                  <View style={styles.tabBadge}>
+                    <Text style={styles.tabBadgeText}>{tab.badge}</Text>
+                  </View>
+                ) : null}
+              </View>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      {actionBanner ? <Badge label={actionBanner} variant="success" icon="check-circle" /> : null}
+      {actionBanner ? (
+        <View style={styles.successBanner} accessibilityRole="alert">
+          <MobileIcon name="check-circle" size={16} color={mobileStatusTokens.successIcon} />
+          <Text style={styles.successBannerText}>{actionBanner}</Text>
+        </View>
+      ) : null}
       {actionError ? <ErrorState title="Action Failed" message={actionError} /> : null}
 
       {bookingsQuery.isLoading ? (
@@ -271,7 +293,8 @@ export default function HostRequestsScreen() {
                     <Button
                       title="Approve Request"
                       size="sm"
-                      isLoading={acceptMutation.isPending}
+                      isLoading={acceptMutation.isPending && pendingAcceptId === booking.id}
+                      disabled={acceptMutation.isPending && pendingAcceptId !== booking.id}
                       onPress={() => {
                         void handleAccept(booking);
                       }}
@@ -284,6 +307,7 @@ export default function HostRequestsScreen() {
                       onPress={() => {
                         setRejectTarget(booking);
                         setRejectReason("");
+                        setModalError(null);
                       }}
                       style={styles.flexBtn}
                     />
@@ -338,6 +362,7 @@ export default function HostRequestsScreen() {
                       onPress={() => {
                         setExceptionTarget(booking);
                         setExceptionReason("");
+                        setModalError(null);
                       }}
                       style={styles.flexBtn}
                     />
@@ -352,6 +377,7 @@ export default function HostRequestsScreen() {
                     onPress={() => {
                       setCancelTarget(booking);
                       setCancelReason("");
+                      setModalError(null);
                     }}
                   />
                 ) : null}
@@ -365,9 +391,13 @@ export default function HostRequestsScreen() {
         visible={Boolean(rejectTarget)}
         title={`Reject #${rejectTarget?.referenceCode ?? ""}`}
         subtitle="Releases held capacity immediately."
-        onClose={() => setRejectTarget(null)}
+        onClose={() => {
+          setRejectTarget(null);
+          setModalError(null);
+        }}
       >
         <View style={styles.sheetStack}>
+          {modalError ? <ErrorState title="Unable to Reject" message={modalError} /> : null}
           <TextInput
             label="Rejection Reason"
             required
@@ -393,7 +423,10 @@ export default function HostRequestsScreen() {
         confirmLabel="Cancel Booking"
         destructive
         isLoading={cancelMutation.isPending}
-        onCancel={() => setCancelTarget(null)}
+        onCancel={() => {
+          setCancelTarget(null);
+          setModalError(null);
+        }}
         onConfirm={() => {
           void handleConfirmCancel();
         }}
@@ -404,6 +437,7 @@ export default function HostRequestsScreen() {
           value={cancelReason}
           onChangeText={setCancelReason}
           placeholder="Unexpected facility maintenance"
+          errorText={modalError}
         />
       </ConfirmDialog>
 
@@ -411,9 +445,13 @@ export default function HostRequestsScreen() {
         visible={Boolean(exceptionTarget)}
         title={`Custody Exception #${exceptionTarget?.referenceCode ?? ""}`}
         subtitle="Logs an operational incident and places payout settlement on review hold."
-        onClose={() => setExceptionTarget(null)}
+        onClose={() => {
+          setExceptionTarget(null);
+          setModalError(null);
+        }}
       >
         <View style={styles.sheetStack}>
+          {modalError ? <ErrorState title="Unable to Submit" message={modalError} /> : null}
           {HOST_EXCEPTION_CATEGORIES.map((cat) => (
             <SelectionCard
               key={cat.value}
@@ -469,6 +507,41 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: mobileColors.white
+  },
+  tabLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4
+  },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.terracotta[500],
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4
+  },
+  tabBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: mobileColors.white
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  successBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success,
+    fontWeight: "600",
+    flex: 1
   },
   listGap: {
     gap: mobileSpacing[4]

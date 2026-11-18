@@ -3,7 +3,6 @@ import { View, Text, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CheckoutStatusResponse } from "@luggage-storage/contracts";
 import {
-  Button,
   Card,
   EmptyState,
   ErrorState,
@@ -133,13 +132,16 @@ export default function MobileBookingConfirmScreen() {
   const resolvedBookingId = statusData?.bookingId ?? returnHints.bookingId;
 
   return (
-    <ScreenContainer scrollable>
-      <SafeHeader
-        title="Payment Return"
-        subtitle="Verified against server settlement records"
-        onBack={() => router.replace("/(traveller)/(tabs)/bookings")}
-      />
-
+    <ScreenContainer
+      scrollable
+      header={
+        <SafeHeader
+          title="Payment Return"
+          subtitle="Verified against server settlement records"
+          onBack={() => router.replace("/(traveller)/(tabs)/bookings")}
+        />
+      }
+    >
       {!isAuthenticated ? (
         <EmptyState
           title="Sign in to view booking status"
@@ -197,6 +199,15 @@ export default function MobileBookingConfirmScreen() {
             onCheckStatus={() => {
               void fetchStatus();
             }}
+            onOpenPass={
+              statusData.custodyReady && resolvedBookingId
+                ? () =>
+                    router.replace({
+                      pathname: "/(traveller)/pass",
+                      params: { bookingId: resolvedBookingId, ref: statusData.referenceCode }
+                    })
+                : undefined
+            }
             onRetryCheckout={
               resolvedBookingId && statusData.bookingStatus === "PENDING_PAYMENT"
                 ? () =>
@@ -207,43 +218,6 @@ export default function MobileBookingConfirmScreen() {
                 : undefined
             }
           />
-
-          <View style={styles.actions}>
-            {statusData.custodyReady && resolvedBookingId ? (
-              <Button
-                title="Open Custody Pass"
-                variant="primary"
-                onPress={() =>
-                  router.replace({
-                    pathname: "/(traveller)/pass",
-                    params: { bookingId: resolvedBookingId, ref: statusData.referenceCode }
-                  })
-                }
-              />
-            ) : null}
-
-            <Button
-              title="Refresh Payment Status"
-              variant="secondary"
-              isLoading={isLoading}
-              onPress={() => {
-                void fetchStatus();
-              }}
-            />
-
-            {resolvedBookingId && statusData.bookingStatus === "PENDING_PAYMENT" ? (
-              <Button
-                title="Return to Checkout"
-                variant="outline"
-                onPress={() =>
-                  router.replace({
-                    pathname: "/(traveller)/checkout",
-                    params: { bookingId: resolvedBookingId }
-                  })
-                }
-              />
-            ) : null}
-          </View>
         </View>
       ) : null}
     </ScreenContainer>
@@ -267,9 +241,6 @@ const styles = StyleSheet.create({
   bannerText: {
     ...mobileTypography.bodySm,
     color: mobileTextColors.secondary
-  },
-  actions: {
-    gap: mobileSpacing[3]
   }
 });
 

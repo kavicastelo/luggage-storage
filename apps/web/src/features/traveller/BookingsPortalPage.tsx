@@ -6,7 +6,6 @@ import type {
   RecordBookingExceptionRequest
 } from "@luggage-storage/contracts";
 import {
-  AlertTriangle,
   CalendarClock,
   FileText,
   MapPin,
@@ -41,7 +40,11 @@ import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
+import { Modal } from "@/components/ui/Modal";
+import { Select } from "@/components/ui/Select";
+import { Textarea } from "@/components/ui/Textarea";
 import {
   classifyTravellerPortalTab,
   evaluateTravellerCancellationPreview,
@@ -82,7 +85,7 @@ export function TravellerWebPortalPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("ALL");
 
-  // Active modals/drawers in live mode
+  // Active modals in live mode
   const [activePassModal, setActivePassModal] = useState<{
     booking: BookingDetail;
     pass: CustodyPassResponse;
@@ -232,7 +235,7 @@ export function TravellerWebPortalPage() {
           </Badge>
         </div>
 
-        <div className="flex flex-wrap gap-2 border-b border-sand-200 pb-3">
+        <div className="flex flex-wrap gap-2 border-b border-sand-200 pb-3" role="tablist">
           {(
             [
               { key: "active", label: "Active & Upcoming" },
@@ -243,8 +246,10 @@ export function TravellerWebPortalPage() {
             <button
               key={tab.key}
               type="button"
+              role="tab"
+              aria-selected={activeTab === tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
+              className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
                 activeTab === tab.key
                   ? "bg-navy-900 text-white"
                   : "bg-white border border-sand-300 text-navy-900 hover:bg-sand-100"
@@ -268,7 +273,7 @@ export function TravellerWebPortalPage() {
                 </div>
                 <div className="text-right">
                   <Badge variant="brand">{booking.status.replace(/_/g, " ")}</Badge>
-                  <p className="text-sm font-black text-navy-950 mt-1">
+                  <p className="text-sm font-black text-navy-950 mt-1 tabular-nums">
                     {formatLkr(booking.totalAmountLkr)}
                   </p>
                 </div>
@@ -278,7 +283,7 @@ export function TravellerWebPortalPage() {
                 <div className="pt-3 border-t border-sand-200 flex flex-wrap justify-between items-center gap-3">
                   <Link
                     to={`/booking/confirm?loc=${encodeURIComponent(booking.locationId)}&preview=demo`}
-                    className="px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold"
+                    className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800 transition-colors"
                   >
                     View Digital Custody Pass
                   </Link>
@@ -304,6 +309,15 @@ export function TravellerWebPortalPage() {
     );
   }
 
+  const cancelPreview = cancelTarget
+    ? evaluateTravellerCancellationPreview({
+        status: cancelTarget.status,
+        dropOffAt: cancelTarget.dropOffAt,
+        totalAmountMinor: cancelTarget.totalAmountMinor,
+        paymentSucceeded: cancelTarget.paymentSummary?.status === "SUCCEEDED"
+      })
+    : null;
+
   return (
     <div className="space-y-6 pb-12 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -315,7 +329,7 @@ export function TravellerWebPortalPage() {
         </div>
         <Link
           to="/search"
-          className="px-4 py-2.5 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600"
+          className="min-h-[44px] inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition-colors"
         >
           Find Storage
         </Link>
@@ -328,7 +342,7 @@ export function TravellerWebPortalPage() {
       {/* Tabs + Search / Filter Controls */}
       <Card className="p-4 bg-white space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2" role="tablist">
             {(
               [
                 {
@@ -355,36 +369,46 @@ export function TravellerWebPortalPage() {
               <button
                 key={tab.key}
                 type="button"
+                role="tab"
+                aria-selected={activeTab === tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
                   activeTab === tab.key
                     ? "bg-navy-900 text-white"
                     : "bg-sand-50 border border-sand-300 text-navy-900 hover:bg-sand-100"
                 }`}
               >
                 <span>{tab.label}</span>
-                <span className="font-mono text-[11px] opacity-80">({tab.count})</span>
+                <span className="font-mono text-[11px] opacity-80 tabular-nums">({tab.count})</span>
               </button>
             ))}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
+              <label htmlFor="portal-search-input" className="sr-only">
+                Search bookings by reference or hub
+              </label>
               <Search className="h-3.5 w-3.5 text-sand-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
+                id="portal-search-input"
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Search reference or hub..."
-                className="pl-8 pr-3 py-1.5 rounded-xl border border-sand-300 text-xs"
+                className="min-h-[44px] pl-8 pr-3 py-1.5 rounded-xl border border-sand-300 text-xs focus:outline-none focus:ring-2 focus:ring-terracotta-500"
               />
             </div>
 
+            <label htmlFor="portal-status-filter" className="sr-only">
+              Filter booking status
+            </label>
             <select
+              id="portal-status-filter"
               aria-label="Filter booking status"
               value={selectedStatusFilter}
               onChange={(e) => setSelectedStatusFilter(e.target.value)}
-              className="px-3 py-1.5 rounded-xl border border-sand-300 text-xs font-semibold bg-white"
+              className="min-h-[44px] px-3 py-1.5 rounded-xl border border-sand-300 text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
             >
               <option value="ALL">All Statuses</option>
               <option value="PENDING_HOST_APPROVAL">Awaiting Host</option>
@@ -431,22 +455,23 @@ export function TravellerWebPortalPage() {
           </div>
         </Alert>
       ) : tabBookings.length === 0 ? (
-        <Card className="p-8 text-center bg-white space-y-3">
-          <p className="text-base font-extrabold text-navy-950">
-            No bookings in this view yet
-          </p>
-          <p className="text-sm text-sand-700">
-            {activeTab === "refunds"
+        <EmptyState
+          mascot={activeTab === "refunds" ? "sleeping" : "suitcase-peek"}
+          title="No bookings in this view yet"
+          description={
+            activeTab === "refunds"
               ? "Refund settlements appear here when a paid booking is cancelled under policy tiers."
-              : "Explore verified Sri Lankan storage corridors to schedule your next hands-free stop."}
-          </p>
-          <Link
-            to="/search"
-            className="inline-block px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold"
-          >
-            Find Storage
-          </Link>
-        </Card>
+              : "Explore verified Sri Lankan storage corridors to schedule your next hands-free stop."
+          }
+          action={
+            <Link
+              to="/search"
+              className="min-h-[44px] inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800 transition-colors"
+            >
+              Find Storage
+            </Link>
+          }
+        />
       ) : (
         <div className="space-y-4">
           {tabBookings.map((booking) => {
@@ -455,7 +480,7 @@ export function TravellerWebPortalPage() {
               hasRefund: Boolean(booking.refundSummary)
             });
             const paymentSucceeded = booking.paymentSummary?.status === "SUCCEEDED";
-            const cancelPreview = evaluateTravellerCancellationPreview({
+            const bookingCancelPreview = evaluateTravellerCancellationPreview({
               status: booking.status,
               dropOffAt: booking.dropOffAt,
               totalAmountMinor: booking.totalAmountMinor,
@@ -499,7 +524,7 @@ export function TravellerWebPortalPage() {
 
                   <div className="text-right">
                     <p className="text-xs text-sand-600">Booking Total</p>
-                    <p className="text-xl font-black text-navy-950 font-mono">
+                    <p className="text-xl font-black text-navy-950 font-mono tabular-nums">
                       {formatLkrMinor(booking.totalAmountMinor, booking.currency)}
                     </p>
                     {booking.status === "PENDING_PAYMENT" && booking.holdExpiresAt && (
@@ -535,7 +560,7 @@ export function TravellerWebPortalPage() {
                       </p>
                     </div>
                     <div className="text-right space-y-1">
-                      <p className="font-mono font-extrabold text-navy-950">
+                      <p className="font-mono font-extrabold text-navy-950 tabular-nums">
                         {formatLkrMinor(booking.refundSummary.amountMinor, booking.currency)}
                       </p>
                       <Badge
@@ -554,7 +579,7 @@ export function TravellerWebPortalPage() {
                     {booking.status === "PENDING_PAYMENT" && (
                       <Link
                         to={`/booking/confirm?bookingId=${encodeURIComponent(booking.id)}`}
-                        className="px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600"
+                        className="min-h-[44px] inline-flex items-center justify-center px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition-colors"
                       >
                         Complete Payment
                       </Link>
@@ -564,7 +589,7 @@ export function TravellerWebPortalPage() {
                       <Button
                         type="button"
                         variant="primary"
-                        size="sm"
+                        size="md"
                         isLoading={issuePassMutation.isPending}
                         onClick={() => void handleOpenLivePass(booking)}
                       >
@@ -576,7 +601,7 @@ export function TravellerWebPortalPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      size="sm"
+                      size="md"
                       onClick={() => setReceiptBooking(booking)}
                     >
                       <FileText className="h-4 w-4" />
@@ -585,11 +610,11 @@ export function TravellerWebPortalPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {cancelPreview.cancellable && (
+                    {bookingCancelPreview.cancellable && (
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
+                        size="md"
                         onClick={() => {
                           setCancelTarget(booking);
                           setCancelReason("");
@@ -604,7 +629,7 @@ export function TravellerWebPortalPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
+                        size="md"
                         onClick={() => {
                           setExceptionTarget(booking);
                           setExceptionReason("");
@@ -623,56 +648,73 @@ export function TravellerWebPortalPage() {
       )}
 
       {/* Digital Custody Pass Modal */}
-      {activePassModal && (
-        <div
-          className="fixed inset-0 z-50 bg-navy-950/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="max-w-2xl w-full space-y-3">
-            <CustodyQrPassCard
-              referenceCode={activePassModal.pass.referenceCode}
-              operation={activePassModal.pass.operation}
-              qrPayload={activePassModal.pass.qrToken}
-              verificationPin={activePassModal.pass.verificationPin}
-              expiresAt={activePassModal.pass.expiresAt}
-              locationName={activePassModal.booking.location.name}
-              isRegenerating={issuePassMutation.isPending}
-              onRegenerate={() => void handleOpenLivePass(activePassModal.booking)}
-            />
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => setActivePassModal(null)}
-              >
-                Close Pass
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={Boolean(activePassModal)}
+        onClose={() => setActivePassModal(null)}
+        title="Digital Custody Pass"
+        subtitle={
+          activePassModal
+            ? `Booking #${activePassModal.pass.referenceCode} • ${activePassModal.booking.location.name}`
+            : undefined
+        }
+        size="lg"
+        footer={
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setActivePassModal(null)}
+          >
+            Close Pass
+          </Button>
+        }
+      >
+        {activePassModal && (
+          <CustodyQrPassCard
+            referenceCode={activePassModal.pass.referenceCode}
+            operation={activePassModal.pass.operation}
+            qrPayload={activePassModal.pass.qrToken}
+            verificationPin={activePassModal.pass.verificationPin}
+            expiresAt={activePassModal.pass.expiresAt}
+            locationName={activePassModal.booking.location.name}
+            isRegenerating={issuePassMutation.isPending}
+            onRegenerate={() => void handleOpenLivePass(activePassModal.booking)}
+          />
+        )}
+      </Modal>
 
       {/* Printable Non-Tax Booking Summary Receipt Modal (OQ-010) */}
-      {receiptBooking && (
-        <div
-          className="fixed inset-0 z-50 bg-navy-950/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <Card className="max-w-xl w-full p-6 bg-white space-y-4">
-            <div className="flex items-start justify-between gap-4 border-b border-sand-200 pb-3">
-              <div>
-                <h3 className="text-xl font-extrabold text-navy-950">Booking Summary Receipt</h3>
-                <p className="text-xs text-sand-700 mt-0.5">
-                  Booking Summary Receipt — Not a Tax/VAT Invoice
-                </p>
-              </div>
-              <span className="font-mono text-xs font-bold text-navy-900">
-                {`#${receiptBooking.referenceCode}`}
-              </span>
-            </div>
-
+      <Modal
+        open={Boolean(receiptBooking)}
+        onClose={() => setReceiptBooking(null)}
+        title="Booking Summary Receipt"
+        subtitle={
+          receiptBooking
+            ? `Booking Summary Receipt — Not a Tax/VAT Invoice (#${receiptBooking.referenceCode})`
+            : undefined
+        }
+        size="lg"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (typeof window !== "undefined" && typeof window.print === "function") {
+                  window.print();
+                }
+              }}
+            >
+              <Printer className="h-4 w-4" />
+              Print Summary
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => setReceiptBooking(null)}>
+              Close
+            </Button>
+          </>
+        }
+      >
+        {receiptBooking && (
+          <div className="space-y-4">
             <div className="space-y-2 text-xs text-sand-800">
               <p>
                 <span className="font-bold text-navy-950">Storage Hub: </span>
@@ -683,13 +725,13 @@ export function TravellerWebPortalPage() {
                 {formatDateTimeDisplay(receiptBooking.dropOffAt)} →{" "}
                 {formatDateTimeDisplay(receiptBooking.collectionAt)}
               </p>
-              <div className="pt-2 border-t border-sand-200 space-y-1">
+              <div className="pt-2 border-t border-sand-200 space-y-1.5">
                 {receiptBooking.items.map((item) => (
                   <div key={item.id} className="flex justify-between">
                     <span>
                       {formatBagCategoryLabel(item.bagCategory)} × {item.quantity}
                     </span>
-                    <span className="font-mono font-semibold">
+                    <span className="font-mono font-semibold tabular-nums">
                       {formatLkrMinor(item.lineTotalMinor, receiptBooking.currency)}
                     </span>
                   </div>
@@ -698,7 +740,7 @@ export function TravellerWebPortalPage() {
                   <>
                     <div className="flex justify-between pt-2 border-t border-sand-100">
                       <span>Storage Subtotal</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums">
                         {formatLkrMinor(
                           receiptBooking.pricingSnapshot.storageSubtotalMinor,
                           receiptBooking.currency
@@ -707,7 +749,7 @@ export function TravellerWebPortalPage() {
                     </div>
                     <div className="flex justify-between">
                       <span>Tax</span>
-                      <span className="font-mono">
+                      <span className="font-mono tabular-nums">
                         {formatLkrMinor(
                           receiptBooking.pricingSnapshot.taxAmountMinor,
                           receiptBooking.currency
@@ -718,190 +760,135 @@ export function TravellerWebPortalPage() {
                 )}
                 <div className="flex justify-between pt-2 border-t border-sand-300 text-sm font-extrabold text-navy-950">
                   <span>Total Payable</span>
-                  <span className="font-mono">
+                  <span className="font-mono tabular-nums">
                     {formatLkrMinor(receiptBooking.totalAmountMinor, receiptBooking.currency)}
                   </span>
                 </div>
               </div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-3 border-t border-sand-200">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  if (typeof window !== "undefined" && typeof window.print === "function") {
-                    window.print();
-                  }
-                }}
-              >
-                <Printer className="h-4 w-4" />
-                Print Summary
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => setReceiptBooking(null)}>
-                Close
-              </Button>
-            </div>
-          </Card>
-        </div>
-      )}
+          </div>
+        )}
+      </Modal>
 
       {/* Cancellation Modal (OQ-009 Tiered Refund Preview) */}
-      {cancelTarget && (
-        <div
-          className="fixed inset-0 z-50 bg-navy-950/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <Card className="max-w-lg w-full p-6 bg-white space-y-4">
-            {(() => {
-              const preview = evaluateTravellerCancellationPreview({
-                status: cancelTarget.status,
-                dropOffAt: cancelTarget.dropOffAt,
-                totalAmountMinor: cancelTarget.totalAmountMinor,
-                paymentSucceeded: cancelTarget.paymentSummary?.status === "SUCCEEDED"
-              });
-              return (
-                <form onSubmit={handleConfirmCancel} className="space-y-4">
-                  <div className="flex items-start gap-2.5">
-                    <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <h3 className="text-lg font-extrabold text-navy-950">
-                        Cancel Booking #{cancelTarget.referenceCode}
-                      </h3>
-                      <p className="text-xs text-sand-700 mt-0.5">{preview.tierLabel}</p>
-                    </div>
-                  </div>
+      <Modal
+        open={Boolean(cancelTarget)}
+        onClose={() => setCancelTarget(null)}
+        title={cancelTarget ? `Cancel Booking #${cancelTarget.referenceCode}` : "Cancel Booking"}
+        subtitle={cancelPreview?.tierLabel}
+        size="md"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCancelTarget(null)}
+            >
+              Keep Booking
+            </Button>
+            <Button
+              type="submit"
+              form="cancel-booking-form"
+              variant="danger"
+              isLoading={cancelMutation.isPending}
+            >
+              Confirm Cancellation
+            </Button>
+          </>
+        }
+      >
+        {cancelTarget && cancelPreview && (
+          <form id="cancel-booking-form" onSubmit={handleConfirmCancel} className="space-y-4">
+            {cancelPreview.requiresRefund && (
+              <div className="rounded-xl bg-sand-50 border border-sand-200 p-3.5 text-xs flex justify-between items-center">
+                <span className="font-semibold text-navy-950">
+                  Estimated Refund ({cancelPreview.refundPercentage}%)
+                </span>
+                <span className="font-mono font-extrabold text-navy-950 tabular-nums">
+                  {formatLkrMinor(cancelPreview.estimatedRefundMinor, cancelTarget.currency)}
+                </span>
+              </div>
+            )}
 
-                  {preview.requiresRefund && (
-                    <div className="rounded-xl bg-sand-50 border border-sand-200 p-3.5 text-xs flex justify-between items-center">
-                      <span className="font-semibold text-navy-950">
-                        Estimated Refund ({preview.refundPercentage}%)
-                      </span>
-                      <span className="font-mono font-extrabold text-navy-950">
-                        {formatLkrMinor(preview.estimatedRefundMinor, cancelTarget.currency)}
-                      </span>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-xs font-bold text-navy-900 mb-1">
-                      Cancellation Reason (3–500 characters)
-                    </label>
-                    <textarea
-                      rows={3}
-                      required
-                      minLength={3}
-                      maxLength={500}
-                      value={cancelReason}
-                      onChange={(e) => setCancelReason(e.target.value)}
-                      placeholder="Change in travel itinerary, train delay..."
-                      className="w-full rounded-xl border border-sand-300 px-3 py-2 text-sm"
-                    />
-                  </div>
-
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setCancelTarget(null)}
-                    >
-                      Keep Booking
-                    </Button>
-                    <Button
-                      type="submit"
-                      variant="danger"
-                      isLoading={cancelMutation.isPending}
-                    >
-                      Confirm Cancellation
-                    </Button>
-                  </div>
-                </form>
-              );
-            })()}
-          </Card>
-        </div>
-      )}
+            <Textarea
+              id="cancel-booking-reason"
+              label="Cancellation Reason (3–500 characters)"
+              rows={3}
+              required
+              minLength={3}
+              maxLength={500}
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Change in travel itinerary, train delay..."
+            />
+          </form>
+        )}
+      </Modal>
 
       {/* Report Custody Exception Modal */}
-      {exceptionTarget && (
-        <div
-          className="fixed inset-0 z-50 bg-navy-950/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <Card className="max-w-lg w-full p-6 bg-white">
-            <form onSubmit={handleSubmitException} className="space-y-4">
-              <div className="flex items-start gap-2.5">
-                <ShieldAlert className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="text-lg font-extrabold text-navy-950">
-                    Report Problem — #{exceptionTarget.referenceCode}
-                  </h3>
-                  <p className="text-xs text-sand-700 mt-0.5">
-                    Creates a formal dispute / exception record linked directly to this booking.
-                  </p>
-                </div>
-              </div>
+      <Modal
+        open={Boolean(exceptionTarget)}
+        onClose={() => setExceptionTarget(null)}
+        title={
+          exceptionTarget
+            ? `Report Problem — #${exceptionTarget.referenceCode}`
+            : "Report Problem"
+        }
+        subtitle="Creates a formal dispute / exception record linked directly to this booking."
+        size="md"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setExceptionTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="report-exception-form"
+              variant="danger"
+              isLoading={reportExceptionMutation.isPending}
+            >
+              Submit Problem Report
+            </Button>
+          </>
+        }
+      >
+        {exceptionTarget && (
+          <form id="report-exception-form" onSubmit={handleSubmitException} className="space-y-4">
+            <Select
+              id="exception-category-select"
+              label="Issue Category"
+              value={exceptionCategory}
+              onChange={(e) =>
+                setExceptionCategory(
+                  e.target.value as RecordBookingExceptionRequest["category"]
+                )
+              }
+            >
+              {EXCEPTION_CATEGORIES.map((cat) => (
+                <option key={cat.value} value={cat.value}>
+                  {cat.label}
+                </option>
+              ))}
+            </Select>
 
-              <div>
-                <label className="block text-xs font-bold text-navy-900 mb-1">
-                  Issue Category
-                </label>
-                <select
-                  value={exceptionCategory}
-                  onChange={(e) =>
-                    setExceptionCategory(
-                      e.target.value as RecordBookingExceptionRequest["category"]
-                    )
-                  }
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-sm bg-white"
-                >
-                  {EXCEPTION_CATEGORIES.map((cat) => (
-                    <option key={cat.value} value={cat.value}>
-                      {cat.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-navy-900 mb-1">
-                  Detailed Description (5–1000 characters)
-                </label>
-                <textarea
-                  rows={4}
-                  required
-                  minLength={5}
-                  maxLength={1000}
-                  value={exceptionReason}
-                  onChange={(e) => setExceptionReason(e.target.value)}
-                  placeholder="Describe missing bag, seal discrepancy, or access issue..."
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setExceptionTarget(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="danger"
-                  isLoading={reportExceptionMutation.isPending}
-                >
-                  Submit Problem Report
-                </Button>
-              </div>
-            </form>
-          </Card>
-        </div>
-      )}
+            <Textarea
+              id="exception-reason-textarea"
+              label="Detailed Description (5–1000 characters)"
+              rows={4}
+              required
+              minLength={5}
+              maxLength={1000}
+              value={exceptionReason}
+              onChange={(e) => setExceptionReason(e.target.value)}
+              placeholder="Describe missing bag, seal discrepancy, or access issue..."
+            />
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }

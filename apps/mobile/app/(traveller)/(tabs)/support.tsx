@@ -6,13 +6,13 @@ import {
   type SupportTicketCategory
 } from "@luggage-storage/contracts";
 import {
-  Badge,
   Button,
   Card,
   EmptyState,
   ErrorState,
   FormSection,
   LoadingSkeleton,
+  MascotIllustration,
   MobileIcon,
   SafeHeader,
   ScreenContainer,
@@ -34,9 +34,12 @@ import {
   mobileColors,
   mobileRadius,
   mobileSpacing,
+  mobileStatusTokens,
   mobileTextColors,
   mobileTypography
 } from "../../../src/lib/theme";
+
+type SupportModeTab = "TICKETS" | "EXCEPTION" | "FAQS";
 
 const FAQ_ITEMS = [
   {
@@ -74,6 +77,7 @@ export default function TravellerSupportScreen() {
   const router = useRouter();
   const { isAuthenticated, user } = useAuthStore();
 
+  const [activeTab, setActiveTab] = useState<SupportModeTab>("TICKETS");
   const [expandedFaqId, setExpandedFaqId] = useState<string | null>("payhere");
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
   const [category, setCategory] =
@@ -141,34 +145,210 @@ export default function TravellerSupportScreen() {
       header={<SafeHeader title="Support & Policies" subtitle="Custody Standards & Incidents" />}
       testID="traveller-support-screen"
     >
-      <Card variant="default" style={styles.sectionCard}>
-        <Text style={styles.sectionHeading}>Marketplace Safeguards & FAQs</Text>
-        <View style={styles.faqList}>
-          {FAQ_ITEMS.map((item) => {
-            const expanded = expandedFaqId === item.id;
-            return (
-              <View key={item.id} style={styles.faqItem}>
-                <TouchableOpacity
-                  style={styles.faqHeader}
-                  onPress={() => setExpandedFaqId(expanded ? null : item.id)}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded }}
-                >
-                  <Text style={styles.faqTitle}>{item.title}</Text>
-                  <MobileIcon
-                    name={expanded ? "chevron-up" : "chevron-down"}
-                    size={18}
-                    color={mobileColors.navy[800]}
-                  />
-                </TouchableOpacity>
-                {expanded ? <Text style={styles.faqBody}>{item.body}</Text> : null}
-              </View>
-            );
-          })}
-        </View>
-      </Card>
+      <View style={styles.modeTabsRow} accessibilityRole="tablist">
+        {(
+          [
+            { key: "TICKETS", label: "My Tickets" },
+            { key: "EXCEPTION", label: "Report Issue" },
+            { key: "FAQS", label: "FAQs" }
+          ] as const
+        ).map((tab) => {
+          const active = activeTab === tab.key;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.modeTabBtn, active ? styles.modeTabBtnActive : null]}
+              onPress={() => setActiveTab(tab.key)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={[styles.modeTabText, active ? styles.modeTabTextActive : null]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
-      <Card variant="elevated" style={styles.sectionCard}>
+      {activeTab === "TICKETS" ? (
+        <View style={styles.sectionStack}>
+          <FormSection
+            title="Support Tickets"
+            subtitle="Create a support inquiry and track replies from our Sri Lanka operations desk."
+          >
+            {!isAuthenticated || !user ? (
+              <EmptyState
+                mascot="phone"
+                title="Sign In to Track Tickets"
+                description="Sign in to submit and track your persisted support ticket conversations."
+                actionTitle="Sign In"
+                onAction={() => router.push("/(auth)/login")}
+              />
+            ) : (
+              <View style={styles.formStack}>
+                <Text style={styles.fieldLabel}>Topic</Text>
+                <View style={styles.chipWrap}>
+                  {SUPPORT_TICKET_CATEGORIES.map((cat) => {
+                    const selected = ticketCategory === cat;
+                    return (
+                      <TouchableOpacity
+                        key={cat}
+                        style={[styles.topicChip, selected ? styles.topicChipActive : null]}
+                        onPress={() => setTicketCategory(cat)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text
+                          style={[
+                            styles.topicChipText,
+                            selected ? styles.topicChipTextActive : null
+                          ]}
+                        >
+                          {cat.replace(/_/g, " ")}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <TextInput
+                  label="Subject"
+                  required
+                  placeholder="Short summary of your inquiry"
+                  value={ticketSubject}
+                  onChangeText={setTicketSubject}
+                />
+                <TextInput
+                  label="Message"
+                  required
+                  multiline
+                  placeholder="Share details so our support team can assist quickly..."
+                  value={ticketMessage}
+                  onChangeText={setTicketMessage}
+                />
+
+                {ticketError ? <ErrorState title="Ticket Error" message={ticketError} /> : null}
+                {ticketSuccess ? (
+                  <View style={styles.successBanner} accessibilityRole="alert">
+                    <MobileIcon
+                      name="check-circle"
+                      size={16}
+                      color={mobileStatusTokens.successIcon}
+                    />
+                    <Text style={styles.successBannerText}>{ticketSuccess}</Text>
+                  </View>
+                ) : null}
+
+                <Button
+                  title="Submit Support Ticket"
+                  isLoading={createTicketMutation.isPending}
+                  onPress={() => {
+                    setTicketError(null);
+                    setTicketSuccess(null);
+                    if (ticketSubject.trim().length < 3 || ticketMessage.trim().length < 10) {
+                      setTicketError("Enter a subject (3+ chars) and message (10+ chars).");
+                      return;
+                    }
+                    void createTicketMutation
+                      .mutateAsync({
+                        requesterName: user.displayName,
+                        requesterEmail: user.email,
+                        category: ticketCategory,
+                        subject: ticketSubject.trim(),
+                        message: ticketMessage.trim()
+                      })
+                      .then((created) => {
+                        setTicketSubject("");
+                        setTicketMessage("");
+                        setSelectedTicketId(created.id);
+                        setTicketSuccess(`Ticket ${created.referenceCode} created.`);
+                      })
+                      .catch((err) => setTicketError(normalizeApiError(err).message));
+                  }}
+                />
+              </View>
+            )}
+          </FormSection>
+
+          {isAuthenticated && user ? (
+            <FormSection title={`My Tickets (${ticketsQuery.data?.length ?? 0})`}>
+              {ticketsQuery.isLoading ? (
+                <LoadingSkeleton count={2} />
+              ) : ticketsQuery.error ? (
+                <ErrorState
+                  title="Unable to Load Tickets"
+                  message={normalizeApiError(ticketsQuery.error).message}
+                  onRetry={() => void ticketsQuery.refetch()}
+                />
+              ) : (ticketsQuery.data?.length ?? 0) === 0 ? (
+                <View style={styles.emptyTicketsWrap}>
+                  <MascotIllustration mascot="phone" size="sm" variant="bare" decorative />
+                  <Text style={styles.mutedNote}>No support tickets submitted yet.</Text>
+                </View>
+              ) : (
+                <View style={styles.formStack}>
+                  {(ticketsQuery.data ?? []).map((t) => (
+                    <SelectionCard
+                      key={t.id}
+                      title={`${t.referenceCode} • ${t.subject}`}
+                      subtitle={`${t.status} • ${t.category.replace(/_/g, " ")}`}
+                      selected={selectedTicketId === t.id}
+                      onPress={() => setSelectedTicketId(t.id)}
+                    />
+                  ))}
+                </View>
+              )}
+
+              {selectedTicketId && ticketDetailQuery.data ? (
+                <Card variant="outlined" style={styles.ticketThreadCard}>
+                  <View style={styles.ticketThreadHeader}>
+                    <Text style={styles.faqTitle}>
+                      {ticketDetailQuery.data.referenceCode} • {ticketDetailQuery.data.subject}
+                    </Text>
+                    <StatusBadge status={ticketDetailQuery.data.status} size="sm" />
+                  </View>
+                  {ticketDetailQuery.data.messages.map((m) => (
+                    <View key={m.id} style={styles.threadMessage}>
+                      <Text style={styles.mutedNote}>
+                        {m.senderDisplayName} ({m.senderRole}):
+                      </Text>
+                      <Text style={styles.threadMessageBody}>{m.body}</Text>
+                    </View>
+                  ))}
+                  <TextInput
+                    label="Reply"
+                    placeholder="Write a follow-up message..."
+                    value={replyMessage}
+                    onChangeText={setReplyMessage}
+                  />
+                  {replyError ? <ErrorState title="Reply Error" message={replyError} /> : null}
+                  <Button
+                    title="Send Reply"
+                    size="sm"
+                    isLoading={replyTicketMutation.isPending}
+                    onPress={() => {
+                      setReplyError(null);
+                      if (replyMessage.trim().length < 2) {
+                        setReplyError("Enter a reply message.");
+                        return;
+                      }
+                      void replyTicketMutation
+                        .mutateAsync({
+                          ticketId: selectedTicketId,
+                          data: { message: replyMessage.trim() }
+                        })
+                        .then(() => setReplyMessage(""))
+                        .catch((err) => setReplyError(normalizeApiError(err).message));
+                    }}
+                  />
+                </Card>
+              ) : null}
+            </FormSection>
+          ) : null}
+        </View>
+      ) : null}
+
+      {activeTab === "EXCEPTION" ? (
         <FormSection
           title="Report a Booking Exception"
           subtitle="Need help with luggage handling, seals, or a counter arrival problem? Log an auditable booking exception directly."
@@ -182,10 +362,11 @@ export default function TravellerSupportScreen() {
               onAction={() => router.push("/(auth)/login")}
             />
           ) : reportableBookings.length === 0 ? (
-            <Text style={styles.mutedNote}>
-              No eligible bookings found. Active or completed bookings appear here for incident
-              reporting.
-            </Text>
+            <EmptyState
+              mascot="thinking"
+              title="No Eligible Bookings Found"
+              description="Active or completed bookings appear here for incident reporting."
+            />
           ) : (
             <View style={styles.formStack}>
               <Text style={styles.fieldLabel}>Select Reservation</Text>
@@ -200,18 +381,34 @@ export default function TravellerSupportScreen() {
               ))}
 
               <Text style={styles.fieldLabel}>Issue Category</Text>
-              {EXCEPTION_CATEGORIES.map((cat) => (
-                <SelectionCard
-                  key={cat.value}
-                  title={cat.label}
-                  selected={category === cat.value}
-                  onPress={() => setCategory(cat.value)}
-                />
-              ))}
+              <View style={styles.chipWrap}>
+                {EXCEPTION_CATEGORIES.map((cat) => {
+                  const selected = category === cat.value;
+                  return (
+                    <TouchableOpacity
+                      key={cat.value}
+                      style={[styles.topicChip, selected ? styles.topicChipActive : null]}
+                      onPress={() => setCategory(cat.value)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text
+                        style={[
+                          styles.topicChipText,
+                          selected ? styles.topicChipTextActive : null
+                        ]}
+                      >
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
               <TextInput
                 label="What Happened?"
                 required
+                multiline
                 placeholder="Describe damage, missing item, or counter delay..."
                 value={reason}
                 onChangeText={setReason}
@@ -219,7 +416,14 @@ export default function TravellerSupportScreen() {
 
               {submitError ? <ErrorState title="Submission Error" message={submitError} /> : null}
               {submitSuccess ? (
-                <Badge label={submitSuccess} variant="success" icon="check-circle" />
+                <View style={styles.successBanner} accessibilityRole="alert">
+                  <MobileIcon
+                    name="check-circle"
+                    size={16}
+                    color={mobileStatusTokens.successIcon}
+                  />
+                  <Text style={styles.successBannerText}>{submitSuccess}</Text>
+                </View>
               ) : null}
 
               <Button
@@ -233,169 +437,153 @@ export default function TravellerSupportScreen() {
             </View>
           )}
         </FormSection>
-      </Card>
+      ) : null}
 
-      <Card variant="default" style={styles.sectionCard}>
-        <FormSection
-          title="Support Tickets"
-          subtitle="Create a support inquiry and track replies from our Sri Lanka operations desk."
-        >
-          {!isAuthenticated || !user ? (
-            <EmptyState
-              mascot="thinking"
-              title="Sign In to Track Tickets"
-              description="Sign in to submit and track your persisted support ticket conversations."
-              actionTitle="Sign In"
-              onAction={() => router.push("/(auth)/login")}
-            />
-          ) : (
-            <View style={styles.formStack}>
-              <Text style={styles.fieldLabel}>Topic</Text>
-              {SUPPORT_TICKET_CATEGORIES.map((cat) => (
-                <SelectionCard
-                  key={cat}
-                  title={cat.replace(/_/g, " ")}
-                  selected={ticketCategory === cat}
-                  onPress={() => setTicketCategory(cat)}
-                />
-              ))}
-
-              <TextInput
-                label="Subject"
-                required
-                placeholder="Short summary of your inquiry"
-                value={ticketSubject}
-                onChangeText={setTicketSubject}
-              />
-              <TextInput
-                label="Message"
-                required
-                placeholder="Share details so our support team can assist quickly..."
-                value={ticketMessage}
-                onChangeText={setTicketMessage}
-              />
-
-              {ticketError ? <ErrorState title="Ticket Error" message={ticketError} /> : null}
-              {ticketSuccess ? (
-                <Badge label={ticketSuccess} variant="success" icon="check-circle" />
-              ) : null}
-
-              <Button
-                title="Submit Support Ticket"
-                isLoading={createTicketMutation.isPending}
-                onPress={() => {
-                  setTicketError(null);
-                  setTicketSuccess(null);
-                  if (ticketSubject.trim().length < 3 || ticketMessage.trim().length < 10) {
-                    setTicketError(
-                      "Enter a subject (3+ chars) and message (10+ chars)."
-                    );
-                    return;
-                  }
-                  void createTicketMutation
-                    .mutateAsync({
-                      requesterName: user.displayName,
-                      requesterEmail: user.email,
-                      category: ticketCategory,
-                      subject: ticketSubject.trim(),
-                      message: ticketMessage.trim()
-                    })
-                    .then((created) => {
-                      setTicketSubject("");
-                      setTicketMessage("");
-                      setSelectedTicketId(created.id);
-                      setTicketSuccess(`Ticket ${created.referenceCode} created.`);
-                    })
-                    .catch((err) => setTicketError(normalizeApiError(err).message));
-                }}
-              />
-
-              <Text style={styles.fieldLabel}>
-                My Tickets ({ticketsQuery.data?.length ?? 0})
-              </Text>
-              {ticketsQuery.isLoading ? (
-                <LoadingSkeleton count={2} />
-              ) : ticketsQuery.error ? (
-                <ErrorState
-                  title="Unable to Load Tickets"
-                  message={normalizeApiError(ticketsQuery.error).message}
-                  onRetry={() => void ticketsQuery.refetch()}
-                />
-              ) : (ticketsQuery.data?.length ?? 0) === 0 ? (
-                <Text style={styles.mutedNote}>No support tickets submitted yet.</Text>
-              ) : (
-                (ticketsQuery.data ?? []).map((t) => (
-                  <SelectionCard
-                    key={t.id}
-                    title={`${t.referenceCode} • ${t.subject}`}
-                    subtitle={`${t.status} • ${t.category.replace(/_/g, " ")}`}
-                    selected={selectedTicketId === t.id}
-                    onPress={() => setSelectedTicketId(t.id)}
-                  />
-                ))
-              )}
-
-              {selectedTicketId && ticketDetailQuery.data ? (
-                <Card variant="outlined" style={styles.faqItem}>
-                  <View style={{ padding: 12, gap: 8 }}>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <Text style={styles.faqTitle}>
-                        {ticketDetailQuery.data.referenceCode} • {ticketDetailQuery.data.subject}
-                      </Text>
-                      <StatusBadge status={ticketDetailQuery.data.status} size="sm" />
-                    </View>
-                    {ticketDetailQuery.data.messages.map((m) => (
-                      <View key={m.id} style={{ paddingVertical: 4 }}>
-                        <Text style={styles.mutedNote}>
-                          {m.senderDisplayName} ({m.senderRole}):
-                        </Text>
-                        <Text style={styles.faqBody}>{m.body}</Text>
-                      </View>
-                    ))}
-                    <TextInput
-                      label="Reply"
-                      placeholder="Write a follow-up message..."
-                      value={replyMessage}
-                      onChangeText={setReplyMessage}
+      {activeTab === "FAQS" ? (
+        <Card variant="default" style={styles.sectionCard}>
+          <View style={styles.faqHeroRow}>
+            <MascotIllustration mascot="thinking" size="xs" variant="bare" decorative />
+            <Text style={styles.sectionHeading}>Marketplace Safeguards & FAQs</Text>
+          </View>
+          <View style={styles.faqList}>
+            {FAQ_ITEMS.map((item) => {
+              const expanded = expandedFaqId === item.id;
+              return (
+                <View key={item.id} style={styles.faqItem}>
+                  <TouchableOpacity
+                    style={styles.faqHeader}
+                    onPress={() => setExpandedFaqId(expanded ? null : item.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded }}
+                  >
+                    <Text style={styles.faqTitle}>{item.title}</Text>
+                    <MobileIcon
+                      name={expanded ? "chevron-up" : "chevron-down"}
+                      size={18}
+                      color={mobileColors.navy[800]}
                     />
-                    {replyError ? <ErrorState title="Reply Error" message={replyError} /> : null}
-                    <Button
-                      title="Send Reply"
-                      size="sm"
-                      isLoading={replyTicketMutation.isPending}
-                      onPress={() => {
-                        setReplyError(null);
-                        if (replyMessage.trim().length < 2) {
-                          setReplyError("Enter a reply message.");
-                          return;
-                        }
-                        void replyTicketMutation
-                          .mutateAsync({
-                            ticketId: selectedTicketId,
-                            data: { message: replyMessage.trim() }
-                          })
-                          .then(() => setReplyMessage(""))
-                          .catch((err) => setReplyError(normalizeApiError(err).message));
-                      }}
-                    />
-                  </View>
-                </Card>
-              ) : null}
-            </View>
-          )}
-        </FormSection>
-      </Card>
+                  </TouchableOpacity>
+                  {expanded ? <Text style={styles.faqBody}>{item.body}</Text> : null}
+                </View>
+              );
+            })}
+          </View>
+        </Card>
+      ) : null}
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  modeTabsRow: {
+    flexDirection: "row",
+    gap: mobileSpacing[2],
+    marginBottom: mobileSpacing[4]
+  },
+  modeTabBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.white,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: mobileSpacing[2]
+  },
+  modeTabBtnActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  modeTabText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: mobileTextColors.secondary
+  },
+  modeTabTextActive: {
+    color: mobileColors.white
+  },
+  sectionStack: {
+    gap: mobileSpacing[4]
+  },
   sectionCard: {
     gap: mobileSpacing[4]
   },
+  faqHeroRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[3]
+  },
   sectionHeading: {
     ...mobileTypography.headingMd,
+    color: mobileTextColors.primary,
+    flex: 1
+  },
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: mobileSpacing[2]
+  },
+  topicChip: {
+    minHeight: 40,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  topicChipActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  topicChipText: {
+    fontSize: 12,
+    fontWeight: "600",
     color: mobileTextColors.primary
+  },
+  topicChipTextActive: {
+    color: mobileColors.white
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  successBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success,
+    fontWeight: "600",
+    flex: 1
+  },
+  emptyTicketsWrap: {
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    paddingVertical: mobileSpacing[3]
+  },
+  ticketThreadCard: {
+    gap: mobileSpacing[2],
+    marginTop: mobileSpacing[2]
+  },
+  ticketThreadHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: mobileSpacing[2]
+  },
+  threadMessage: {
+    paddingVertical: 4,
+    gap: 2
+  },
+  threadMessageBody: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.secondary
   },
   faqList: {
     gap: mobileSpacing[3]

@@ -9,6 +9,7 @@ export default function TravellerExploreScreen() {
       headerTitle="Explore Hubs"
       initialCity={params.city}
       initialSearchTerm={params.q}
+      showBackButton
     />
   );
 }
