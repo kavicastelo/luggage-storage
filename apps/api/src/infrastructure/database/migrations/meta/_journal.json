@@ -134,6 +134,13 @@
       "when": 1794900000000,
       "tag": "0018_initiative_6_payouts_and_support",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795000000000,
+      "tag": "0019_payment_infrastructure_transformation",
+      "breakpoints": true
     }
   ]
 }

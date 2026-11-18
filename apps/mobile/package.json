@@ -9,8 +9,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "export": "expo export --no-bytecode",
-    "build": "expo export --no-bytecode",
+    "export": "cross-env EXPO_NO_TELEMETRY=1 expo export --no-bytecode",
+    "build": "cross-env EXPO_NO_TELEMETRY=1 expo export --no-bytecode",
     "typecheck": "tsc --noEmit",
     "lint": "eslint app src tests",
     "test": "vitest run",
@@ -19,7 +19,6 @@
   "dependencies": {
     "@babel/runtime": "^7.25.0",
     "@luggage-storage/contracts": "workspace:*",
-    "@payhere/payhere-mobilesdk-reactnative": "4.1.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.2.1",
     "@tanstack/react-query": "^5.32.0",

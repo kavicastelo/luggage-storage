@@ -16,9 +16,21 @@ export interface MobilePendingCheckoutContext {
   bookingId: string;
   intentId: string;
   orderId: string;
-  provider: "PAYHERE" | "SANDBOX_GATEWAY";
+  provider: "STRIPE" | "PAYPAL" | "SANDBOX_GATEWAY" | "PAYHERE";
   channel: "WEB" | "MOBILE_APP";
   createdAt: string;
+}
+
+export function isStripeElementsHandoff(
+  handoff: PaymentCheckoutHandoff | null | undefined
+): boolean {
+  return Boolean(handoff && handoff.mode === "STRIPE_ELEMENTS" && handoff.provider === "STRIPE");
+}
+
+export function isPayPalCheckoutHandoff(
+  handoff: PaymentCheckoutHandoff | null | undefined
+): boolean {
+  return Boolean(handoff && handoff.mode === "PAYPAL_CHECKOUT" && handoff.provider === "PAYPAL");
 }
 
 export interface SanitizedMobileReturnQuery {
@@ -150,7 +162,14 @@ export function loadMobilePendingCheckoutContext(
         bookingId: parsed.bookingId,
         intentId: typeof parsed.intentId === "string" ? parsed.intentId : "",
         orderId: parsed.orderId,
-        provider: parsed.provider === "PAYHERE" ? "PAYHERE" : "SANDBOX_GATEWAY",
+        provider:
+          parsed.provider === "STRIPE"
+            ? "STRIPE"
+            : parsed.provider === "PAYPAL"
+            ? "PAYPAL"
+            : parsed.provider === "PAYHERE"
+            ? "PAYHERE"
+            : "SANDBOX_GATEWAY",
         channel: parsed.channel === "MOBILE_APP" ? "MOBILE_APP" : "WEB",
         createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : ""
       };

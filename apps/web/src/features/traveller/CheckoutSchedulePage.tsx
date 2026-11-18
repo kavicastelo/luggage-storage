@@ -101,6 +101,7 @@ export function WebCheckoutSchedulePage() {
   const [travellerNotes, setTravellerNotes] = useState("");
   const [billing, setBilling] = useState<CheckoutBillingState>(EMPTY_BILLING_STATE);
   const [billingExpanded, setBillingExpanded] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<"STRIPE" | "PAYPAL" | "SANDBOX_GATEWAY">("STRIPE");
 
   const [liveQuote, setLiveQuote] = useState<BookingQuoteResponse | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -331,6 +332,7 @@ export function WebCheckoutSchedulePage() {
       const currentIntent = await paymentIntentMutation.mutateAsync({
         bookingId: createdBooking.id,
         channel: "WEB",
+        provider: selectedProvider,
         idempotencyKey: generateClientIdempotencyKey("web-pay"),
         ...(Object.keys(trimmedBilling).length > 0
           ? { customerDetails: trimmedBilling }
@@ -345,6 +347,25 @@ export function WebCheckoutSchedulePage() {
         channel: currentIntent.checkoutChannel,
         createdAt: currentIntent.createdAt
       });
+
+      if (currentIntent.nextAction === "STRIPE_ELEMENTS_CONFIRM") {
+        navigate(
+          `/booking/confirm?bookingId=${encodeURIComponent(
+            createdBooking.id
+          )}&intentId=${encodeURIComponent(currentIntent.id)}&provider=STRIPE`
+        );
+        return;
+      }
+
+      if (currentIntent.nextAction === "PAYPAL_CHECKOUT_APPROVE") {
+        if (
+          currentIntent.checkoutHandoff.mode === "PAYPAL_CHECKOUT" &&
+          currentIntent.checkoutHandoff.approveUrl
+        ) {
+          window.location.href = currentIntent.checkoutHandoff.approveUrl;
+          return;
+        }
+      }
 
       if (
         currentIntent.checkoutChannel === "WEB" &&
@@ -704,12 +725,79 @@ export function WebCheckoutSchedulePage() {
               </div>
             </Card>
 
-            {/* Step 3: Billing Details for Gateway */}
+            {/* Step 3: Payment Method Selector */}
+            <Card className="p-6 bg-white space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-extrabold text-navy-950 flex items-center gap-2">
+                  <CreditCard className="h-5 w-5 text-terracotta-500" />
+                  3. Select Payment Method
+                </h2>
+                <Badge variant="success" size="sm">
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                  PCI-DSS SAQ A
+                </Badge>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  data-testid="payment-provider-stripe"
+                  onClick={() => setSelectedProvider("STRIPE")}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    selectedProvider === "STRIPE"
+                      ? "border-terracotta-500 bg-terracotta-50/50 shadow-sm ring-2 ring-terracotta-500"
+                      : "border-sand-200 bg-sand-50 hover:bg-white"
+                  }`}
+                >
+                  <p className="font-bold text-sm text-navy-950">Credit / Debit Card</p>
+                  <p className="text-xs text-sand-600 mt-1">Visa, Mastercard, Amex, Apple/Google Pay</p>
+                  <span className="inline-block mt-2 text-[10px] uppercase font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                    Stripe Primary
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="payment-provider-paypal"
+                  onClick={() => setSelectedProvider("PAYPAL")}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    selectedProvider === "PAYPAL"
+                      ? "border-terracotta-500 bg-terracotta-50/50 shadow-sm ring-2 ring-terracotta-500"
+                      : "border-sand-200 bg-sand-50 hover:bg-white"
+                  }`}
+                >
+                  <p className="font-bold text-sm text-navy-950">PayPal</p>
+                  <p className="text-xs text-sand-600 mt-1">PayPal Wallet &amp; Pay in 4</p>
+                  <span className="inline-block mt-2 text-[10px] uppercase font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    Alternative
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="payment-provider-sandbox"
+                  onClick={() => setSelectedProvider("SANDBOX_GATEWAY")}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    selectedProvider === "SANDBOX_GATEWAY"
+                      ? "border-terracotta-500 bg-terracotta-50/50 shadow-sm ring-2 ring-terracotta-500"
+                      : "border-sand-200 bg-sand-50 hover:bg-white"
+                  }`}
+                >
+                  <p className="font-bold text-sm text-navy-950">Sandbox Sim</p>
+                  <p className="text-xs text-sand-600 mt-1">Instant simulator for testing</p>
+                  <span className="inline-block mt-2 text-[10px] uppercase font-bold text-sand-600 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
+                    Dev / Test
+                  </span>
+                </button>
+              </div>
+            </Card>
+
+            {/* Step 4: Billing Details */}
             <Card className="p-6 bg-white space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-lg font-extrabold text-navy-950 flex items-center gap-2">
-                  <CreditCard className="h-5 w-5 text-terracotta-500" />
-                  3. Traveller Billing Details
+                  <UserCheck className="h-5 w-5 text-terracotta-500" />
+                  4. Traveller Billing &amp; Contact Details
                 </h2>
                 {isHostApprovalMode ? (
                   <button
@@ -728,7 +816,7 @@ export function WebCheckoutSchedulePage() {
                     )}
                   </button>
                 ) : (
-                  <span className="text-xs text-sand-600">Required for PayHere gateway</span>
+                  <span className="text-xs text-sand-600">256-bit encrypted checkout</span>
                 )}
               </div>
 

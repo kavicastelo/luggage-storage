@@ -37,10 +37,13 @@ import {
   NormalizedGatewayNotification,
   PayHereGatewayAdapter,
   PaymentGatewayPort,
+  PaymentProviderName,
   RawWebhookNotificationInput,
   resolvePayHereGatewayAdapter,
+  resolvePayPalGatewayAdapter,
   resolvePaymentGatewayAdapter,
-  resolveSandboxGatewayAdapter
+  resolveSandboxGatewayAdapter,
+  resolveStripeGatewayAdapter
 } from "./payment-gateway.port.js";
 
 const VALID_REFUND_TRANSITIONS: Record<RefundStatus, RefundStatus[]> = {
@@ -86,10 +89,23 @@ function isIntentPayloadValidForChannel(
   row: Pick<typeof schema.paymentIntents.$inferSelect, "provider" | "checkoutPayload">,
   channel: PaymentCheckoutChannel
 ): boolean {
+  const payload = (row.checkoutPayload as Record<string, unknown>) ?? {};
+  if (row.provider === "STRIPE") {
+    return (
+      typeof payload.clientSecret === "string" &&
+      typeof payload.publishableKey === "string" &&
+      typeof payload.paymentIntentId === "string"
+    );
+  }
+  if (row.provider === "PAYPAL") {
+    return (
+      typeof payload.orderId === "string" &&
+      typeof payload.approveUrl === "string"
+    );
+  }
   if (row.provider !== "PAYHERE") {
     return true;
   }
-  const payload = (row.checkoutPayload as Record<string, unknown>) ?? {};
   if (channel === "MOBILE_APP") {
     return PayHereNativeSdkPayloadSchema.safeParse(payload.sdkPayload).success;
   }
@@ -108,7 +124,26 @@ function serializeIntent(row: typeof schema.paymentIntents.$inferSelect): Paymen
   let nextAction: PaymentNextAction;
   let checkoutHandoff: PaymentCheckoutHandoff;
 
-  if (provider === "PAYHERE") {
+  if (provider === "STRIPE") {
+    nextAction = "STRIPE_ELEMENTS_CONFIRM";
+    checkoutHandoff = {
+      mode: "STRIPE_ELEMENTS",
+      provider: "STRIPE",
+      method: "STRIPE_ELEMENTS",
+      clientSecret: String(payload.clientSecret ?? ""),
+      publishableKey: String(payload.publishableKey ?? ""),
+      paymentIntentId: String(payload.paymentIntentId ?? "")
+    };
+  } else if (provider === "PAYPAL") {
+    nextAction = "PAYPAL_CHECKOUT_APPROVE";
+    checkoutHandoff = {
+      mode: "PAYPAL_CHECKOUT",
+      provider: "PAYPAL",
+      method: "PAYPAL_CHECKOUT",
+      orderId: String(payload.orderId ?? ""),
+      approveUrl: String(payload.approveUrl ?? "")
+    };
+  } else if (provider === "PAYHERE") {
     if (checkoutChannel === "MOBILE_APP") {
       nextAction = "LAUNCH_NATIVE_SDK";
       const parsedSdk = PayHereNativeSdkPayloadSchema.safeParse(payload.sdkPayload);
@@ -218,7 +253,23 @@ export class PaymentsService {
     const requestedChannel: PaymentCheckoutChannel = input.channel ?? "WEB";
     await quotationService.sweepExpiredHolds();
 
-    const gateway = resolvePaymentGatewayAdapter(requestedChannel);
+    if (
+      env.NODE_ENV === "production" &&
+      (input.provider === "PAYHERE" || env.PAYMENT_PROVIDER === "payhere")
+    ) {
+      throw AppError.badRequest(
+        "PAYHERE_PROVIDER_RETIRED: PayHere has been permanently retired as an active payment gateway. Please select Stripe or PayPal."
+      );
+    }
+
+    const defaultProvider = (
+      env.PAYMENT_PROVIDER === "sandbox"
+        ? "SANDBOX_GATEWAY"
+        : env.PAYMENT_PROVIDER.toUpperCase()
+    ) as PaymentProviderName;
+    const targetProvider = (input.provider ?? defaultProvider) as PaymentProviderName;
+
+    const gateway = resolvePaymentGatewayAdapter(targetProvider, requestedChannel);
 
     type CreateIntentTxResult =
       | { kind: "EXPIRED_HOLD" }
@@ -441,7 +492,7 @@ export class PaymentsService {
           bookingRow.traveller_phone_number?.trim() ||
           undefined;
 
-        const checkoutPayload = gateway.buildCheckoutPayload({
+        const checkoutPayload = await gateway.buildCheckoutPayload({
           intentId,
           bookingId: bookingRow.id,
           referenceCode: bookingRow.reference_code,
@@ -735,6 +786,56 @@ export class PaymentsService {
     return this.processGatewayWebhookInternal(adapter, rawInput, clientInfo);
   }
 
+  /**
+   * Verifies and processes an official Stripe webhook notification (JSON raw body)
+   * using Stripe SDK signature verification.
+   */
+  async processStripeWebhook(
+    rawPayload: string,
+    headers: Record<string, string | string[] | undefined>,
+    clientInfo?: AuditClientInfo
+  ): Promise<{
+    duplicate: boolean;
+    outcome: string;
+    bookingId?: string;
+    bookingStatus?: string;
+  }> {
+    return this.processGatewayWebhook(
+      resolveStripeGatewayAdapter(),
+      {
+        rawBody: rawPayload,
+        headers,
+        contentType: "application/json"
+      },
+      clientInfo
+    );
+  }
+
+  /**
+   * Verifies and processes an official PayPal webhook notification (JSON raw body)
+   * using PayPal REST API signature verification.
+   */
+  async processPayPalWebhook(
+    rawPayload: string,
+    headers: Record<string, string | string[] | undefined>,
+    clientInfo?: AuditClientInfo
+  ): Promise<{
+    duplicate: boolean;
+    outcome: string;
+    bookingId?: string;
+    bookingStatus?: string;
+  }> {
+    return this.processGatewayWebhook(
+      resolvePayPalGatewayAdapter(),
+      {
+        rawBody: rawPayload,
+        headers,
+        contentType: "application/json"
+      },
+      clientInfo
+    );
+  }
+
   private async processGatewayWebhook(
     adapter: PaymentGatewayPort,
     rawInput: RawWebhookNotificationInput,
@@ -772,7 +873,7 @@ export class PaymentsService {
   }> {
     let notification: NormalizedGatewayNotification;
     try {
-      notification = adapter.verifyAndNormalizeNotification(rawInput);
+      notification = await adapter.verifyAndNormalizeNotification(rawInput);
     } catch (err) {
       const ids = adapter.extractNotificationIdentifiers(rawInput);
       await auditService.recordEvent({

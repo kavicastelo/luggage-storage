@@ -55,11 +55,8 @@ function resolveDefaultSdkModule(): {
 }
 
 /**
- * Invokes the official PayHere native React Native SDK (`@payhere/payhere-mobilesdk-reactnative`)
- * strictly on native platforms using server-issued sdkPayload parameters (never secrets or client hashes).
- *
- * SECURITY: All returned outcomes (including COMPLETED) are UNTRUSTED UI hints only. Callers must verify
- * payment settlement exclusively via `GET /api/v1/payments/checkout-status` after webhook processing.
+ * @deprecated Legacy adapter retained exclusively for historical test invariant verification.
+ * Active runtime checkout uses Stripe and PayPal via provider-agnostic handoff.
  */
 export async function launchPayHereNativeCheckout(
   rawSdkPayload: PayHereNativeSdkPayload,
@@ -134,4 +131,3 @@ export async function launchPayHereNativeCheckout(
     }
   });
 }
-

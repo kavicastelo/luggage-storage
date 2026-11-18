@@ -11,6 +11,7 @@ The platform is structured as a modular monorepo powered by **pnpm workspaces** 
 - **Backend API (`apps/api`):** Fastify 5.12.8 LTS, Node.js 26.3.1, TypeScript, Drizzle ORM.
 - **Web Frontend (`apps/web`):** React 18.3.1, Vite 6, Tailwind CSS, TypeScript (SPA).
 - **Mobile Application (`apps/mobile`):** React Native 0.88.1, Expo SDK 58.0.23, Expo Router, Zustand (Traveller & Host apps).
+- **Payment Infrastructure:** Provider-agnostic gateway architecture featuring **Stripe** as primary processor (Stripe Elements) and **PayPal** as alternative processor (Orders v2), with multi-currency support (`USD`, `EUR`, `GBP`, `LKR`, `AUD`, `CAD`, `SGD`, `JPY`) and double-entry financial ledger accounting.
 - **Shared Contracts (`packages/contracts`):** Common Zod schemas, API types, error formats, currency/date utilities.
 - **Database (`infrastructure/docker`):** PostgreSQL 16.15 with PostGIS 3.5.7 extension, 3-tier role architecture (`postgres`, `luggage_migrator`, `luggage_user`).
 
@@ -45,16 +46,17 @@ pnpm dev
 Comprehensive documentation is organized under the [`docs/`](file:///d:/luggage-storage/luggage-storage/docs/README.md) directory:
 
 - **[Documentation Index & Navigation Guide](file:///d:/luggage-storage/luggage-storage/docs/README.md)** — Master map of all project documentation.
+- **[Payment Infrastructure Transformation](file:///d:/luggage-storage/luggage-storage/docs/payment-transformation/README.md)** — Specifications, architecture, Stripe/PayPal runbooks, and handover reports.
 - **[Repository Architecture](file:///d:/luggage-storage/luggage-storage/docs/engineering/repository-architecture.md)** — Monorepo structure and build pipeline.
 - **[Development Setup Guide](file:///d:/luggage-storage/luggage-storage/docs/engineering/development-setup.md)** — Step-by-step developer onboarding.
 - **[Coding Standards](file:///d:/luggage-storage/luggage-storage/docs/engineering/coding-standards.md)** — TypeScript, formatting, and linting rules.
 - **[Database Development](file:///d:/luggage-storage/luggage-storage/docs/engineering/database-development.md)** — Drizzle ORM and PostgreSQL 3-tier security.
-- **[Active Phase Specification: Phase 1B](file:///d:/luggage-storage/luggage-storage/docs/engineering/phase-1b-specification.md)** — Identity, Authentication & Access Control.
 
 ---
 
 ## 4. Current Status
 
-- **Phase 0A, 0B, 0C (Architecture & Requirements):** Formally Accepted.
-- **Phase 1A-R (Foundation Stabilization):** Formally Accepted (19/19 Criteria PASS, PR #2 Merged).
-- **Phase 1B (Identity, Authentication & Access Control):** Entry Gate Passed & Commenced.
+- **Phase A (Foundation, Auth & Host Onboarding):** Formally Accepted (100% Green).
+- **Phase B (Booking, Custody & Financial Ledger):** Formally Accepted (100% Green).
+- **Phase C (Mobile Production Readiness):** Formally Accepted (100% Green).
+- **Payment Infrastructure Transformation (Stripe & PayPal):** Complete & Verified (75 test files, 756 tests passing, 0 failures). PayHere fully decommissioned; Stripe primary & PayPal alternative active; 100% historical ledger auditability preserved.

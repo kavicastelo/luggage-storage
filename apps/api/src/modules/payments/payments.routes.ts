@@ -166,6 +166,46 @@ export async function paymentRoutes(app: FastifyInstance): Promise<void> {
     );
 
     webhookScope.post(
+      "/webhooks/stripe",
+      {
+        bodyLimit: 65_536,
+        schema: {
+          tags: ["Payments"],
+          summary: "Receive and verify Stripe webhook notification via official SDK signature"
+        }
+      },
+      async (request, reply) => {
+        const rawBody = typeof request.body === "string" ? request.body : "";
+        const result = await paymentsService.processStripeWebhook(
+          rawBody,
+          request.headers,
+          getClientInfo(request)
+        );
+        return reply.status(200).send(createSuccessResponse(result, request.id));
+      }
+    );
+
+    webhookScope.post(
+      "/webhooks/paypal",
+      {
+        bodyLimit: 65_536,
+        schema: {
+          tags: ["Payments"],
+          summary: "Receive and verify PayPal webhook notification via REST verification API"
+        }
+      },
+      async (request, reply) => {
+        const rawBody = typeof request.body === "string" ? request.body : "";
+        const result = await paymentsService.processPayPalWebhook(
+          rawBody,
+          request.headers,
+          getClientInfo(request)
+        );
+        return reply.status(200).send(createSuccessResponse(result, request.id));
+      }
+    );
+
+    webhookScope.post(
       "/webhooks/payhere",
       {
         bodyLimit: 65_536,
