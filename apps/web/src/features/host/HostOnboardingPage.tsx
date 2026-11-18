@@ -7,14 +7,14 @@ import {
   type HostEntityType
 } from "@luggage-storage/contracts";
 import {
+  ArrowRight,
   Building2,
   CheckCircle2,
   FileCheck2,
   MapPin,
-  ShieldCheck,
   Upload
 } from "lucide-react";
-import { Alert } from "@/components/ui/Alert";
+import { Alert, Badge, Button, Card, LoadingSkeleton, MascotIllustration } from "@/components/ui";
 import { uploadFileToR2, validateFileForUpload } from "@/lib/r2-uploader";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useHostContextStore } from "@/store/useHostContextStore";
@@ -26,6 +26,7 @@ import {
   useSubmitVerificationMutation
 } from "@/hooks/queries/use-host-portal";
 import { hostQueryKeys, useResolvedQueryClient } from "@/hooks/queries/query-keys";
+import { SRI_LANKA_HUB_PRESETS } from "./host-helpers";
 
 interface UploadedKycDocDraft {
   documentType: HostDocumentType;
@@ -113,8 +114,10 @@ export function HostOnboardingPage() {
   if (!isAuthenticated) {
     return (
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
-        <div className="bg-white rounded-3xl border border-sand-200 p-8 text-center space-y-4 shadow-sm">
-          <ShieldCheck className="h-10 w-10 text-terracotta-500 mx-auto" />
+        <Card className="p-8 text-center space-y-4">
+          <div className="flex justify-center">
+            <MascotIllustration mascot="selfie" size="md" variant="bare" decorative />
+          </div>
           <h1 className="text-2xl font-extrabold text-navy-950">
             Host Partner Onboarding
           </h1>
@@ -136,7 +139,7 @@ export function HostOnboardingPage() {
               Create Account
             </Link>
           </div>
-        </div>
+        </Card>
       </div>
     );
   }
@@ -266,11 +269,17 @@ export function HostOnboardingPage() {
   };
 
   const existingVerification = verificationQuery.data ?? null;
+  const isBusinessesLoading = isHostOwnerOrAdmin && businessesQuery.isLoading;
+  const hasSubmittedKyc = Boolean(
+    existingVerification &&
+      existingVerification.status !== "REJECTED" &&
+      existingVerification.status !== "INFORMATION_REQUESTED"
+  );
 
   return (
     <div className="min-h-screen bg-sand-50 py-10 px-4 sm:px-6">
       <div className="max-w-4xl mx-auto space-y-6">
-        <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm space-y-4">
+        <Card className="p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-terracotta-600">
@@ -326,7 +335,7 @@ export function HostOnboardingPage() {
               );
             })}
           </div>
-        </div>
+        </Card>
 
         {errorMsg && (
           <Alert variant="danger" title="Action Required">
@@ -340,19 +349,34 @@ export function HostOnboardingPage() {
           </Alert>
         )}
 
+        {isBusinessesLoading ? (
+          <Card className="p-6 space-y-4">
+            <LoadingSkeleton variant="text" className="w-60 h-6" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <LoadingSkeleton className="h-12 w-full" />
+              <LoadingSkeleton className="h-12 w-full" />
+              <LoadingSkeleton className="h-12 w-full" />
+              <LoadingSkeleton className="h-12 w-full" />
+            </div>
+          </Card>
+        ) : null}
+
         {/* Step 1: Register Host Business */}
-        {effectiveStep === 1 && (
+        {!isBusinessesLoading && effectiveStep === 1 && (
           <form
             onSubmit={handleCreateBusiness}
             className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm space-y-5 text-xs"
           >
-            <div>
-              <h2 className="text-base font-extrabold text-navy-950">
-                Register Host Business Entity
-              </h2>
-              <p className="text-navy-600 mt-0.5">
-                Creating your partner business automatically upgrades your session to Host Owner permissions.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-extrabold text-navy-950">
+                  Register Host Business Entity
+                </h2>
+                <p className="text-navy-600 mt-0.5">
+                  Creating your partner business automatically upgrades your session to Host Owner permissions.
+                </p>
+              </div>
+              <MascotIllustration mascot="selfie" size="sm" variant="bare" decorative />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -471,22 +495,22 @@ export function HostOnboardingPage() {
             </div>
 
             <div className="flex justify-end pt-2">
-              <button
+              <Button
                 type="submit"
-                disabled={createBusinessMutation.isPending}
-                className="px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold transition disabled:opacity-50"
+                isLoading={createBusinessMutation.isPending}
+                rightIcon={<ArrowRight className="h-4 w-4" />}
               >
                 {createBusinessMutation.isPending
                   ? "Establishing Business..."
                   : "Register Business & Continue"}
-              </button>
+              </Button>
             </div>
           </form>
         )}
 
         {/* Step 2: KYC Verification Uploads */}
-        {effectiveStep === 2 && activeBusiness && (
-          <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm space-y-5 text-xs">
+        {!isBusinessesLoading && effectiveStep === 2 && activeBusiness && (
+          <Card className="p-6 space-y-5 text-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-sand-100 pb-4">
               <div>
                 <h2 className="text-base font-extrabold text-navy-950">
@@ -497,11 +521,46 @@ export function HostOnboardingPage() {
                 </p>
               </div>
               {existingVerification && (
-                <span className="px-3 py-1 rounded-full font-bold bg-sand-100 text-navy-900 border border-sand-300">
+                <Badge
+                  variant={
+                    existingVerification.status === "APPROVED"
+                      ? "success"
+                      : existingVerification.status === "REJECTED"
+                        ? "danger"
+                        : "warning"
+                  }
+                  size="md"
+                >
                   Verification Status: {existingVerification.status}
-                </span>
+                </Badge>
               )}
             </div>
+
+            {hasSubmittedKyc && existingVerification && (
+              <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <MascotIllustration mascot="selfie" size="xs" variant="bare" decorative />
+                  <div className="space-y-1">
+                    <p className="font-bold text-navy-950">
+                      {existingVerification.status === "APPROVED"
+                        ? "Business KYC Approved"
+                        : "KYC Dossier Under Compliance Review"}
+                    </p>
+                    <p className="text-navy-700">
+                      {existingVerification.documents.length} compliance document(s) on file. You can proceed straight to creating your first storage hub.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setStep(3)}
+                  rightIcon={<ArrowRight className="h-3.5 w-3.5" />}
+                >
+                  Continue to Hub Setup
+                </Button>
+              </div>
+            )}
 
             {existingVerification?.rejectionReason && (
               <Alert variant="warning" title="Verification Feedback">
@@ -538,15 +597,16 @@ export function HostOnboardingPage() {
                 />
               </div>
               <div>
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   disabled={!selectedFile || uploadingFile}
                   onClick={() => void handleUploadKycDocument()}
-                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white font-bold transition disabled:opacity-50"
+                  leftIcon={<Upload className="h-4 w-4" />}
+                  className="w-full"
                 >
-                  <Upload className="h-4 w-4" />
-                  <span>{uploadingFile ? "Uploading to Storage..." : "Upload Document"}</span>
-                </button>
+                  {uploadingFile ? "Uploading to Storage..." : "Upload Document"}
+                </Button>
               </div>
             </div>
 
@@ -586,26 +646,23 @@ export function HostOnboardingPage() {
               >
                 Skip to Hub Draft Setup
               </button>
-              <button
+              <Button
                 type="button"
                 disabled={stagedDocs.length === 0 || submitVerificationMutation.isPending}
                 onClick={() => void handleSubmitVerification()}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold transition disabled:opacity-50"
+                leftIcon={<CheckCircle2 className="h-4 w-4" />}
               >
-                <CheckCircle2 className="h-4 w-4" />
-                <span>
-                  {submitVerificationMutation.isPending
-                    ? "Submitting Dossier..."
-                    : "Submit KYC Verification & Continue"}
-                </span>
-              </button>
+                {submitVerificationMutation.isPending
+                  ? "Submitting Dossier..."
+                  : "Submit KYC Verification & Continue"}
+              </Button>
             </div>
-          </div>
+          </Card>
         )}
 
         {/* Step 3: Register First Draft Location */}
-        {effectiveStep === 3 && activeBusiness && (
-          <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm space-y-5 text-xs">
+        {!isBusinessesLoading && effectiveStep === 3 && activeBusiness && (
+          <Card className="p-6 space-y-5 text-xs">
             <div>
               <h2 className="text-base font-extrabold text-navy-950">
                 Create Your First Storage Location Draft
@@ -616,13 +673,49 @@ export function HostOnboardingPage() {
             </div>
 
             {createdLocationId ? (
-              <div className="p-5 rounded-xl bg-emerald-50 border border-emerald-200 space-y-3">
-                <p className="font-bold text-emerald-950 text-sm">
-                  Onboarding Setup Complete
-                </p>
-                <p className="text-emerald-800">
-                  Your host business and first storage location draft are saved. Complete photos, weekly schedule, zones, and LKR rates in the Location Editor before submitting for review.
-                </p>
+              <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-4">
+                <div className="flex items-start gap-3">
+                  <MascotIllustration mascot="pointing" size="sm" variant="bare" decorative />
+                  <div className="space-y-1">
+                    <p className="font-bold text-emerald-950 text-sm">
+                      Onboarding Setup Complete — Go-Live Checklist
+                    </p>
+                    <p className="text-emerald-800">
+                      Your host business and first storage location draft are saved. Complete these 4 setup steps before submitting for Superadmin review:
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {[
+                    {
+                      stepLabel: "1. Upload Hub Photos & Amenities",
+                      to: `/host/locations/${createdLocationId}`
+                    },
+                    {
+                      stepLabel: "2. Set Weekly Hours & Poya Calendar",
+                      to: `/host/locations/${createdLocationId}/schedule`
+                    },
+                    {
+                      stepLabel: "3. Configure Zones & Capacity Pools",
+                      to: `/host/locations/${createdLocationId}/capacity`
+                    },
+                    {
+                      stepLabel: "4. Set LKR Tiered Pricing Rules",
+                      to: `/host/locations/${createdLocationId}/pricing`
+                    }
+                  ].map((item) => (
+                    <Link
+                      key={item.to}
+                      to={item.to}
+                      className="flex items-center justify-between p-3 rounded-xl bg-white border border-emerald-200 hover:border-terracotta-400 font-bold text-navy-900 transition"
+                    >
+                      <span>{item.stepLabel}</span>
+                      <ArrowRight className="h-3.5 w-3.5 text-terracotta-600" />
+                    </Link>
+                  ))}
+                </div>
+
                 <div className="flex flex-wrap gap-3 pt-1">
                   <Link
                     to={`/host/locations/${createdLocationId}`}
@@ -677,6 +770,32 @@ export function HostOnboardingPage() {
                       className="w-full rounded-xl border border-sand-300 px-3 py-2"
                     />
                   </div>
+
+                  {/* Quick Sri Lanka City Coordinate Presets */}
+                  <div className="sm:col-span-2 flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-bold text-navy-600">
+                      Sri Lanka City Presets:
+                    </span>
+                    {SRI_LANKA_HUB_PRESETS.map((preset) => (
+                      <button
+                        key={preset.city}
+                        type="button"
+                        onClick={() => {
+                          setHubCity(preset.city);
+                          setHubLatitude(preset.latitude);
+                          setHubLongitude(preset.longitude);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                          hubCity.toLowerCase() === preset.city.toLowerCase()
+                            ? "bg-navy-900 text-white border-navy-900"
+                            : "bg-sand-50 text-navy-800 border-sand-300 hover:bg-sand-100"
+                        }`}
+                      >
+                        {preset.city}
+                      </button>
+                    ))}
+                  </div>
+
                   <div>
                     <label className="block font-bold text-navy-900 mb-1">Latitude</label>
                     <input
@@ -743,19 +862,15 @@ export function HostOnboardingPage() {
                   >
                     Finish Later in Dashboard
                   </Link>
-                  <button
-                    type="submit"
-                    disabled={createLocationMutation.isPending}
-                    className="px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold transition disabled:opacity-50"
-                  >
+                  <Button type="submit" isLoading={createLocationMutation.isPending}>
                     {createLocationMutation.isPending
                       ? "Creating Location Draft..."
                       : "Create Draft Storage Hub"}
-                  </button>
+                  </Button>
                 </div>
               </form>
             )}
-          </div>
+          </Card>
         )}
       </div>
     </div>

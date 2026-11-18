@@ -5,9 +5,9 @@ import {
   SYSTEM_PERMISSIONS,
   type HostBusinessStatus
 } from "@luggage-storage/contracts";
-import { Building2, Eye, Search, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { Eye, Search, ShieldAlert, ShieldCheck } from "lucide-react";
 import { PermissionGate } from "@/components/auth/PermissionGate";
-import { MascotIllustration } from "@/components/ui";
+import { SlideOverDrawer } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
   useAdminHostDetailQuery,
@@ -18,10 +18,12 @@ import {
 import { formatDateTimeDisplay } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
   AdminPageHeader,
   AdminPaginationBar,
   AdminQueryErrorAlert,
+  AdminTableSkeleton,
   isUuid,
   statusBadgeToneClasses
 } from "./admin-helpers";
@@ -164,21 +166,19 @@ export function AdminHostDirectoryPage() {
       <AdminPageHeader
         title="Partner Host Business Directory"
         subtitle="Inspect onboarded storage operator entities, linked locations, KYC standing, and execute Superadmin suspend or reinstate governance."
+        badge={showDemoPreview ? "Demo Preview" : "Partner Governance"}
         rightSlot={
-          <div className="flex items-center gap-3">
-            <Link
-              to={`/admin/hosts/review${querySuffix}`}
-              className="px-3.5 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold transition"
-            >
-              Open KYC Review Queue
-            </Link>
-            <MascotIllustration mascot="salute" size="sm" caption="Partner Governance" />
-          </div>
+          <Link
+            to={`/admin/hosts/review${querySuffix}`}
+            className="px-3.5 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold transition shadow-sm"
+          >
+            Open KYC Review Queue
+          </Link>
         }
       />
 
       {effectiveAdminRole === "SUPPORT" && (
-        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold">
+        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-sand-100 border border-sand-200 text-navy-900 text-xs font-bold">
           Read-Only Support View (Host Suspension & Reinstatement Restricted to Superadmin)
         </div>
       )}
@@ -214,21 +214,21 @@ export function AdminHostDirectoryPage() {
 
       {/* Search & Status Filters */}
       {!showDemoPreview && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+        <div className="bg-white rounded-2xl border border-sand-200 p-4 space-y-3 shadow-sm">
           <form onSubmit={handleSearchSubmit} className="flex flex-wrap gap-2">
             <div className="relative flex-1 min-w-[220px]">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 text-sand-700 absolute left-3 top-2.5" />
               <input
                 type="text"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search by trade name, legal name, BRN, city, or owner email..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs"
+                className="w-full pl-9 pr-3 py-2 rounded-xl border border-sand-200 text-xs text-navy-950"
               />
             </div>
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
+              className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
             >
               Search Hosts
             </button>
@@ -240,7 +240,7 @@ export function AdminHostDirectoryPage() {
                   setAppliedSearch("");
                   setPage(1);
                 }}
-                className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                className="px-3 py-2 rounded-xl border border-sand-200 text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
               >
                 Clear
               </button>
@@ -258,8 +258,8 @@ export function AdminHostDirectoryPage() {
                 }}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                   statusFilter === opt.value
-                    ? "bg-purple-700 text-white"
-                    : "bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100"
+                    ? "bg-navy-900 text-white shadow-sm"
+                    : "bg-sand-50 border border-sand-200 text-navy-900 hover:bg-sand-100"
                 }`}
               >
                 {opt.label}
@@ -270,12 +270,12 @@ export function AdminHostDirectoryPage() {
       )}
 
       {/* Directory List */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
         {showDemoPreview ? (
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+          <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 flex items-center justify-between text-xs">
             <div>
-              <p className="font-bold text-slate-900">Lanka Harbor Left-Luggage (Demo Preview)</p>
-              <p className="text-slate-600 mt-0.5">
+              <p className="font-bold text-navy-950">Lanka Harbor Left-Luggage (Demo Preview)</p>
+              <p className="text-sand-700 mt-0.5">
                 Colombo • 2 active locations • KYC: APPROVED
               </p>
             </div>
@@ -284,7 +284,7 @@ export function AdminHostDirectoryPage() {
             </span>
           </div>
         ) : hostsQuery.isLoading ? (
-          <p className="text-xs text-slate-500 py-4 text-center">Loading host businesses...</p>
+          <AdminTableSkeleton rows={5} columns={6} />
         ) : hosts.length === 0 ? (
           <AdminEmptyStateCard
             title="No host businesses match this filter"
@@ -294,7 +294,7 @@ export function AdminHostDirectoryPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
+                <tr className="border-b border-sand-200 text-sand-700">
                   <th className="pb-2.5 pr-4 font-bold">Business</th>
                   <th className="pb-2.5 pr-4 font-bold">Owner & Contact</th>
                   <th className="pb-2.5 pr-4 font-bold">KYC</th>
@@ -303,19 +303,19 @@ export function AdminHostDirectoryPage() {
                   <th className="pb-2.5 font-bold text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-sand-100">
                 {hosts.map((host) => (
-                  <tr key={host.id} className="hover:bg-slate-50">
+                  <tr key={host.id} className="hover:bg-sand-50/70 transition-colors">
                     <td className="py-3 pr-4">
-                      <p className="font-bold text-slate-900">{host.tradeName}</p>
-                      <p className="text-[11px] text-slate-500">
+                      <p className="font-bold text-navy-950">{host.tradeName}</p>
+                      <p className="text-[11px] text-sand-700">
                         {host.legalBusinessName}
                         {host.businessRegistrationNumber ? ` • BRN ${host.businessRegistrationNumber}` : ""}
                       </p>
                     </td>
                     <td className="py-3 pr-4">
-                      <p className="font-semibold text-slate-800">{host.ownerDisplayName}</p>
-                      <p className="text-[11px] text-slate-500">{host.ownerEmail}</p>
+                      <p className="font-semibold text-navy-900">{host.ownerDisplayName}</p>
+                      <p className="text-[11px] text-sand-700">{host.ownerEmail}</p>
                     </td>
                     <td className="py-3 pr-4">
                       {host.verificationStatus ? (
@@ -325,10 +325,10 @@ export function AdminHostDirectoryPage() {
                           {host.verificationStatus}
                         </span>
                       ) : (
-                        <span className="text-slate-400">Not submitted</span>
+                        <span className="text-sand-500">Not submitted</span>
                       )}
                     </td>
-                    <td className="py-3 pr-4 text-slate-700">
+                    <td className="py-3 pr-4 text-navy-900 tabular-nums">
                       {host.activeLocationCount} active / {host.locationCount} total
                     </td>
                     <td className="py-3 pr-4">
@@ -342,7 +342,7 @@ export function AdminHostDirectoryPage() {
                       <button
                         type="button"
                         onClick={() => openInspector(host.id)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
                       >
                         <Eye className="w-3.5 h-3.5" /> Inspect Business
                       </button>
@@ -364,31 +364,31 @@ export function AdminHostDirectoryPage() {
         )}
       </div>
 
-      {/* Host Detail & Lifecycle Drawer */}
-      {inspectedBusinessId && !showDemoPreview && (
-        <section
-          aria-label="Host Business Inspection Drawer"
-          className="bg-white rounded-2xl border-2 border-purple-300 p-6 shadow-lg space-y-5"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">
-                Host Governance Inspector
-              </span>
-              <h2 className="text-lg font-extrabold text-slate-950 mt-0.5 flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-purple-700" />
-                {detailQuery.data?.tradeName ?? `Business ${inspectedBusinessId.slice(0, 8)}`}
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={closeInspector}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50"
+      {/* Host Detail & Lifecycle Slide-Over Drawer */}
+      <SlideOverDrawer
+        open={Boolean(inspectedBusinessId && !showDemoPreview)}
+        onClose={closeInspector}
+        ariaLabel="Host Business Inspection Drawer"
+        closeLabel="Close host inspector"
+        size="xl"
+        title={
+          detailQuery.data?.tradeName ??
+          (inspectedBusinessId ? `Business ${inspectedBusinessId.slice(0, 8)}` : "Host Inspector")
+        }
+        subtitle={detailQuery.data?.legalBusinessName}
+        badge={
+          detailQuery.data && (
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(
+                detailQuery.data.status
+              )}`}
             >
-              <X className="w-3.5 h-3.5" /> Close
-            </button>
-          </div>
-
+              {detailQuery.data.status}
+            </span>
+          )
+        }
+      >
+        <div className="space-y-5 text-xs">
           {detailQuery.isError ? (
             <AdminQueryErrorAlert
               message={
@@ -399,48 +399,48 @@ export function AdminHostDirectoryPage() {
               onRetry={() => void detailQuery.refetch()}
             />
           ) : detailQuery.isLoading || !detailQuery.data ? (
-            <p className="text-xs text-slate-500 py-4">Loading host profile and locations...</p>
+            <AdminCardListSkeleton count={3} />
           ) : (
-            <div className="space-y-5 text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-sand-50 border border-sand-200">
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Legal Business Name
                   </span>
-                  <p className="font-bold text-slate-900 mt-0.5">
+                  <p className="font-bold text-navy-950 mt-0.5">
                     {detailQuery.data.legalBusinessName}
                   </p>
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     BRN & Entity Type
                   </span>
-                  <p className="font-semibold text-slate-800 mt-0.5">
+                  <p className="font-semibold text-navy-900 mt-0.5">
                     {detailQuery.data.businessRegistrationNumber || "Not recorded"} •{" "}
                     {detailQuery.data.entityType}
                   </p>
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Tax Identifier & Country
                   </span>
-                  <p className="font-semibold text-slate-800 mt-0.5">
+                  <p className="font-semibold text-navy-900 mt-0.5">
                     {detailQuery.data.taxIdentifier || "None"} ({detailQuery.data.countryCode})
                   </p>
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Owner Account
                   </span>
-                  <p className="font-semibold text-slate-800 mt-0.5">
+                  <p className="font-semibold text-navy-900 mt-0.5">
                     {detailQuery.data.ownerDisplayName} ({detailQuery.data.ownerEmail})
                   </p>
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Registered Address
                   </span>
-                  <p className="font-semibold text-slate-800 mt-0.5">
+                  <p className="font-semibold text-navy-900 mt-0.5">
                     {[
                       detailQuery.data.addressLine1,
                       detailQuery.data.addressLine2,
@@ -452,7 +452,7 @@ export function AdminHostDirectoryPage() {
                   </p>
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">
+                  <span className="text-[11px] font-bold text-sand-700 uppercase">
                     Business Status & KYC
                   </span>
                   <div className="flex flex-wrap gap-1.5 mt-1">
@@ -474,21 +474,21 @@ export function AdminHostDirectoryPage() {
 
               {/* Linked Storage Locations */}
               <div className="space-y-2">
-                <h3 className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                <h3 className="text-xs font-extrabold uppercase tracking-wide text-navy-900">
                   Linked Storage Locations ({detailQuery.data.locations.length})
                 </h3>
                 {detailQuery.data.locations.length === 0 ? (
-                  <p className="text-slate-500 italic">No storage locations registered yet.</p>
+                  <p className="text-sand-700 italic">No storage locations registered yet.</p>
                 ) : (
                   <div className="space-y-2">
                     {detailQuery.data.locations.map((loc) => (
                       <div
                         key={loc.id}
-                        className="p-3 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-2"
+                        className="p-3 rounded-xl border border-sand-200 flex flex-wrap items-center justify-between gap-2 bg-white"
                       >
                         <div>
-                          <p className="font-bold text-slate-900">{loc.name}</p>
-                          <p className="text-[11px] text-slate-500">
+                          <p className="font-bold text-navy-950">{loc.name}</p>
+                          <p className="text-[11px] text-sand-700 tabular-nums">
                             {loc.city} • {loc.bookingMode} • Updated{" "}
                             {formatDateTimeDisplay(loc.updatedAt)}
                           </p>
@@ -501,7 +501,7 @@ export function AdminHostDirectoryPage() {
                           </span>
                           <Link
                             to={`/admin/locations?inspect=${loc.id}`}
-                            className="px-2.5 py-1 rounded-lg border border-slate-300 font-bold text-slate-700 hover:bg-slate-50"
+                            className="px-2.5 py-1 rounded-lg border border-sand-200 font-bold text-navy-900 hover:bg-sand-100 transition"
                           >
                             Inspect Location
                           </Link>
@@ -516,13 +516,13 @@ export function AdminHostDirectoryPage() {
               <PermissionGate
                 permission={SYSTEM_PERMISSIONS.ADMIN_HOST_VERIFY}
                 fallback={
-                  <p className="text-xs text-slate-500 italic border-t border-slate-200 pt-3">
+                  <p className="text-xs text-sand-700 italic border-t border-sand-200 pt-3">
                     Host suspension and reinstatement actions require Superadmin KYC/Host
                     management permission.
                   </p>
                 }
               >
-                <div className="border-t border-slate-200 pt-4 space-y-3">
+                <div className="border-t border-sand-200 pt-4 space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {detailQuery.data.status !== "SUSPENDED" ? (
                       <button
@@ -531,7 +531,7 @@ export function AdminHostDirectoryPage() {
                           setActionMode("SUSPEND");
                           setReasonInput("");
                         }}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition"
                       >
                         <ShieldAlert className="w-3.5 h-3.5" /> Suspend Host Business
                       </button>
@@ -542,7 +542,7 @@ export function AdminHostDirectoryPage() {
                           setActionMode("REINSTATE");
                           setReasonInput("");
                         }}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition"
                       >
                         <ShieldCheck className="w-3.5 h-3.5" /> Reinstate Host Business
                       </button>
@@ -552,9 +552,9 @@ export function AdminHostDirectoryPage() {
                   {actionMode && (
                     <form
                       onSubmit={handleLifecycleSubmit}
-                      className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3"
+                      className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-3"
                     >
-                      <p className="font-bold text-slate-900">
+                      <p className="font-bold text-navy-950">
                         {actionMode === "SUSPEND"
                           ? "Confirm Host Business Suspension (hides locations from public discovery & blocks host edits)"
                           : "Confirm Host Business Reinstatement (restores ACTIVE status only if KYC is APPROVED)"}
@@ -568,13 +568,13 @@ export function AdminHostDirectoryPage() {
                             ? "Required suspension reason (min 3 chars)..."
                             : "Optional reinstatement note..."
                         }
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+                        className="w-full px-3 py-2 rounded-xl border border-sand-200 bg-white text-xs text-navy-950"
                       />
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="submit"
                           disabled={suspendMutation.isPending || reinstateMutation.isPending}
-                          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold disabled:opacity-50"
+                          className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white font-bold disabled:opacity-50 transition"
                         >
                           {suspendMutation.isPending || reinstateMutation.isPending
                             ? "Applying..."
@@ -585,7 +585,7 @@ export function AdminHostDirectoryPage() {
                         <button
                           type="button"
                           onClick={() => setActionMode(null)}
-                          className="px-4 py-2 rounded-xl border border-slate-300 font-bold text-slate-700 hover:bg-white"
+                          className="px-4 py-2 rounded-xl border border-sand-200 bg-white font-bold text-navy-900 hover:bg-sand-100 transition"
                         >
                           Cancel
                         </button>
@@ -596,8 +596,8 @@ export function AdminHostDirectoryPage() {
               </PermissionGate>
             </div>
           )}
-        </section>
-      )}
+        </div>
+      </SlideOverDrawer>
     </div>
   );
 }

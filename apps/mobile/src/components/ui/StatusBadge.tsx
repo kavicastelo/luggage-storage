@@ -197,6 +197,17 @@ const STATUS_MAP: Record<string, StatusDescriptor> = {
     label: "Clawback Cancelled",
     variant: "danger",
     icon: "ban"
+  },
+  // Booking Modes
+  INSTANT: {
+    label: "Instant Confirm",
+    variant: "info",
+    icon: "check-circle"
+  },
+  HOST_APPROVAL: {
+    label: "Host Approval",
+    variant: "warning",
+    icon: "clock"
   }
 };
 

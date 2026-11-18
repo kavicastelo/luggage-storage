@@ -1,12 +1,13 @@
 import React from "react";
-import { View, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Slot, usePathname, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  BottomNavigation,
+  MobileIcon,
   SafeHeader,
   type BottomNavItem
 } from "../../src/components";
-import { mobileColors } from "../../src/lib/theme";
+import { mobileColors, mobileControlSizes, mobileSpacing } from "../../src/lib/theme";
 
 const ACCOUNT_TABS: readonly BottomNavItem[] = [
   { key: "profile", label: "Profile", icon: "user" },
@@ -17,6 +18,7 @@ const ACCOUNT_TABS: readonly BottomNavItem[] = [
 export default function AccountLayout() {
   const router = useRouter();
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
 
   const activeKey = pathname.includes("/security")
     ? "security"
@@ -40,11 +42,36 @@ export default function AccountLayout() {
       <View style={styles.content}>
         <Slot />
       </View>
-      <BottomNavigation
-        items={ACCOUNT_TABS}
-        activeKey={activeKey}
-        onSelect={handleSelect}
-      />
+      <View
+        style={[
+          styles.tabBar,
+          {
+            height: 60 + Math.max(insets.bottom, 8),
+            paddingBottom: Math.max(insets.bottom, 8)
+          }
+        ]}
+        accessibilityRole="tablist"
+      >
+        {ACCOUNT_TABS.map((tab) => {
+          const isSelected = tab.key === activeKey;
+          const color = isSelected ? mobileColors.terracotta[500] : mobileColors.sand[400];
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={styles.tabItem}
+              onPress={() => handleSelect(tab.key)}
+              accessibilityRole="tab"
+              accessibilityLabel={tab.label}
+              accessibilityState={{ selected: isSelected }}
+            >
+              <MobileIcon name={tab.icon} size={20} color={color} />
+              <Text style={[styles.tabLabel, { color }]} numberOfLines={1}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -56,5 +83,24 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1
+  },
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: mobileColors.navy[900],
+    borderTopWidth: 1,
+    borderTopColor: mobileColors.navy[800],
+    paddingTop: 6,
+    paddingHorizontal: mobileSpacing[2]
+  },
+  tabItem: {
+    flex: 1,
+    minHeight: mobileControlSizes.minTouchTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: "600"
   }
 });

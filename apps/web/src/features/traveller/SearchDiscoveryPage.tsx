@@ -11,7 +11,10 @@ import {
   CheckCircle2,
   Package,
   SlidersHorizontal,
-  Luggage
+  List,
+  Map as MapIcon,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { DEMO_LOCATIONS, formatLkr } from "@/data/mock-marketplace";
 import { isDemoPreviewActive } from "@/config/demo-preview";
@@ -26,6 +29,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { LocationDiscoveryMap, type DiscoveryMapPoint } from "./LocationDiscoveryMap";
 import {
@@ -91,6 +95,8 @@ export function WebSearchDiscoveryPage() {
   );
   const [geoError, setGeoError] = useState<string | null>(null);
   const [selectedMapLocationId, setSelectedMapLocationId] = useState<string | null>(null);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [mobileViewMode, setMobileViewMode] = useState<"list" | "map">("list");
 
   const dropOffIso = toIsoOffsetFromLocalInput(dropOffLocal) || parsedInitial.dropOffIso;
   const collectionIso = toIsoOffsetFromLocalInput(collectionLocal) || parsedInitial.collectionIso;
@@ -303,12 +309,12 @@ export function WebSearchDiscoveryPage() {
   }, [isDemoMode, demoFilteredLocations, discoveryQuery.data, quotesByLocationId, scheduleForwardQuery]);
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-6 sm:space-y-8 pb-12">
       {/* Header & Filter Panel */}
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-extrabold text-navy-950">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-navy-950 tracking-tight">
               Find Luggage Storage in Sri Lanka
             </h1>
             <p className="text-sm text-sand-700 mt-1">
@@ -318,13 +324,13 @@ export function WebSearchDiscoveryPage() {
           </div>
           {geoCoords && (
             <Badge variant="info" size="md">
-              Sorted near ({geoCoords.latitude.toFixed(2)}, {geoCoords.longitude.toFixed(2)})
+              Sorted near your location
             </Badge>
           )}
         </div>
 
         {/* City Pills */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by city">
           {CITY_FILTERS.map((cityLabel) => {
             const isSelected =
               (cityLabel === "All Sri Lanka" && !city) ||
@@ -333,8 +339,9 @@ export function WebSearchDiscoveryPage() {
               <button
                 key={cityLabel}
                 type="button"
+                aria-pressed={isSelected}
                 onClick={() => handleCitySelect(cityLabel)}
-                className={`px-4 py-2 rounded-full text-xs font-bold transition-colors ${
+                className={`min-h-[40px] px-4 py-2 rounded-full text-xs font-bold transition-colors ${
                   isSelected
                     ? "bg-navy-900 text-white"
                     : "bg-white text-navy-900 border border-sand-300 hover:bg-sand-100"
@@ -346,56 +353,166 @@ export function WebSearchDiscoveryPage() {
           })}
         </div>
 
+        {/* Mobile Controls Row: Filters Toggle + List/Map View Switcher */}
+        <div className="flex flex-wrap items-center justify-between gap-2 md:hidden">
+          <Button
+            type="button"
+            variant="outline"
+            size="md"
+            aria-expanded={mobileFiltersOpen}
+            aria-controls="discovery-filters-panel"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            <span>Filters</span>
+            {mobileFiltersOpen ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </Button>
+
+          <div
+            className="inline-flex rounded-xl border border-sand-200 bg-white p-1"
+            role="group"
+            aria-label="Mobile results view"
+          >
+            <button
+              type="button"
+              aria-pressed={mobileViewMode === "list"}
+              onClick={() => setMobileViewMode("list")}
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${
+                mobileViewMode === "list"
+                  ? "bg-navy-900 text-white"
+                  : "text-navy-900 hover:bg-sand-100"
+              }`}
+            >
+              <List className="h-3.5 w-3.5" />
+              <span>List</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={mobileViewMode === "map"}
+              onClick={() => setMobileViewMode("map")}
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${
+                mobileViewMode === "map"
+                  ? "bg-navy-900 text-white"
+                  : "text-navy-900 hover:bg-sand-100"
+              }`}
+            >
+              <MapIcon className="h-3.5 w-3.5" />
+              <span>Map</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Tablet List/Map View Switcher (md to lg) */}
+        <div className="hidden md:flex lg:hidden items-center justify-end">
+          <div
+            className="inline-flex rounded-xl border border-sand-200 bg-white p-1"
+            role="group"
+            aria-label="Tablet results view"
+          >
+            <button
+              type="button"
+              aria-pressed={mobileViewMode === "list"}
+              onClick={() => setMobileViewMode("list")}
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${
+                mobileViewMode === "list"
+                  ? "bg-navy-900 text-white"
+                  : "text-navy-900 hover:bg-sand-100"
+              }`}
+            >
+              <List className="h-3.5 w-3.5" />
+              <span>List</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={mobileViewMode === "map"}
+              onClick={() => setMobileViewMode("map")}
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${
+                mobileViewMode === "map"
+                  ? "bg-navy-900 text-white"
+                  : "text-navy-900 hover:bg-sand-100"
+              }`}
+            >
+              <MapIcon className="h-3.5 w-3.5" />
+              <span>Map</span>
+            </button>
+          </div>
+        </div>
+
         {/* Filter Controls */}
-        <Card className="p-5 bg-white space-y-4">
+        <Card
+          id="discovery-filters-panel"
+          className={`p-5 bg-white space-y-4 ${
+            mobileFiltersOpen ? "block" : "hidden md:block"
+          }`}
+        >
           <form
             onSubmit={handleSearchFormSubmit}
             className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end"
           >
             <div className="md:col-span-4">
-              <label className="block text-xs font-bold text-sand-700 mb-1">
+              <label
+                htmlFor="search-hub-input"
+                className="block text-xs font-bold text-sand-700 mb-1"
+              >
                 Search Hub or Area
               </label>
               <div className="relative">
                 <Search className="h-4 w-4 text-sand-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
+                  id="search-hub-input"
                   type="text"
                   value={searchTermInput}
                   onChange={(e) => setSearchTermInput(e.target.value)}
                   placeholder="Colombo Fort, Pettah, Galle Road..."
-                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-sand-300 text-sm"
+                  className="w-full min-h-[44px] pl-9 pr-3 py-2 rounded-xl border border-sand-300 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-500"
                 />
               </div>
             </div>
 
             <div className="md:col-span-3">
-              <label className="block text-xs font-bold text-sand-700 mb-1">Drop-off</label>
+              <label
+                htmlFor="search-dropoff-input"
+                className="block text-xs font-bold text-sand-700 mb-1"
+              >
+                Drop-off
+              </label>
               <input
+                id="search-dropoff-input"
                 type="datetime-local"
                 value={dropOffLocal}
                 onChange={(e) => {
                   setDropOffLocal(e.target.value);
                   syncUrlParams({ nextDropOffLocal: e.target.value });
                 }}
-                className="w-full px-3 py-2 rounded-xl border border-sand-300 text-sm"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-sand-300 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-500"
               />
             </div>
 
             <div className="md:col-span-3">
-              <label className="block text-xs font-bold text-sand-700 mb-1">Pick-up</label>
+              <label
+                htmlFor="search-pickup-input"
+                className="block text-xs font-bold text-sand-700 mb-1"
+              >
+                Pick-up
+              </label>
               <input
+                id="search-pickup-input"
                 type="datetime-local"
                 value={collectionLocal}
                 onChange={(e) => {
                   setCollectionLocal(e.target.value);
                   syncUrlParams({ nextCollectionLocal: e.target.value });
                 }}
-                className="w-full px-3 py-2 rounded-xl border border-sand-300 text-sm"
+                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-sand-300 text-sm focus:outline-none focus:ring-2 focus:ring-terracotta-500"
               />
             </div>
 
             <div className="md:col-span-2">
-              <Button type="submit" variant="primary" className="w-full py-2">
+              <Button type="submit" variant="primary" className="w-full min-h-[44px]">
                 Apply Filters
               </Button>
             </div>
@@ -413,43 +530,53 @@ export function WebSearchDiscoveryPage() {
                   key={bagRow.key}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border border-sand-200 bg-sand-50 text-xs"
                 >
-                  <span className="font-semibold text-navy-900">{bagRow.label}</span>
+                  <span className="font-semibold text-navy-900 mr-0.5">{bagRow.label}</span>
                   <button
                     type="button"
                     onClick={() => adjustBag(bagRow.key, -1)}
                     aria-label={`Decrease ${bagRow.label}`}
-                    className="w-5 h-5 rounded bg-white border border-sand-300 font-bold"
+                    className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg bg-white border border-sand-300 font-bold text-navy-900 hover:bg-sand-100 transition-colors"
                   >
                     -
                   </button>
-                  <span className="font-mono font-bold w-4 text-center">{bags[bagRow.key]}</span>
+                  <span className="font-mono font-bold w-5 text-center tabular-nums">
+                    {bags[bagRow.key]}
+                  </span>
                   <button
                     type="button"
                     onClick={() => adjustBag(bagRow.key, 1)}
                     aria-label={`Increase ${bagRow.label}`}
-                    className="w-5 h-5 rounded bg-white border border-sand-300 font-bold"
+                    className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg bg-white border border-sand-300 font-bold text-navy-900 hover:bg-sand-100 transition-colors"
                   >
                     +
                   </button>
                 </div>
               ))}
 
-              <label className="inline-flex items-center gap-2 text-xs font-semibold text-navy-900 cursor-pointer">
+              <label
+                htmlFor="search-oversized-checkbox"
+                className="inline-flex items-center gap-2 min-h-[44px] px-2 text-xs font-semibold text-navy-900 cursor-pointer"
+              >
                 <input
+                  id="search-oversized-checkbox"
                   type="checkbox"
                   checked={acceptsOversized}
                   onChange={(e) => {
                     setAcceptsOversized(e.target.checked);
                     syncUrlParams({ nextOversized: e.target.checked });
                   }}
-                  className="rounded border-sand-400 text-terracotta-600 focus:ring-terracotta-500"
+                  className="w-4 h-4 rounded border-sand-400 text-terracotta-600 focus:ring-terracotta-500"
                 />
                 Accepts Oversized Gear
               </label>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <label htmlFor="search-sort-select" className="sr-only">
+                Sort results
+              </label>
               <select
+                id="search-sort-select"
                 aria-label="Sort results"
                 value={sortBy}
                 onChange={(e) => {
@@ -457,7 +584,7 @@ export function WebSearchDiscoveryPage() {
                   setSortBy(next);
                   syncUrlParams({ nextSort: next });
                 }}
-                className="px-3 py-1.5 rounded-xl border border-sand-300 text-xs font-semibold bg-white"
+                className="min-h-[44px] px-3 py-1.5 rounded-xl border border-sand-300 text-xs font-semibold bg-white"
               >
                 {DISCOVERY_SORT_OPTIONS.map((option) => (
                   <option
@@ -470,13 +597,13 @@ export function WebSearchDiscoveryPage() {
                 ))}
               </select>
 
-              <Button type="button" variant="outline" size="sm" onClick={handleNearMe}>
-                <LocateFixed className="h-3.5 w-3.5" />
+              <Button type="button" variant="outline" size="md" onClick={handleNearMe}>
+                <LocateFixed className="h-4 w-4" />
                 Near Me
               </Button>
 
-              <Button type="button" variant="ghost" size="sm" onClick={handleResetFilters}>
-                <RotateCcw className="h-3.5 w-3.5" />
+              <Button type="button" variant="ghost" size="md" onClick={handleResetFilters}>
+                <RotateCcw className="h-4 w-4" />
                 Reset Filters
               </Button>
             </div>
@@ -493,15 +620,23 @@ export function WebSearchDiscoveryPage() {
 
       {/* Main Results + Map Split */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        <div className="lg:col-span-7 space-y-4">
+        <div
+          className={`lg:col-span-7 space-y-4 ${
+            mobileViewMode === "map" ? "hidden lg:block" : "block"
+          }`}
+        >
           {isDemoMode ? (
             demoFilteredLocations.length === 0 ? (
-              <Card className="p-8 text-center bg-white space-y-3">
-                <p className="font-bold text-navy-950">No demo locations match those filters.</p>
-                <Button type="button" variant="outline" size="sm" onClick={handleResetFilters}>
-                  Reset Filters
-                </Button>
-              </Card>
+              <EmptyState
+                mascot="map"
+                title="No demo locations match those filters"
+                description="Reset your city or keyword filters to inspect all preview storage hubs."
+                action={
+                  <Button type="button" variant="outline" size="md" onClick={handleResetFilters}>
+                    Reset Filters
+                  </Button>
+                }
+              />
             ) : (
               demoFilteredLocations.map((loc) => (
                 <Card key={loc.id} className="p-6 bg-white space-y-4">
@@ -515,12 +650,19 @@ export function WebSearchDiscoveryPage() {
                           Demo Preview
                         </Badge>
                       </div>
-                      <h2 className="text-xl font-extrabold text-navy-950">{loc.name}</h2>
+                      <h2 className="text-xl font-extrabold text-navy-950">
+                        <Link
+                          to={`/locations/${loc.slug}?${scheduleForwardQuery}`}
+                          className="hover:text-terracotta-600 transition-colors"
+                        >
+                          {loc.name}
+                        </Link>
+                      </h2>
                       <p className="text-xs text-sand-700 mt-1">{loc.landmark}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs text-sand-600">Standard day rate</p>
-                      <p className="text-lg font-black text-navy-950">
+                      <p className="text-lg font-black text-navy-950 tabular-nums">
                         {formatLkr(loc.dailyCapLkr.MEDIUM)}
                       </p>
                     </div>
@@ -528,13 +670,13 @@ export function WebSearchDiscoveryPage() {
                   <div className="flex flex-wrap gap-2 pt-2 border-t border-sand-200 justify-end">
                     <Link
                       to={`/locations/${loc.slug}?${scheduleForwardQuery}`}
-                      className="px-4 py-2 rounded-xl border border-sand-300 text-xs font-bold text-navy-900 hover:bg-sand-100"
+                      className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl border border-sand-300 text-xs font-bold text-navy-900 hover:bg-sand-100 transition-colors"
                     >
                       Details
                     </Link>
                     <Link
                       to={`/checkout/${loc.id}?${scheduleForwardQuery}`}
-                      className="px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600"
+                      className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition-colors"
                     >
                       Book Now
                     </Link>
@@ -571,22 +713,21 @@ export function WebSearchDiscoveryPage() {
               </div>
             </Alert>
           ) : !discoveryQuery.data || discoveryQuery.data.locations.length === 0 ? (
-            <Card className="p-8 text-center bg-white space-y-3">
-              <Luggage className="h-8 w-8 text-terracotta-500 mx-auto" />
-              <h2 className="text-lg font-extrabold text-navy-950">
-                No storage hubs matched your search
-              </h2>
-              <p className="text-sm text-sand-700">
-                Try clearing city or oversized filters to explore other verified transit corridors.
-              </p>
-              <Button type="button" variant="outline" size="sm" onClick={handleResetFilters}>
-                Reset Filters
-              </Button>
-            </Card>
+            <EmptyState
+              mascot="map"
+              title="No storage hubs matched your search"
+              description="Try clearing city or oversized filters to explore other verified transit corridors."
+              action={
+                <Button type="button" variant="outline" size="md" onClick={handleResetFilters}>
+                  Reset Filters
+                </Button>
+              }
+            />
           ) : (
             discoveryQuery.data.locations.map((loc) => {
               const liveQuote = quotesByLocationId.get(loc.id);
               const isSelected = selectedMapLocationId === loc.id;
+              const detailHref = `/locations/${loc.id}?${scheduleForwardQuery}`;
               return (
                 <Card
                   key={loc.id}
@@ -632,12 +773,19 @@ export function WebSearchDiscoveryPage() {
                               </Badge>
                             )}
                           </div>
-                          <h2 className="text-lg font-extrabold text-navy-950">{loc.name}</h2>
+                          <h2 className="text-lg font-extrabold text-navy-950">
+                            <Link
+                              to={detailHref}
+                              className="hover:text-terracotta-600 transition-colors"
+                            >
+                              {loc.name}
+                            </Link>
+                          </h2>
                           <p className="text-xs text-sand-700 flex items-center gap-1">
                             <MapPin className="h-3.5 w-3.5 text-terracotta-500 shrink-0" />
                             {loc.approximateArea}
                             {typeof loc.distanceMeters === "number" && (
-                              <span className="font-mono text-navy-800 ml-1">
+                              <span className="font-mono text-navy-800 ml-1 tabular-nums">
                                 ({(loc.distanceMeters / 1000).toFixed(1)} km corridor)
                               </span>
                             )}
@@ -656,7 +804,7 @@ export function WebSearchDiscoveryPage() {
                               <p className="text-[11px] font-semibold text-sand-600">
                                 {totalBags} {totalBags === 1 ? "bag" : "bags"} quote
                               </p>
-                              <p className="text-lg font-black text-navy-950">
+                              <p className="text-lg font-black text-navy-950 tabular-nums">
                                 {formatLkrMinor(liveQuote.totalAmountMinor, liveQuote.currency)}
                               </p>
                               <Badge
@@ -664,14 +812,14 @@ export function WebSearchDiscoveryPage() {
                                 size="sm"
                               >
                                 {liveQuote.available
-                                  ? `${liveQuote.remainingCapacityUnits} units free`
+                                  ? `${liveQuote.remainingCapacityUnits} spaces free`
                                   : "Unavailable"}
                               </Badge>
                             </>
                           ) : loc.baseRateMinor ? (
                             <>
                               <p className="text-[11px] text-sand-600">Base rate from</p>
-                              <p className="text-lg font-black text-navy-950">
+                              <p className="text-lg font-black text-navy-950 tabular-nums">
                                 {formatLkrMinor(loc.baseRateMinor, loc.currency)}
                               </p>
                             </>
@@ -705,14 +853,14 @@ export function WebSearchDiscoveryPage() {
 
                       <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-sand-200">
                         <Link
-                          to={`/locations/${loc.id}?${scheduleForwardQuery}`}
-                          className="px-4 py-2 rounded-xl border border-sand-300 text-xs font-bold text-navy-900 hover:bg-sand-100"
+                          to={detailHref}
+                          className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl border border-sand-300 text-xs font-bold text-navy-900 hover:bg-sand-100 transition-colors"
                         >
                           Details
                         </Link>
                         <Link
                           to={`/checkout/${loc.id}?${scheduleForwardQuery}`}
-                          className="px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600"
+                          className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition-colors"
                         >
                           Book Now
                         </Link>
@@ -726,7 +874,11 @@ export function WebSearchDiscoveryPage() {
         </div>
 
         {/* Sticky Interactive Corridor Map */}
-        <div className="lg:col-span-5 lg:sticky lg:top-20">
+        <div
+          className={`lg:col-span-5 lg:sticky lg:top-20 ${
+            mobileViewMode === "list" ? "hidden lg:block" : "block"
+          }`}
+        >
           <LocationDiscoveryMap
             locations={mapPoints}
             selectedLocationId={selectedMapLocationId}

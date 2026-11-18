@@ -9,6 +9,7 @@ import {
 } from "@luggage-storage/contracts";
 import {
   AlertTriangle,
+  Briefcase,
   CheckCircle2,
   Clock,
   Edit3,
@@ -23,6 +24,11 @@ import {
   X,
   XCircle
 } from "lucide-react";
+import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { authApi } from "../services/auth-api";
 import { useAuthStore } from "../store/useAuthStore";
 
@@ -171,64 +177,60 @@ export function ProfilePage() {
     switch (status) {
       case "ACTIVE":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
-            <CheckCircle2 className="h-3.5 w-3.5" />
+          <Badge variant="success" size="sm" icon={<CheckCircle2 className="h-3.5 w-3.5" />}>
             Active
-          </span>
+          </Badge>
         );
       case "PENDING_VERIFICATION":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-            <AlertTriangle className="h-3.5 w-3.5" />
+          <Badge variant="warning" size="sm" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
             Pending Verification
-          </span>
+          </Badge>
         );
       case "SUSPENDED":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">
-            <XCircle className="h-3.5 w-3.5" />
+          <Badge variant="danger" size="sm" icon={<XCircle className="h-3.5 w-3.5" />}>
             Suspended
-          </span>
+          </Badge>
         );
       case "DEACTIVATED":
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
-            <XCircle className="h-3.5 w-3.5" />
+          <Badge variant="neutral" size="sm" icon={<XCircle className="h-3.5 w-3.5" />}>
             Deactivated
-          </span>
+          </Badge>
         );
       default:
         return (
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
-            {status}
-          </span>
+          <Badge variant="neutral" size="sm">
+            {status.replace(/_/g, " ")}
+          </Badge>
         );
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6 pb-8">
       {/* Profile Header Card */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 sm:p-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <Card className="bg-white p-6 sm:p-8">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-blue-100 border-2 border-blue-200 flex items-center justify-center text-blue-600 font-bold text-2xl">
+            <div className="w-16 h-16 rounded-full bg-terracotta-100 border-2 border-terracotta-200 flex items-center justify-center text-terracotta-700 font-extrabold text-2xl shrink-0">
               {effectiveDisplayName.charAt(0).toUpperCase()}
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold text-slate-900">{effectiveDisplayName}</h1>
+                <h1 className="text-2xl font-extrabold text-navy-950">{effectiveDisplayName}</h1>
                 {getStatusBadge(effectiveStatus)}
               </div>
-              <p className="text-sm text-slate-500 flex items-center gap-1.5 mt-1">
-                <Mail className="h-4 w-4" />
+              <p className="text-sm text-sand-700 flex items-center gap-1.5 mt-1 flex-wrap">
+                <Mail className="h-4 w-4 text-sand-500" />
                 <span>{effectiveEmail}</span>
                 {effectiveEmailVerified ? (
-                  <span className="inline-flex items-center gap-0.5 text-xs text-green-600 font-medium">
+                  <span className="inline-flex items-center gap-0.5 text-xs text-emerald-700 font-semibold">
                     (Verified)
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-0.5 text-xs text-amber-600 font-medium">
+                  <span className="inline-flex items-center gap-0.5 text-xs text-amber-700 font-semibold">
                     (Unverified)
                   </span>
                 )}
@@ -236,27 +238,36 @@ export function ProfilePage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             {!isEditing && (
-              <button
+              <Button
                 type="button"
+                variant="primary"
+                size="md"
                 onClick={handleStartEdit}
-                className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+                className="flex-1 sm:flex-none"
               >
                 <Edit3 className="h-4 w-4" />
                 <span>Edit Profile</span>
-              </button>
+              </Button>
             )}
             <Link
+              to="/portal/bookings"
+              className="min-h-[44px] flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-navy-900 bg-sand-100 hover:bg-sand-200 rounded-xl transition-colors"
+            >
+              <Briefcase className="h-4 w-4 text-terracotta-600" />
+              <span>My Bookings</span>
+            </Link>
+            <Link
               to="/settings/security"
-              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+              className="min-h-[44px] flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-navy-900 bg-sand-100 hover:bg-sand-200 rounded-xl transition-colors"
             >
               <KeyRound className="h-4 w-4" />
               <span>Change Password</span>
             </Link>
             <Link
               to="/settings/sessions"
-              className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+              className="min-h-[44px] flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-navy-900 bg-sand-100 hover:bg-sand-200 rounded-xl transition-colors"
             >
               <Laptop className="h-4 w-4" />
               <span>Active Sessions</span>
@@ -266,224 +277,218 @@ export function ProfilePage() {
 
         {/* Verification Warning Banner if Unverified */}
         {!effectiveEmailVerified && (
-          <div className="mt-6 p-4 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-800 leading-relaxed">
-              <strong className="font-semibold">Email confirmation pending:</strong> Your email
-              address is not yet verified. Check your inbox for the verification message. While in
-              pending status, publishing luggage storage locations is restricted.
+          <Alert variant="warning" title="Email confirmation pending" className="mt-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs leading-relaxed">
+              <span>
+                Your email address is not yet verified. Check your inbox for the verification
+                message. While in pending status, publishing luggage storage locations is restricted.
+              </span>
+              <Link
+                to={`/verify-email?email=${encodeURIComponent(effectiveEmail)}`}
+                className="min-h-[36px] inline-flex items-center px-3 py-1.5 rounded-lg bg-amber-900 text-white font-bold hover:bg-amber-950 transition-colors whitespace-nowrap"
+              >
+                Verify Email Now
+              </Link>
             </div>
-          </div>
+          </Alert>
         )}
 
         {loadError && (
-          <div
-            role="alert"
-            className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700"
-          >
+          <Alert variant="danger" className="mt-4">
             {loadError}
-          </div>
+          </Alert>
         )}
 
         {saveSuccess && (
-          <div
-            role="status"
-            className="mt-4 p-3 rounded-lg bg-green-50 border border-green-200 text-xs text-green-800 flex items-center gap-2"
-          >
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-            <span>{saveSuccess}</span>
-          </div>
+          <Alert variant="success" className="mt-4">
+            {saveSuccess}
+          </Alert>
         )}
-      </div>
+      </Card>
 
       {/* Self-Service Profile Editor */}
       {isEditing ? (
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5"
-        >
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Edit Personal Details</h2>
-              <p className="text-xs text-slate-500">
-                Update your contact information, emergency contact, and travel preferences.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleCancelEdit}
-              className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-800"
-            >
-              <X className="h-4 w-4" />
-              <span>Cancel</span>
-            </button>
-          </div>
-
-          {saveError && (
-            <div
-              role="alert"
-              className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700"
-            >
-              {saveError}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold text-slate-700">Display Name *</span>
-              <input
-                type="text"
-                required
-                maxLength={128}
-                value={form.displayName}
-                onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold text-slate-700">Phone Number</span>
-              <input
-                type="tel"
-                maxLength={32}
-                placeholder="+94771234567"
-                value={form.phoneNumber}
-                onChange={(e) => setForm((f) => ({ ...f, phoneNumber: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold text-slate-700">First Name</span>
-              <input
-                type="text"
-                maxLength={64}
-                value={form.firstName}
-                onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold text-slate-700">Last Name</span>
-              <input
-                type="text"
-                maxLength={64}
-                value={form.lastName}
-                onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold text-slate-700">Preferred Language</span>
-              <input
-                type="text"
-                maxLength={10}
-                placeholder="en"
-                value={form.preferredLanguage}
-                onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold text-slate-700">Preferred Currency</span>
-              <select
-                value={form.preferredCurrency}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, preferredCurrency: e.target.value as CurrencyCode }))
-                }
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        <Card className="bg-white p-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="flex items-center justify-between border-b border-sand-200 pb-3">
+              <div>
+                <h2 className="text-base font-bold text-navy-950">Edit Personal Details</h2>
+                <p className="text-xs text-sand-700">
+                  Update your contact information, emergency contact, and travel preferences.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="min-h-[44px] px-3 inline-flex items-center gap-1 text-xs font-semibold text-sand-700 hover:text-navy-950 rounded-lg hover:bg-sand-100 transition-colors"
               >
-                {CurrencyCodeSchema.options.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <X className="h-4 w-4" />
+                <span>Cancel</span>
+              </button>
+            </div>
 
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold text-slate-700">Emergency Contact Name</span>
-              <input
-                type="text"
-                maxLength={128}
-                value={form.emergencyContactName}
-                onChange={(e) => setForm((f) => ({ ...f, emergencyContactName: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
+            {saveError && <Alert variant="danger">{saveError}</Alert>}
 
-            <label className="block space-y-1">
-              <span className="text-xs font-semibold text-slate-700">
-                Emergency Contact Phone (E.164, e.g. +94771234567)
-              </span>
-              <input
-                type="tel"
-                maxLength={32}
-                placeholder="+94777654321"
-                value={form.emergencyContactPhone}
-                onChange={(e) => setForm((f) => ({ ...f, emergencyContactPhone: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold text-navy-900">Display Name *</span>
+                <input
+                  type="text"
+                  required
+                  maxLength={128}
+                  value={form.displayName}
+                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm text-navy-950 border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                />
+              </label>
 
-          <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={handleCancelEdit}
-              disabled={isSaving}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg transition"
-            >
-              <Save className="h-4 w-4" />
-              <span>{isSaving ? "Saving..." : "Save Profile"}</span>
-            </button>
-          </div>
-        </form>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold text-navy-900">Phone Number</span>
+                <input
+                  type="tel"
+                  maxLength={32}
+                  placeholder="+94771234567"
+                  value={form.phoneNumber}
+                  onChange={(e) => setForm((f) => ({ ...f, phoneNumber: e.target.value }))}
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm text-navy-950 border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold text-navy-900">First Name</span>
+                <input
+                  type="text"
+                  maxLength={64}
+                  value={form.firstName}
+                  onChange={(e) => setForm((f) => ({ ...f, firstName: e.target.value }))}
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm text-navy-950 border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold text-navy-900">Last Name</span>
+                <input
+                  type="text"
+                  maxLength={64}
+                  value={form.lastName}
+                  onChange={(e) => setForm((f) => ({ ...f, lastName: e.target.value }))}
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm text-navy-950 border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold text-navy-900">Preferred Language</span>
+                <input
+                  type="text"
+                  maxLength={10}
+                  placeholder="en"
+                  value={form.preferredLanguage}
+                  onChange={(e) => setForm((f) => ({ ...f, preferredLanguage: e.target.value }))}
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm text-navy-950 border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold text-navy-900">Preferred Currency</span>
+                <select
+                  value={form.preferredCurrency}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, preferredCurrency: e.target.value as CurrencyCode }))
+                  }
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm text-navy-950 border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                >
+                  {CurrencyCodeSchema.options.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold text-navy-900">Emergency Contact Name</span>
+                <input
+                  type="text"
+                  maxLength={128}
+                  value={form.emergencyContactName}
+                  onChange={(e) => setForm((f) => ({ ...f, emergencyContactName: e.target.value }))}
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm text-navy-950 border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                />
+              </label>
+
+              <label className="block space-y-1.5">
+                <span className="text-xs font-semibold text-navy-900">
+                  Emergency Contact Phone (E.164, e.g. +94771234567)
+                </span>
+                <input
+                  type="tel"
+                  maxLength={32}
+                  placeholder="+94777654321"
+                  value={form.emergencyContactPhone}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, emergencyContactPhone: e.target.value }))
+                  }
+                  className="w-full min-h-[44px] px-3.5 py-2 text-sm text-navy-950 border border-sand-300 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-sand-200">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancelEdit}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="primary" isLoading={isSaving}>
+                <Save className="h-4 w-4" />
+                <span>{isSaving ? "Saving..." : "Save Profile"}</span>
+              </Button>
+            </div>
+          </form>
+        </Card>
       ) : (
         /* Account & Traveller Details Grid */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <h2 className="text-base font-semibold text-slate-900 mb-4 flex items-center gap-2">
-              <User className="h-5 w-5 text-blue-600" />
+          <Card className="bg-white p-6">
+            <h2 className="text-base font-bold text-navy-950 mb-4 flex items-center gap-2">
+              <User className="h-5 w-5 text-terracotta-600" />
               <span>Personal &amp; Contact Details</span>
             </h2>
             {isLoading ? (
-              <p className="text-xs text-slate-500">Loading profile details...</p>
+              <div className="space-y-3">
+                <LoadingSkeleton variant="text" className="w-3/4" />
+                <LoadingSkeleton variant="text" className="w-2/3" />
+                <LoadingSkeleton variant="text" className="w-5/6" />
+                <LoadingSkeleton variant="text" className="w-1/2" />
+              </div>
             ) : (
               <dl className="space-y-3 text-sm">
-                <div className="flex justify-between py-1.5 border-b border-slate-100">
-                  <dt className="text-slate-500">Full Name</dt>
-                  <dd className="text-slate-800 font-medium">
+                <div className="flex justify-between py-1.5 border-b border-sand-100">
+                  <dt className="text-sand-700">Full Name</dt>
+                  <dd className="text-navy-950 font-semibold">
                     {[profile?.travellerProfile?.firstName, profile?.travellerProfile?.lastName]
                       .filter(Boolean)
                       .join(" ") || "Not set"}
                   </dd>
                 </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-100">
-                  <dt className="text-slate-500 flex items-center gap-1">
-                    <Phone className="h-3.5 w-3.5 text-slate-400" />
+                <div className="flex justify-between py-1.5 border-b border-sand-100">
+                  <dt className="text-sand-700 flex items-center gap-1">
+                    <Phone className="h-3.5 w-3.5 text-sand-500" />
                     <span>Phone</span>
                   </dt>
-                  <dd className="text-slate-800 font-medium">
+                  <dd className="text-navy-950 font-semibold">
                     {profile?.phoneNumber || "Not set"}{" "}
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-sand-600 font-normal">
                       ({effectivePhoneVerified ? "Verified" : "Unverified"})
                     </span>
                   </dd>
                 </div>
-                <div className="flex justify-between py-1.5 border-b border-slate-100">
-                  <dt className="text-slate-500">Emergency Contact</dt>
-                  <dd className="text-slate-800 text-right">
+                <div className="flex justify-between py-1.5 border-b border-sand-100">
+                  <dt className="text-sand-700">Emergency Contact</dt>
+                  <dd className="text-navy-950 text-right font-medium">
                     {profile?.travellerProfile?.emergencyContactName ||
                     profile?.travellerProfile?.emergencyContactPhone ? (
                       <span>
@@ -498,9 +503,9 @@ export function ProfilePage() {
                   </dd>
                 </div>
                 <div className="flex justify-between py-1.5">
-                  <dt className="text-slate-500">Last Login</dt>
-                  <dd className="text-slate-800 flex items-center gap-1">
-                    <Clock className="h-3.5 w-3.5 text-slate-400" />
+                  <dt className="text-sand-700">Last Login</dt>
+                  <dd className="text-navy-950 flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5 text-sand-500" />
                     <span>
                       {effectiveLastLogin
                         ? new Date(effectiveLastLogin).toLocaleString()
@@ -510,51 +515,55 @@ export function ProfilePage() {
                 </div>
               </dl>
             )}
-          </div>
+          </Card>
 
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+          <Card className="bg-white p-6 space-y-5">
             <div>
-              <h2 className="text-base font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                <Globe className="h-5 w-5 text-blue-600" />
+              <h2 className="text-base font-bold text-navy-950 mb-3 flex items-center gap-2">
+                <Globe className="h-5 w-5 text-terracotta-600" />
                 <span>Preferences</span>
               </h2>
-              <dl className="space-y-2.5 text-sm">
-                <div className="flex justify-between py-1 border-b border-slate-100">
-                  <dt className="text-slate-500">Language</dt>
-                  <dd className="text-slate-800 font-medium">
-                    {profile?.travellerProfile?.preferredLanguage ?? "en"}
-                  </dd>
+              {isLoading ? (
+                <div className="space-y-2.5">
+                  <LoadingSkeleton variant="text" className="w-1/2" />
+                  <LoadingSkeleton variant="text" className="w-1/3" />
                 </div>
-                <div className="flex justify-between py-1">
-                  <dt className="text-slate-500">Currency</dt>
-                  <dd className="text-slate-800 font-medium">
-                    {profile?.travellerProfile?.preferredCurrency ?? "LKR"}
-                  </dd>
-                </div>
-              </dl>
+              ) : (
+                <dl className="space-y-2.5 text-sm">
+                  <div className="flex justify-between py-1 border-b border-sand-100">
+                    <dt className="text-sand-700">Language</dt>
+                    <dd className="text-navy-950 font-semibold">
+                      {profile?.travellerProfile?.preferredLanguage ?? "en"}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <dt className="text-sand-700">Currency</dt>
+                    <dd className="text-navy-950 font-semibold">
+                      {profile?.travellerProfile?.preferredCurrency ?? "LKR"}
+                    </dd>
+                  </div>
+                </dl>
+              )}
             </div>
 
             <div>
-              <h2 className="text-base font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                <Shield className="h-5 w-5 text-blue-600" />
+              <h2 className="text-base font-bold text-navy-950 mb-3 flex items-center gap-2">
+                <Shield className="h-5 w-5 text-terracotta-600" />
                 <span>Account Access</span>
               </h2>
               <div className="flex flex-wrap gap-2">
                 {effectiveRoles.length > 0 ? (
                   effectiveRoles.map((role) => (
-                    <span
-                      key={role}
-                      className="px-3 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold rounded-lg"
-                    >
+                    <Badge key={role} variant="brand" size="md">
                       {ROLE_DISPLAY_LABELS[role] ?? role}
-                    </span>
+                    </Badge>
                   ))
                 ) : (
-                  <span className="text-xs text-slate-400">Standard Account</span>
+                  <span className="text-xs text-sand-600">Standard Account</span>
                 )}
               </div>
             </div>
-          </div>
+          </Card>
         </div>
       )}
     </div>

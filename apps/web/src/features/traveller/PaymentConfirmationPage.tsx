@@ -36,6 +36,8 @@ import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
 
 export function WebPaymentConfirmationPage() {
   const routeLocation = useLocation();
@@ -65,14 +67,18 @@ export function WebPaymentConfirmationPage() {
   const [pendingContext, setPendingContext] = useState<ReturnType<typeof loadPendingCheckoutContext>>(
     null
   );
+  const [contextHydrated, setContextHydrated] = useState(false);
+
   useEffect(() => {
     setPendingContext(loadPendingCheckoutContext());
+    setContextHydrated(true);
   }, []);
 
   const resolvedBookingId = returnFlags.bookingId || pendingContext?.bookingId || undefined;
   const resolvedOrderId = returnFlags.orderId || pendingContext?.orderId || undefined;
+  const hasCheckoutReference = Boolean(resolvedBookingId || resolvedOrderId);
   const canQueryLiveStatus =
-    !isDemoMode && isAuthenticated && Boolean(resolvedBookingId || resolvedOrderId);
+    !isDemoMode && isAuthenticated && hasCheckoutReference;
 
   const checkoutStatusQuery = useCheckoutStatusQuery(
     resolvedBookingId || resolvedOrderId
@@ -241,12 +247,15 @@ export function WebPaymentConfirmationPage() {
     return (
       <div className="space-y-8 pb-12 max-w-4xl mx-auto">
         <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-6 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="h-7 w-7 text-emerald-600 shrink-0 mt-0.5" />
+          <div className="flex items-center gap-4">
+            <MascotIllustration mascot="jump" size="sm" variant="bare" decorative />
             <div>
-              <h1 className="text-2xl font-extrabold text-navy-950">
-                Your Digital Custody Pass Is Ready
-              </h1>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                <h1 className="text-2xl font-extrabold text-navy-950">
+                  Your Digital Custody Pass Is Ready
+                </h1>
+              </div>
               <p className="text-sm text-emerald-900 mt-1">
                 Inspection preview for {demoLocation.name} • {formatLkr(demoBooking.totalAmountLkr)}
               </p>
@@ -266,6 +275,40 @@ export function WebPaymentConfirmationPage() {
           sealIds={["#SL-88410", ...demoBooking.sealIds]}
           zoneCode={demoBooking.zoneCode}
           isPreviewDemo={true}
+        />
+      </div>
+    );
+  }
+
+  // Empty-context fallback when no booking/order reference or gateway hint exists
+  if (
+    !hasCheckoutReference &&
+    !isCancelRoute &&
+    !returnFlags.ignoredQueryPaymentClaim &&
+    (contextHydrated || typeof window === "undefined")
+  ) {
+    return (
+      <div className="max-w-2xl mx-auto py-10">
+        <EmptyState
+          mascot="suitcase-peek"
+          title="No active checkout session found"
+          description="We could not find a pending booking reference in this browser session. Check your existing reservations in the Traveller Portal or start a new hub search."
+          action={
+            <>
+              <Link
+                to="/portal/bookings"
+                className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-sm font-bold transition-colors"
+              >
+                Go to My Bookings
+              </Link>
+              <Link
+                to="/search"
+                className="min-h-[44px] inline-flex items-center px-5 py-2.5 rounded-xl border border-sand-300 bg-white hover:bg-sand-100 text-navy-900 text-sm font-bold transition-colors"
+              >
+                Find Storage
+              </Link>
+            </>
+          }
         />
       </div>
     );
@@ -297,25 +340,28 @@ export function WebPaymentConfirmationPage() {
 
       {/* Server Verification Banner while status is resolving or unauthenticated SSR */}
       {!custodyReady && (
-        <Card className="p-6 bg-white space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              {checkoutStatusQuery.isFetching || !activeStatus ? (
-                <Loader2 className="h-6 w-6 text-terracotta-500 animate-spin" />
-              ) : (
-                <Clock className="h-6 w-6 text-amber-600" />
-              )}
+        <Card className="p-6 bg-white space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <MascotIllustration mascot="sitting-suitcase" size="sm" variant="bare" decorative />
               <div>
-                <h1 className="text-2xl font-extrabold text-navy-950">
-                  {activeStatus === "PENDING_HOST_APPROVAL"
-                    ? "Awaiting Host Approval"
-                    : activeStatus === "PENDING_PAYMENT"
-                    ? "Payment Pending Verification"
-                    : activeStatus
-                    ? `Booking Status: ${activeStatus.replace(/_/g, " ")}`
-                    : "Verifying Booking"}
-                </h1>
-                <p className="text-sm text-sand-700 mt-0.5">
+                <div className="flex items-center gap-2">
+                  {checkoutStatusQuery.isFetching || !activeStatus ? (
+                    <Loader2 className="h-5 w-5 text-terracotta-500 animate-spin shrink-0" />
+                  ) : (
+                    <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+                  )}
+                  <h1 className="text-2xl font-extrabold text-navy-950">
+                    {activeStatus === "PENDING_HOST_APPROVAL"
+                      ? "Awaiting Host Approval"
+                      : activeStatus === "PENDING_PAYMENT"
+                      ? "Payment Pending Verification"
+                      : activeStatus
+                      ? `Booking Status: ${activeStatus.replace(/_/g, " ")}`
+                      : "Verifying Booking"}
+                  </h1>
+                </div>
+                <p className="text-sm text-sand-700 mt-1">
                   {activeStatus === "PENDING_HOST_APPROVAL"
                     ? "The host has received your request and will approve or decline within 15 minutes."
                     : "Confirming live booking and payment settlement state with backend ledger."}
@@ -327,7 +373,7 @@ export function WebPaymentConfirmationPage() {
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
+                size="md"
                 isLoading={checkoutStatusQuery.isFetching}
                 onClick={handleManualStatusRefresh}
               >
@@ -379,7 +425,7 @@ export function WebPaymentConfirmationPage() {
                 </div>
                 <p className="text-xs text-navy-800">
                   Authorize{" "}
-                  <span className="font-mono font-bold">
+                  <span className="font-mono font-bold tabular-nums">
                     {formatLkrMinor(
                       activePaymentIntent.amountMinor,
                       activePaymentIntent.currency
@@ -425,7 +471,7 @@ export function WebPaymentConfirmationPage() {
                 </Button>
                 <Link
                   to="/portal/bookings"
-                  className="text-sm font-bold text-navy-900 underline"
+                  className="min-h-[44px] inline-flex items-center text-sm font-bold text-navy-900 underline px-2"
                 >
                   Manage in Traveller Portal
                 </Link>
@@ -438,12 +484,15 @@ export function WebPaymentConfirmationPage() {
       {custodyReady && bookingData && (
         <>
           <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-6 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-7 w-7 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="flex items-center gap-4">
+              <MascotIllustration mascot="jump" size="sm" variant="bare" decorative />
               <div>
-                <h1 className="text-2xl font-extrabold text-navy-950">
-                  Your Digital Custody Pass Is Ready
-                </h1>
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                  <h1 className="text-2xl font-extrabold text-navy-950">
+                    Your Digital Custody Pass Is Ready
+                  </h1>
+                </div>
                 <p className="text-sm text-emerald-900 mt-1">
                   Reference{" "}
                   <span className="font-mono font-bold">{`#${bookingData.referenceCode}`}</span> •{" "}
@@ -453,7 +502,7 @@ export function WebPaymentConfirmationPage() {
             </div>
             <Link
               to="/portal/bookings"
-              className="px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800"
+              className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800 transition-colors"
             >
               View All Bookings
             </Link>

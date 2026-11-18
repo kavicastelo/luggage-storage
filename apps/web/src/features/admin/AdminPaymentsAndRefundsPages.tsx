@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   REFUND_STATUSES,
   SYSTEM_PERMISSIONS,
@@ -8,9 +8,9 @@ import {
   type RefundSettlementMode,
   type RefundStatus
 } from "@luggage-storage/contracts";
-import { Download } from "lucide-react";
+import { CheckCircle2, Download, ShieldAlert, ShieldCheck } from "lucide-react";
 import { PermissionGate } from "@/components/auth/PermissionGate";
-import { MascotIllustration } from "@/components/ui";
+import { Modal } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { formatLkr } from "@/data/mock-marketplace";
 import {
@@ -22,10 +22,12 @@ import { downloadCsvFile, serializeCsv } from "@/lib/csv-export";
 import { formatDateTimeDisplay, formatLkrMinor } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
   AdminPageHeader,
   AdminPaginationBar,
   AdminQueryErrorAlert,
+  AdminTableSkeleton,
   formatAdminRefundStatus,
   isUuid,
   statusBadgeToneClasses
@@ -55,6 +57,7 @@ export function AdminPaymentTransactionsLogPage() {
       search: location.search,
       isAuthenticated
     });
+  const querySuffix = showDemoPreview ? "?preview=demo" : "";
 
   const [bookingIdInput, setBookingIdInput] = useState("");
   const [appliedBookingId, setAppliedBookingId] = useState<string | undefined>(undefined);
@@ -129,19 +132,17 @@ export function AdminPaymentTransactionsLogPage() {
       <AdminPageHeader
         title="Payment Gateway Transactions & Evidence Log"
         subtitle="Audit live gateway charges, signed IPN verifications, sandbox simulations, and manual offline refund references."
+        badge={showDemoPreview ? "Demo Preview" : "Evidence Audit"}
         rightSlot={
-          <div className="flex items-center gap-3">
-            {!showDemoPreview && transactions.length > 0 && (
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-slate-800"
-              >
-                <Download className="w-3.5 h-3.5" /> Export CSV
-              </button>
-            )}
-            <MascotIllustration mascot="key" size="sm" caption="Evidence Audit" />
-          </div>
+          !showDemoPreview && transactions.length > 0 ? (
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-sand-200 bg-white hover:bg-sand-100 text-xs font-bold text-navy-900 transition"
+            >
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+          ) : undefined
         }
       />
 
@@ -161,18 +162,18 @@ export function AdminPaymentTransactionsLogPage() {
       {!showDemoPreview && (
         <form
           onSubmit={handleFilterSubmit}
-          className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap gap-2 items-center"
+          className="bg-white rounded-2xl border border-sand-200 p-4 flex flex-wrap gap-2 items-center shadow-sm"
         >
           <input
             type="text"
             value={bookingIdInput}
             onChange={(e) => setBookingIdInput(e.target.value)}
             placeholder="Filter by Booking UUID..."
-            className="flex-1 min-w-[240px] px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono"
+            className="flex-1 min-w-[240px] px-3 py-2 rounded-xl border border-sand-200 text-xs font-mono text-navy-950"
           />
           <button
             type="submit"
-            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
+            className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
           >
             Apply Booking Filter
           </button>
@@ -185,7 +186,7 @@ export function AdminPaymentTransactionsLogPage() {
                 setFilterError(null);
                 setPage(1);
               }}
-              className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-700"
+              className="px-3 py-2 rounded-xl border border-sand-200 text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
             >
               Reset
             </button>
@@ -193,21 +194,26 @@ export function AdminPaymentTransactionsLogPage() {
         </form>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
         {showDemoPreview ? (
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+          <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 flex items-center justify-between text-xs">
             <div>
-              <p className="font-bold text-slate-900">
+              <p className="font-bold text-navy-950">
                 PAYHERE CHARGE • Sample Gateway Settled (Demo Preview)
               </p>
-              <p className="text-slate-600 mt-0.5">
-                evidence=PROVIDER_WEBHOOK • sigVerified=true
-              </p>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                <span className="px-2 py-0.5 rounded-full bg-sand-100 border border-sand-200 text-[10px] font-bold text-navy-900">
+                  PROVIDER_WEBHOOK
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-emerald-800">
+                  <ShieldCheck className="h-3 w-3" /> Signature Verified
+                </span>
+              </div>
             </div>
-            <span className="font-extrabold text-emerald-700">{formatLkr(2400)}</span>
+            <span className="font-extrabold text-emerald-700 tabular-nums">{formatLkr(2400)}</span>
           </div>
         ) : txQuery.isLoading ? (
-          <p className="text-xs text-slate-500 py-4 text-center">Loading transactions...</p>
+          <AdminTableSkeleton rows={6} columns={6} />
         ) : transactions.length === 0 ? (
           <AdminEmptyStateCard
             title="No payment transactions recorded"
@@ -217,7 +223,7 @@ export function AdminPaymentTransactionsLogPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
+                <tr className="border-b border-sand-200 text-sand-700">
                   <th className="pb-2.5 pr-4 font-bold">Booking / Type</th>
                   <th className="pb-2.5 pr-4 font-bold">Provider & Reference</th>
                   <th className="pb-2.5 pr-4 font-bold">Evidence Attribution</th>
@@ -226,34 +232,50 @@ export function AdminPaymentTransactionsLogPage() {
                   <th className="pb-2.5 font-bold">Timestamp</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-sand-100">
                 {transactions.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-50">
+                  <tr key={tx.id} className="hover:bg-sand-50/70 transition-colors">
                     <td className="py-3 pr-4">
-                      <p className="font-mono font-bold text-slate-900">
+                      <Link
+                        to={`/admin/bookings/${tx.bookingId}${querySuffix}`}
+                        className="font-mono font-bold text-terracotta-600 hover:underline"
+                      >
                         {tx.referenceCode || tx.bookingId.slice(0, 8)}
-                      </p>
-                      <p className="text-[11px] font-semibold text-slate-600">
+                      </Link>
+                      <p className="text-[11px] font-semibold text-sand-700">
                         {tx.transactionType}
                       </p>
                     </td>
                     <td className="py-3 pr-4">
-                      <p className="font-bold text-slate-900">{tx.provider}</p>
-                      <p className="text-[11px] font-mono text-slate-600">
+                      <p className="font-bold text-navy-950">{tx.provider}</p>
+                      <p className="text-[11px] font-mono text-sand-700">
                         {tx.providerTransactionId || tx.manualReference || "No provider reference"}
                       </p>
                     </td>
-                    <td className="py-3 pr-4 text-[11px] text-slate-700">
-                      <p>
-                        evidence={tx.evidenceSource} • sigVerified={String(tx.signatureVerified)}
-                      </p>
+                    <td className="py-3 pr-4 text-[11px]">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded-full bg-sand-100 border border-sand-200 font-semibold text-navy-900">
+                          {tx.evidenceSource.replace(/_/g, " ")}
+                        </span>
+                        {tx.signatureVerified ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 font-bold text-emerald-800">
+                            <ShieldCheck className="h-3 w-3" />
+                            Signature Verified
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 font-bold text-amber-900">
+                            <ShieldAlert className="h-3 w-3" />
+                            Unverified
+                          </span>
+                        )}
+                      </div>
                       {tx.manualReference && (
-                        <p className="font-mono text-amber-800 mt-0.5">
+                        <p className="font-mono text-amber-800 mt-1">
                           Manual Ref: {tx.manualReference}
                         </p>
                       )}
                     </td>
-                    <td className="py-3 pr-4 font-bold text-slate-900">
+                    <td className="py-3 pr-4 font-bold text-navy-950 tabular-nums">
                       {formatLkrMinor(tx.amountMinor, tx.currency)}
                     </td>
                     <td className="py-3 pr-4">
@@ -263,7 +285,7 @@ export function AdminPaymentTransactionsLogPage() {
                         {tx.status}
                       </span>
                     </td>
-                    <td className="py-3 text-[11px] text-slate-600">
+                    <td className="py-3 text-[11px] text-sand-700 tabular-nums">
                       {formatDateTimeDisplay(tx.createdAt)}
                     </td>
                   </tr>
@@ -398,13 +420,11 @@ export function AdminRefundManagementQueuePage() {
       <AdminPageHeader
         title="Refund Management & 7-Stage Recovery Queue"
         subtitle="Execute full 7-stage refund transitions including non-linear recovery from FAILED or MANUAL_REVIEW_REQUIRED back to settlement."
-        rightSlot={
-          <MascotIllustration mascot="sitting-suitcase" size="sm" caption="7-Stage Recovery" />
-        }
+        badge={showDemoPreview ? "Demo Preview" : "7-Stage Recovery"}
       />
 
       {effectiveAdminRole === "SUPPORT" && (
-        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold">
+        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-sand-100 border border-sand-200 text-navy-900 text-xs font-bold">
           Read-Only Support View (Refund State Transitions Restricted to Superadmin)
         </div>
       )}
@@ -422,7 +442,7 @@ export function AdminRefundManagementQueuePage() {
 
       {filterError && <AdminQueryErrorAlert message={filterError} />}
 
-      {refundError && (
+      {refundError && !activeTransition && (
         <AdminQueryErrorAlert
           message={refundError}
           onRetry={() => void refundsQuery.refetch()}
@@ -432,15 +452,16 @@ export function AdminRefundManagementQueuePage() {
       {refundNotice && (
         <div
           role="status"
-          className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-900"
+          className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-900 flex items-center gap-2"
         >
-          {refundNotice}
+          <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+          <span>{refundNotice}</span>
         </div>
       )}
 
       {/* Filters */}
       {!showDemoPreview && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+        <div className="bg-white rounded-2xl border border-sand-200 p-4 space-y-3 shadow-sm">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -466,11 +487,11 @@ export function AdminRefundManagementQueuePage() {
               value={bookingIdInput}
               onChange={(e) => setBookingIdInput(e.target.value)}
               placeholder="Filter refunds by Booking UUID..."
-              className="flex-1 min-w-[240px] px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono"
+              className="flex-1 min-w-[240px] px-3 py-2 rounded-xl border border-sand-200 text-xs font-mono text-navy-950"
             />
             <button
               type="submit"
-              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold"
+              className="px-4 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
             >
               Filter by Booking
             </button>
@@ -485,8 +506,8 @@ export function AdminRefundManagementQueuePage() {
               }}
               className={`px-2.5 py-1 rounded-xl text-xs font-bold transition ${
                 statusFilter === "ALL"
-                  ? "bg-purple-700 text-white"
-                  : "bg-slate-50 border border-slate-200 text-slate-700"
+                  ? "bg-navy-900 text-white shadow-sm"
+                  : "bg-sand-50 border border-sand-200 text-navy-900 hover:bg-sand-100"
               }`}
             >
               All Refunds
@@ -501,8 +522,8 @@ export function AdminRefundManagementQueuePage() {
                 }}
                 className={`px-2.5 py-1 rounded-xl text-xs font-bold transition ${
                   statusFilter === st
-                    ? "bg-purple-700 text-white"
-                    : "bg-slate-50 border border-slate-200 text-slate-700"
+                    ? "bg-navy-900 text-white shadow-sm"
+                    : "bg-sand-50 border border-sand-200 text-navy-900 hover:bg-sand-100"
                 }`}
               >
                 {st.replace(/_/g, " ")}
@@ -513,12 +534,12 @@ export function AdminRefundManagementQueuePage() {
       )}
 
       {/* Refund Rows */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
         {showDemoPreview ? (
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+          <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 flex items-center justify-between text-xs">
             <div>
-              <p className="font-bold text-slate-900">Sample Cancellation Refund (Demo Preview)</p>
-              <p className="text-slate-600 mt-0.5">
+              <p className="font-bold text-navy-950">Sample Cancellation Refund (Demo Preview)</p>
+              <p className="text-sand-700 mt-0.5 tabular-nums">
                 {formatLkr(2400)} • 100% policy refund • Requires audit notes before settlement
               </p>
             </div>
@@ -527,7 +548,7 @@ export function AdminRefundManagementQueuePage() {
             </span>
           </div>
         ) : refundsQuery.isLoading ? (
-          <p className="text-xs text-slate-500 py-4 text-center">Loading refund queue...</p>
+          <AdminCardListSkeleton count={4} />
         ) : refunds.length === 0 ? (
           <AdminEmptyStateCard
             title="No refunds match this filter"
@@ -537,63 +558,94 @@ export function AdminRefundManagementQueuePage() {
           <div className="space-y-3 text-xs">
             {refunds.map((item) => {
               const allowedNext = VALID_REFUND_TRANSITIONS[item.status] ?? [];
+              const forwardTargets = allowedNext.filter(
+                (t) => t !== "FAILED" && t !== "MANUAL_REVIEW_REQUIRED"
+              );
+              const escalationTargets = allowedNext.filter(
+                (t) => t === "FAILED" || t === "MANUAL_REVIEW_REQUIRED"
+              );
               const statusMeta = formatAdminRefundStatus(item.status);
               return (
                 <div
                   key={item.id}
-                  className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3"
+                  className="p-4 rounded-xl border border-sand-200 bg-sand-50/70 space-y-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="space-y-0.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono font-bold text-slate-950">
+                        <Link
+                          to={`/admin/bookings/${item.bookingId}`}
+                          className="font-mono font-bold text-terracotta-600 hover:underline"
+                        >
                           {item.referenceCode || item.bookingId.slice(0, 8)}
-                        </span>
+                        </Link>
                         <span
                           className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(item.status)}`}
                         >
                           {statusMeta.label} ({item.status})
                         </span>
-                        <span className="px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 text-[11px] font-semibold">
+                        <span className="px-2 py-0.5 rounded-full bg-sand-200 text-navy-900 text-[11px] font-semibold">
                           {item.refundPercentage}% • {item.reasonCategory}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-600">
-                        Amount: <strong>{formatLkrMinor(item.amountMinor, item.currency)}</strong> •
-                        Created {formatDateTimeDisplay(item.createdAt)}
+                      <p className="text-[11px] text-sand-700 tabular-nums">
+                        Amount:{" "}
+                        <strong className="text-navy-950">
+                          {formatLkrMinor(item.amountMinor, item.currency)}
+                        </strong>{" "}
+                        • Created {formatDateTimeDisplay(item.createdAt)}
                         {item.settlementMode ? ` • Mode: ${item.settlementMode}` : ""}
                         {item.providerRefundId ? ` • Provider Ref: ${item.providerRefundId}` : ""}
                         {item.manualReference ? ` • Manual Ref: ${item.manualReference}` : ""}
                       </p>
                       {item.notes && (
-                        <p className="text-[11px] text-slate-500">Last note: {item.notes}</p>
+                        <p className="text-[11px] text-sand-700">Last note: {item.notes}</p>
                       )}
                     </div>
                   </div>
 
                   {allowedNext.length > 0 && (
                     <PermissionGate permission={SYSTEM_PERMISSIONS.ADMIN_REFUND_MANAGE}>
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {allowedNext.map((target) => (
-                          <button
-                            key={target}
-                            type="button"
-                            onClick={() => openTransitionPanel(item, target)}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
-                              target === "SUCCEEDED"
-                                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                                : target === "FAILED"
-                                  ? "bg-rose-600 hover:bg-rose-700 text-white"
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-sand-200">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {forwardTargets.map((target) => (
+                            <button
+                              key={target}
+                              type="button"
+                              onClick={() => openTransitionPanel(item, target)}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
+                                target === "SUCCEEDED"
+                                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                                   : target === "AUTHORIZED" && item.status === "FAILED"
                                     ? "bg-amber-600 hover:bg-amber-700 text-white"
-                                    : "bg-slate-900 hover:bg-slate-800 text-white"
-                            }`}
-                          >
-                            {item.status === "FAILED" && target === "AUTHORIZED"
-                              ? "Recover to AUTHORIZED"
-                              : `Transition to ${target}`}
-                          </button>
-                        ))}
+                                    : "bg-navy-900 hover:bg-navy-800 text-white"
+                              }`}
+                            >
+                              {item.status === "FAILED" && target === "AUTHORIZED"
+                                ? "Recover to AUTHORIZED"
+                                : `Transition to ${target}`}
+                            </button>
+                          ))}
+                        </div>
+
+                        {escalationTargets.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1.5 sm:pl-3 sm:border-l sm:border-sand-200">
+                            {escalationTargets.map((target) => (
+                              <button
+                                key={target}
+                                type="button"
+                                onClick={() => openTransitionPanel(item, target)}
+                                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition ${
+                                  target === "FAILED"
+                                    ? "bg-rose-600 hover:bg-rose-700 text-white"
+                                    : "bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950"
+                                }`}
+                              >
+                                {`Transition to ${target}`}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </PermissionGate>
                   )}
@@ -616,119 +668,124 @@ export function AdminRefundManagementQueuePage() {
         )}
       </div>
 
-      {/* Refund Transition Form Panel */}
-      {activeTransition && (
-        <PermissionGate permission={SYSTEM_PERMISSIONS.ADMIN_REFUND_MANAGE}>
-          <form
-            onSubmit={handleSubmitTransition}
-            className="bg-white rounded-2xl border-2 border-purple-300 p-6 shadow-lg space-y-4 text-xs"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-base font-extrabold text-slate-950">
-                Transition Refund{" "}
-                {activeTransition.refund.referenceCode ||
-                  activeTransition.refund.bookingId.slice(0, 8)}{" "}
-                from {activeTransition.refund.status} to {activeTransition.targetStatus}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setActiveTransition(null)}
-                className="px-3 py-1 rounded-lg border border-slate-300 font-bold text-slate-700"
-              >
-                Close
-              </button>
-            </div>
+      {/* Focused Refund Transition Modal */}
+      <Modal
+        open={Boolean(activeTransition)}
+        onClose={() => setActiveTransition(null)}
+        size="md"
+        title={
+          activeTransition
+            ? `Transition Refund ${
+                activeTransition.refund.referenceCode ||
+                activeTransition.refund.bookingId.slice(0, 8)
+              }`
+            : "Refund Transition"
+        }
+        subtitle={
+          activeTransition
+            ? `From ${activeTransition.refund.status} → ${activeTransition.targetStatus} (${formatLkrMinor(
+                activeTransition.refund.amountMinor,
+                activeTransition.refund.currency
+              )})`
+            : undefined
+        }
+      >
+        {activeTransition && (
+          <PermissionGate permission={SYSTEM_PERMISSIONS.ADMIN_REFUND_MANAGE}>
+            <form onSubmit={handleSubmitTransition} className="space-y-4 text-xs">
+              {refundError && <AdminQueryErrorAlert message={refundError} />}
 
-            {activeTransition.targetStatus === "SUCCEEDED" && (
-              <div className="space-y-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
-                <p className="font-bold text-slate-900">Settlement Attribution Mode</p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSettlementMode("PROVIDER_CONFIRMED")}
-                    className={`px-3 py-1.5 rounded-xl font-bold ${
-                      settlementMode === "PROVIDER_CONFIRMED"
-                        ? "bg-purple-700 text-white"
-                        : "bg-white border border-slate-300 text-slate-700"
-                    }`}
-                  >
-                    PROVIDER_CONFIRMED
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSettlementMode("MANUAL_OFFLINE")}
-                    className={`px-3 py-1.5 rounded-xl font-bold ${
-                      settlementMode === "MANUAL_OFFLINE"
-                        ? "bg-purple-700 text-white"
-                        : "bg-white border border-slate-300 text-slate-700"
-                    }`}
-                  >
-                    MANUAL_OFFLINE
-                  </button>
+              {activeTransition.targetStatus === "SUCCEEDED" && (
+                <div className="space-y-3 p-4 rounded-xl bg-sand-50 border border-sand-200">
+                  <p className="font-bold text-navy-950">Settlement Attribution Mode</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSettlementMode("PROVIDER_CONFIRMED")}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                        settlementMode === "PROVIDER_CONFIRMED"
+                          ? "bg-navy-900 text-white"
+                          : "bg-white border border-sand-200 text-navy-900 hover:bg-sand-100"
+                      }`}
+                    >
+                      PROVIDER_CONFIRMED
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSettlementMode("MANUAL_OFFLINE")}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                        settlementMode === "MANUAL_OFFLINE"
+                          ? "bg-navy-900 text-white"
+                          : "bg-white border border-sand-200 text-navy-900 hover:bg-sand-100"
+                      }`}
+                    >
+                      MANUAL_OFFLINE
+                    </button>
+                  </div>
+
+                  {settlementMode === "PROVIDER_CONFIRMED" ? (
+                    <div>
+                      <label className="block font-bold text-navy-900 mb-1">
+                        Gateway Provider Refund Reference
+                      </label>
+                      <input
+                        type="text"
+                        value={providerRefundIdInput}
+                        onChange={(e) => setProviderRefundIdInput(e.target.value)}
+                        placeholder="e.g. PH-REV-2026111601"
+                        className="w-full px-3 py-2 rounded-xl border border-sand-200 bg-white font-mono text-navy-950"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block font-bold text-navy-900 mb-1">
+                        Manual Bank / Offline Settlement Reference
+                      </label>
+                      <input
+                        type="text"
+                        value={manualReferenceInput}
+                        onChange={(e) => setManualReferenceInput(e.target.value)}
+                        placeholder="e.g. BANK-REV-2026-0091"
+                        className="w-full px-3 py-2 rounded-xl border border-sand-200 bg-white font-mono text-navy-950"
+                      />
+                    </div>
+                  )}
                 </div>
+              )}
 
-                {settlementMode === "PROVIDER_CONFIRMED" ? (
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
-                      Gateway Provider Refund Reference
-                    </label>
-                    <input
-                      type="text"
-                      value={providerRefundIdInput}
-                      onChange={(e) => setProviderRefundIdInput(e.target.value)}
-                      placeholder="e.g. PH-REV-2026111601"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-mono"
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">
-                      Manual Bank / Offline Settlement Reference
-                    </label>
-                    <input
-                      type="text"
-                      value={manualReferenceInput}
-                      onChange={(e) => setManualReferenceInput(e.target.value)}
-                      placeholder="e.g. BANK-REV-2026-0091"
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-mono"
-                    />
-                  </div>
-                )}
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">
+                  Audit Notes (required, min 3 chars)
+                </label>
+                <textarea
+                  rows={3}
+                  value={auditNotesInput}
+                  onChange={(e) => setAuditNotesInput(e.target.value)}
+                  placeholder="Record gateway ticket reference, supervisor sign-off, or offline bank confirmation..."
+                  className="w-full px-3 py-2 rounded-xl border border-sand-200 bg-white text-navy-950"
+                />
               </div>
-            )}
 
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">
-                Audit Notes (required, min 3 chars)
-              </label>
-              <textarea
-                rows={2}
-                value={auditNotesInput}
-                onChange={(e) => setAuditNotesInput(e.target.value)}
-                placeholder="Record gateway ticket reference, supervisor sign-off, or offline bank confirmation..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="submit"
-                disabled={transitionMutation.isPending}
-                className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold disabled:opacity-50"
-              >
-                {transitionMutation.isPending ? "Submitting..." : "Confirm Refund Transition"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTransition(null)}
-                className="px-4 py-2 rounded-xl border border-slate-300 font-bold text-slate-700"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </PermissionGate>
-      )}
+              <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-sand-200">
+                <button
+                  type="button"
+                  onClick={() => setActiveTransition(null)}
+                  className="px-4 py-2 rounded-xl border border-sand-200 bg-white font-bold text-navy-900 hover:bg-sand-100 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={transitionMutation.isPending}
+                  className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold disabled:opacity-50 transition"
+                >
+                  {transitionMutation.isPending ? "Submitting..." : "Confirm Refund Transition"}
+                </button>
+              </div>
+            </form>
+          </PermissionGate>
+        )}
+      </Modal>
     </div>
   );
 }

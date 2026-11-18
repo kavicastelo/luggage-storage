@@ -30,21 +30,25 @@ export interface TextInputProps extends Omit<RNTextInputProps, "style"> {
   containerStyle?: ViewStyle;
 }
 
-export function TextInput({
-  label,
-  required = false,
-  helperText,
-  errorText,
-  leftIcon,
-  rightAction,
-  enablePasswordToggle = false,
-  secureTextEntry,
-  editable = true,
-  containerStyle,
-  testID,
-  multiline,
-  ...rest
-}: TextInputProps) {
+export const TextInput = React.forwardRef<React.ComponentRef<typeof RNTextInput>, TextInputProps>(
+  function TextInput(
+  {
+    label,
+    required = false,
+    helperText,
+    errorText,
+    leftIcon,
+    rightAction,
+    enablePasswordToggle = false,
+    secureTextEntry,
+    editable = true,
+    containerStyle,
+    testID,
+    multiline,
+    ...rest
+  },
+  ref
+) {
   const [isFocused, setIsFocused] = useState(false);
   const [isPasswordHidden, setIsPasswordHidden] = useState(Boolean(secureTextEntry));
   const effectiveSecure = enablePasswordToggle ? isPasswordHidden : Boolean(secureTextEntry);
@@ -80,12 +84,13 @@ export function TextInput({
         ) : null}
 
         <RNTextInput
+          ref={ref}
           {...rest}
           testID={testID}
           editable={editable}
           secureTextEntry={effectiveSecure}
           multiline={multiline}
-          placeholderTextColor={mobileColors.sand[500]}
+          placeholderTextColor={mobileColors.sand[600]}
           onFocus={(e) => {
             setIsFocused(true);
             rest.onFocus?.(e);
@@ -130,7 +135,7 @@ export function TextInput({
       ) : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrapper: {

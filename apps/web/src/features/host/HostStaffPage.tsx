@@ -1,7 +1,14 @@
 import React, { useMemo, useState } from "react";
-import { HOST_STAFF_ROLES, SYSTEM_PERMISSIONS, type HostStaffRole } from "@luggage-storage/contracts";
-import { Info, ShieldCheck, Trash2, Users, X } from "lucide-react";
-import { Alert } from "@/components/ui/Alert";
+import { useLocation } from "react-router-dom";
+import {
+  HOST_STAFF_ROLES,
+  SYSTEM_PERMISSIONS,
+  type HostStaffMemberDetail,
+  type HostStaffRole
+} from "@luggage-storage/contracts";
+import { ShieldCheck, Trash2, Users } from "lucide-react";
+import { Alert, Badge, Button, Card, EmptyState, LoadingSkeleton, Modal } from "@/components/ui";
+import { isDemoPreviewActive } from "@/config/demo-preview";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useHostContextStore } from "@/store/useHostContextStore";
 import {
@@ -13,6 +20,7 @@ import {
   useUpdateHostStaffMutation
 } from "@/hooks/queries/use-host-portal";
 import { HostQueryErrorAlert } from "./host-helpers";
+import { useHostVenue } from "./HostDashboardLayout";
 
 interface DemoStaffMember {
   id: string;
@@ -59,9 +67,20 @@ const DEMO_STAFF_LIST: DemoStaffMember[] = [
 ];
 
 export function HostStaffManagementRbacPage() {
+  const location = useLocation();
+  const { isDemoActive } = useHostVenue();
   const { isAuthenticated, user, hasPermission } = useAuthStore();
   const storedBusinessId = useHostContextStore((state) => state.selectedBusinessId);
   const setStoredBusinessId = useHostContextStore((state) => state.setSelectedBusinessId);
+
+  const showDemoStaff =
+    !isAuthenticated &&
+    (isDemoActive ||
+      isDemoPreviewActive({
+        allowDemoPreview: true,
+        search: location.search,
+        isAuthenticated
+      }));
 
   const businessesQuery = useOwnedBusinessesQuery({ enabled: isAuthenticated });
   const locationsQuery = useHostLocationsQuery({ enabled: isAuthenticated });
@@ -80,7 +99,7 @@ export function HostStaffManagementRbacPage() {
   const removeStaffMutation = useRemoveHostStaffMutation();
 
   const canManageStaff =
-    !isAuthenticated ||
+    showDemoStaff ||
     Boolean(user?.roles?.includes("HOST_OWNER")) ||
     Boolean(user?.roles?.includes("SUPERADMIN")) ||
     hasPermission(SYSTEM_PERMISSIONS.HOSTS_STAFF_MANAGE_OWN);
@@ -89,7 +108,8 @@ export function HostStaffManagementRbacPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<HostStaffRole>("ATTENDANT");
   const [inviteLocationIds, setInviteLocationIds] = useState<string[]>([]);
-  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [memberToRevoke, setMemberToRevoke] = useState<HostStaffMemberDetail | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -104,12 +124,15 @@ export function HostStaffManagementRbacPage() {
 
   const handleInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAuthenticated) {
+    setInviteError(null);
+
+    if (showDemoStaff) {
       setShowInviteModal(false);
+      setSuccessMsg("Demo preview: Staff invitation simulated in local session.");
       return;
     }
     if (!activeBusinessId) {
-      setErrorMsg("Select or create a Host Business before assigning staff.");
+      setInviteError("Select or create a Host Business before assigning staff.");
       return;
     }
 
@@ -129,7 +152,7 @@ export function HostStaffManagementRbacPage() {
       setShowInviteModal(false);
       setSuccessMsg("Staff member assigned to business operations.");
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to invite staff member.");
+      setInviteError(err instanceof Error ? err.message : "Failed to invite staff member.");
     }
   };
 
@@ -157,25 +180,24 @@ export function HostStaffManagementRbacPage() {
         membershipId,
         data: { isActive: !currentActive }
       });
-      setSuccessMsg(
-        currentActive ? "Staff access paused." : "Staff access restored."
-      );
+      setSuccessMsg(currentActive ? "Staff access paused." : "Staff access restored.");
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Failed to update staff status.");
     }
   };
 
-  const handleRemoveStaff = async (membershipId: string) => {
-    if (!activeBusinessId) return;
+  const handleConfirmRemoveStaff = async () => {
+    if (!activeBusinessId || !memberToRevoke) return;
     setErrorMsg(null);
     try {
       await removeStaffMutation.mutateAsync({
         businessId: activeBusinessId,
-        membershipId
+        membershipId: memberToRevoke.id
       });
-      setConfirmRemoveId(null);
+      setMemberToRevoke(null);
       setSuccessMsg("Staff membership revoked.");
     } catch (err) {
+      setMemberToRevoke(null);
       setErrorMsg(err instanceof Error ? err.message : "Failed to revoke staff membership.");
     }
   };
@@ -183,7 +205,7 @@ export function HostStaffManagementRbacPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-extrabold text-navy-950 tracking-tight">
@@ -194,14 +216,17 @@ export function HostStaffManagementRbacPage() {
             </p>
           </div>
           {canManageStaff && (
-            <button
+            <Button
               type="button"
-              onClick={() => setShowInviteModal(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
+              size="sm"
+              onClick={() => {
+                setInviteError(null);
+                setShowInviteModal(true);
+              }}
+              leftIcon={<Users className="h-4 w-4" />}
             >
-              <Users className="h-4 w-4" />
-              <span>Invite Staff Member</span>
-            </button>
+              Invite Staff Member
+            </Button>
           )}
         </div>
 
@@ -222,16 +247,14 @@ export function HostStaffManagementRbacPage() {
             </select>
           </div>
         )}
-      </div>
+      </Card>
 
-      {/* Demo Banner ONLY in unauthenticated preview */}
-      {!isAuthenticated && (
-        <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-xs text-amber-900 flex items-start gap-3">
-          <Info className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <strong className="font-bold">Team Management (Demo State):</strong> Displaying sample team directory for Sri Lanka counter preview.
-          </div>
-        </div>
+      {/* Demo Banner ONLY in active demo preview */}
+      {showDemoStaff && (
+        <Alert variant="warning">
+          <strong className="font-bold">Team Management (Demo State):</strong> Displaying sample
+          team directory for Sri Lanka counter preview.
+        </Alert>
       )}
 
       {errorMsg && (
@@ -241,9 +264,9 @@ export function HostStaffManagementRbacPage() {
       )}
 
       {successMsg && (
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-xl">
+        <Alert variant="success" onDismiss={() => setSuccessMsg(null)}>
           {successMsg}
-        </div>
+        </Alert>
       )}
 
       {isAuthenticated && staffQuery.isError && (
@@ -259,7 +282,7 @@ export function HostStaffManagementRbacPage() {
 
       {/* Role Scope Guide */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-        <div className="bg-white rounded-2xl border border-sand-200 p-4 space-y-1.5 shadow-sm">
+        <Card className="p-4 space-y-1.5">
           <div className="flex items-center gap-2 font-bold text-navy-950">
             <ShieldCheck className="h-4 w-4 text-emerald-600" />
             <span>Host Owner Scope</span>
@@ -267,9 +290,9 @@ export function HostStaffManagementRbacPage() {
           <p className="text-navy-600 leading-relaxed">
             Full access to corporate KYC, payout banking details, commission ledgers, pricing updates, and team role assignments.
           </p>
-        </div>
+        </Card>
 
-        <div className="bg-white rounded-2xl border border-sand-200 p-4 space-y-1.5 shadow-sm">
+        <Card className="p-4 space-y-1.5">
           <div className="flex items-center gap-2 font-bold text-navy-950">
             <Users className="h-4 w-4 text-terracotta-600" />
             <span>Host Staff Scope</span>
@@ -277,21 +300,42 @@ export function HostStaffManagementRbacPage() {
           <p className="text-navy-600 leading-relaxed">
             Restricted strictly to counter operations: Drop-off Check-In, Pick-Up PIN verification, and custody incident reporting. Financial ledgers hidden.
           </p>
-        </div>
+        </Card>
       </div>
 
       {/* Staff Directory */}
-      <div className="bg-white rounded-2xl border border-sand-200 shadow-sm overflow-hidden">
+      <Card className="overflow-hidden">
         <div className="px-5 py-4 border-b border-sand-100">
           <h2 className="text-sm font-bold text-navy-950">Active Team Directory</h2>
         </div>
 
         {isAuthenticated ? (
           staffQuery.isLoading ? (
-            <div className="p-8 text-center text-xs text-navy-500">Loading staff directory...</div>
+            <div className="p-5 space-y-3">
+              <LoadingSkeleton className="h-14 w-full" />
+              <LoadingSkeleton className="h-14 w-full" />
+            </div>
           ) : liveStaff.length === 0 ? (
-            <div className="p-8 text-center text-xs text-navy-600">
-              No counter attendants or location managers assigned yet. Invite a registered team user above.
+            <div className="p-4">
+              <EmptyState
+                mascot="wave"
+                title="No counter attendants or location managers assigned yet"
+                description="Invite a registered team user to grant counter check-in and release access for your storage hubs."
+                action={
+                  canManageStaff ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setInviteError(null);
+                        setShowInviteModal(true);
+                      }}
+                    >
+                      Invite Staff Member
+                    </Button>
+                  ) : undefined
+                }
+              />
             </div>
           ) : (
             <div className="divide-y divide-sand-100">
@@ -310,24 +354,15 @@ export function HostStaffManagementRbacPage() {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold text-navy-950">{member.displayName}</span>
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            member.staffRole === "MANAGER"
-                              ? "bg-navy-100 text-navy-900 border-navy-200"
-                              : "bg-terracotta-50 text-terracotta-800 border-terracotta-200"
-                          }`}
+                        <Badge
+                          variant={member.staffRole === "MANAGER" ? "navy" : "brand"}
+                          size="sm"
                         >
                           {member.staffRole}
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                            member.isActive
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-sand-200 text-navy-700"
-                          }`}
-                        >
+                        </Badge>
+                        <Badge variant={member.isActive ? "success" : "neutral"} size="sm">
                           {member.isActive ? "Active" : "Inactive"}
-                        </span>
+                        </Badge>
                       </div>
                       <p className="text-navy-500 mt-0.5">{member.email}</p>
                       <p className="text-navy-600 mt-1">
@@ -360,35 +395,15 @@ export function HostStaffManagementRbacPage() {
                         >
                           {member.isActive ? "Disable" : "Enable"}
                         </button>
-                        {confirmRemoveId === member.id ? (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              disabled={removeStaffMutation.isPending}
-                              onClick={() => void handleRemoveStaff(member.id)}
-                              className="px-3 py-1.5 rounded-lg bg-red-600 text-white font-bold"
-                            >
-                              Confirm Revoke
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmRemoveId(null)}
-                              className="px-2 py-1.5 rounded-lg border border-sand-300 text-navy-700"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setConfirmRemoveId(member.id)}
-                            aria-label={`Revoke ${member.email}`}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 font-bold"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            <span>Revoke</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setMemberToRevoke(member)}
+                          aria-label={`Revoke ${member.email}`}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-200 text-red-700 hover:bg-red-50 font-bold"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Revoke</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -396,7 +411,7 @@ export function HostStaffManagementRbacPage() {
               })}
             </div>
           )
-        ) : (
+        ) : showDemoStaff ? (
           <div className="divide-y divide-sand-100">
             {DEMO_STAFF_LIST.map((staff) => (
               <div
@@ -406,15 +421,12 @@ export function HostStaffManagementRbacPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-navy-950">{staff.name}</span>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        staff.role === "HOST_OWNER"
-                          ? "bg-navy-100 text-navy-900 border-navy-200"
-                          : "bg-terracotta-50 text-terracotta-800 border-terracotta-200"
-                      }`}
+                    <Badge
+                      variant={staff.role === "HOST_OWNER" ? "navy" : "brand"}
+                      size="sm"
                     >
                       {staff.role}
-                    </span>
+                    </Badge>
                   </div>
                   <p className="text-navy-500 mt-0.5">{staff.email}</p>
                 </div>
@@ -428,95 +440,129 @@ export function HostStaffManagementRbacPage() {
               </div>
             ))}
           </div>
+        ) : (
+          <div className="p-4">
+            <EmptyState
+              mascot="wave"
+              title="Sign in to manage team access"
+              description="Host Owners can invite counter attendants and manage hub-level permissions."
+            />
+          </div>
         )}
-      </div>
+      </Card>
 
       {/* Invite Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={(e) => void handleInviteSubmit(e)}
-            className="bg-white rounded-2xl border border-sand-200 max-w-md w-full p-6 space-y-4 shadow-xl text-xs"
-          >
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <h3 className="text-base font-bold text-navy-950">Invite Team Member</h3>
-              <button
-                type="button"
-                onClick={() => setShowInviteModal(false)}
-                className="p-1 rounded-lg hover:bg-sand-100 text-navy-500"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Registered User Email</label>
-                <input
-                  type="email"
-                  required
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="attendant@example.com"
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                />
-                {isAuthenticated && (
-                  <p className="text-[10px] text-navy-500 mt-1">
-                    User must have an existing platform account before assignment.
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block font-bold text-navy-900 mb-1">Staff Role</label>
-                <select
-                  aria-label="Role Permission"
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as HostStaffRole)}
-                  className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                >
-                  <option value="ATTENDANT">Attendant (Counter Check-In / Release Desk)</option>
-                  <option value="MANAGER">Manager (Multi-Hub Operations Scope)</option>
-                </select>
-              </div>
-              {isAuthenticated && locations.length > 0 && (
-                <div>
-                  <label className="block font-bold text-navy-900 mb-1">
-                    Assigned Storage Hubs (Leave empty for all hubs)
-                  </label>
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto p-2 rounded-xl border border-sand-200 bg-sand-50">
-                    {locations.map((loc) => (
-                      <label key={loc.id} className="flex items-center gap-2 text-navy-800">
-                        <input
-                          type="checkbox"
-                          checked={inviteLocationIds.includes(loc.id)}
-                          onChange={() => toggleInviteLocation(loc.id)}
-                          className="rounded text-terracotta-500"
-                        />
-                        <span>{loc.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+      <Modal
+        open={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        closeLabel="Close invite modal"
+        size="sm"
+        title="Invite Team Member"
+      >
+        <form onSubmit={(e) => void handleInviteSubmit(e)} className="space-y-4 text-xs">
+          {inviteError && <Alert variant="danger">{inviteError}</Alert>}
+
+          <div className="space-y-3">
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Registered User Email</label>
+              <input
+                type="email"
+                required
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="attendant@example.com"
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
+              />
+              {isAuthenticated && (
+                <p className="text-[10px] text-navy-500 mt-1">
+                  User must have an existing platform account before assignment.
+                </p>
               )}
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowInviteModal(false)}
-                className="px-4 py-2 rounded-xl border border-sand-300 font-bold text-navy-800"
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Staff Role</label>
+              <select
+                aria-label="Role Permission"
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value as HostStaffRole)}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={addStaffMutation.isPending}
-                className="px-4 py-2 rounded-xl bg-terracotta-500 text-white font-bold disabled:opacity-50"
-              >
-                {addStaffMutation.isPending ? "Assigning..." : "Send Invitation"}
-              </button>
+                <option value="ATTENDANT">Attendant (Counter Check-In / Release Desk)</option>
+                <option value="MANAGER">Manager (Multi-Hub Operations Scope)</option>
+              </select>
             </div>
-          </form>
-        </div>
-      )}
+            {isAuthenticated && locations.length > 0 && (
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">
+                  Assigned Storage Hubs (Leave empty for all hubs)
+                </label>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto p-2 rounded-xl border border-sand-200 bg-sand-50">
+                  {locations.map((loc) => (
+                    <label key={loc.id} className="flex items-center gap-2 text-navy-800">
+                      <input
+                        type="checkbox"
+                        checked={inviteLocationIds.includes(loc.id)}
+                        onChange={() => toggleInviteLocation(loc.id)}
+                        className="rounded text-terracotta-500"
+                      />
+                      <span>{loc.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowInviteModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" isLoading={addStaffMutation.isPending}>
+              {addStaffMutation.isPending ? "Assigning..." : "Send Invitation"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Confirm Revoke Staff Modal */}
+      <Modal
+        open={Boolean(memberToRevoke)}
+        onClose={() => setMemberToRevoke(null)}
+        closeLabel="Close revoke staff modal"
+        size="sm"
+        title="Revoke Staff Access?"
+        subtitle={memberToRevoke?.email}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setMemberToRevoke(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              isLoading={removeStaffMutation.isPending}
+              onClick={() => void handleConfirmRemoveStaff()}
+            >
+              Confirm Revoke
+            </Button>
+          </>
+        }
+      >
+        <p className="text-xs text-navy-700 leading-relaxed">
+          Revoking <strong>{memberToRevoke?.displayName}</strong> ({memberToRevoke?.email})
+          immediately removes their counter check-in, custody release, and hub access permissions.
+        </p>
+      </Modal>
     </div>
   );
 }

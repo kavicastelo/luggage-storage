@@ -93,6 +93,7 @@ export default function TravellerCheckoutScreen() {
     BAG_OVERSIZED: 0
   });
   const [travellerNotes, setTravellerNotes] = useState("");
+  const [billingExpanded, setBillingExpanded] = useState(false);
 
   const [liveQuote, setLiveQuote] = useState<BookingQuoteResponse | null>(null);
   const [isQuoting, setIsQuoting] = useState(false);
@@ -481,12 +482,25 @@ export default function TravellerCheckoutScreen() {
     }
   };
 
+  const checkoutRedirectPath = useMemo(() => {
+    if (resolvedLocationId && UUID_REGEX.test(resolvedLocationId)) {
+      return `/(traveller)/checkout?locId=${resolvedLocationId}`;
+    }
+    if (hasValidExistingBookingId && existingBookingId) {
+      return `/(traveller)/checkout?bookingId=${existingBookingId}`;
+    }
+    return "/(traveller)/checkout";
+  }, [existingBookingId, hasValidExistingBookingId, resolvedLocationId]);
+
   const handleConfirmAndPay = async () => {
     if (isProcessing || submitInFlightRef.current) {
       return;
     }
     if (!isAuthenticated) {
-      router.push("/(auth)/login");
+      router.push({
+        pathname: "/(auth)/login",
+        params: { redirectTo: checkoutRedirectPath }
+      });
       return;
     }
     if (!resolvedLocationId || !UUID_REGEX.test(resolvedLocationId)) {
@@ -583,6 +597,62 @@ export default function TravellerCheckoutScreen() {
   };
 
   const existingBooking = existingBookingQuery.data;
+  const isHostApprovalFlow = location?.bookingMode === "HOST_APPROVAL" && !existingBooking;
+  const hasKnownBillingSummary = Boolean(billingFirstName.trim() || billingEmail.trim());
+  const activeCurrency = ((existingBooking?.currency || liveQuote?.currency || "LKR") as CurrencyCode);
+  const activeTotalMinor = existingBooking?.totalAmountMinor ?? liveQuote?.totalAmountMinor ?? null;
+
+  const stickyFooter =
+    !locationQuery.isLoading &&
+    !(hasValidExistingBookingId && existingBookingQuery.isLoading) &&
+    !locationQuery.isError &&
+    !awaitingCheckout ? (
+      <View style={styles.stickyFooter}>
+        <View style={styles.stickySummaryCol}>
+          <Text style={styles.stickySummaryLabel}>
+            {existingBooking
+              ? `${existingBooking.totalBags} bag(s)`
+              : `${totalBags} bag${totalBags === 1 ? "" : "s"}`}
+          </Text>
+          <Text style={styles.stickySummaryValue}>
+            {activeTotalMinor !== null
+              ? formatCurrencyMinorUnits(activeTotalMinor, activeCurrency)
+              : isQuoting
+                ? "Calculating..."
+                : "Quote pending"}
+          </Text>
+        </View>
+        <View style={styles.stickyCtaWrap}>
+          {currentStep === 1 && !hasValidExistingBookingId ? (
+            <Button
+              title="Continue to Bags"
+              rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
+              disabled={!isScheduleValid}
+              onPress={() => setCurrentStep(2)}
+              fullWidth
+            />
+          ) : currentStep === 2 && !hasValidExistingBookingId ? (
+            <Button
+              title="Review & Pay"
+              rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
+              disabled={totalBags === 0 || isQuoting || Boolean(liveQuote && !liveQuote.available)}
+              onPress={() => setCurrentStep(3)}
+              fullWidth
+            />
+          ) : (
+            <Button
+              title={isHostApprovalFlow ? "Submit Request" : "Confirm & Pay"}
+              leftIcon={<MobileIcon name="credit-card" size={16} color={mobileColors.white} />}
+              isLoading={isProcessing}
+              onPress={() => {
+                void handleConfirmAndPay();
+              }}
+              fullWidth
+            />
+          )}
+        </View>
+      </View>
+    ) : undefined;
 
   return (
     <ScreenContainer
@@ -594,6 +664,7 @@ export default function TravellerCheckoutScreen() {
           onBack={handleBack}
         />
       }
+      footer={stickyFooter}
       testID="traveller-checkout-screen"
     >
       {locationQuery.isLoading || (hasValidExistingBookingId && existingBookingQuery.isLoading) ? (
@@ -631,51 +702,42 @@ export default function TravellerCheckoutScreen() {
             }}
           />
 
-          <View style={styles.handoffButtons}>
-            <Button
-              title="Check Payment Status"
-              variant="primary"
-              isLoading={isCheckingStatus}
-              onPress={() => {
-                void checkPayHerePaymentStatus();
-              }}
-            />
-            <Button
-              title="Re-open PayHere Checkout"
-              variant="secondary"
-              onPress={() => {
-                void reopenCurrentPayHereCheckout();
-              }}
-            />
-            <Button
-              title="Retry PayHere Checkout"
-              variant="outline"
-              isLoading={isProcessing}
-              onPress={() => {
-                void handleRetryPayHereCheckout();
-              }}
-            />
-          </View>
+          <Text style={styles.handoffHint}>
+            Tap Check Payment Status to sync with the server, Re-open PayHere Checkout if your
+            gateway tab closed, or Retry PayHere Checkout for a fresh payment session.
+          </Text>
         </View>
       ) : (
         <View style={styles.stack}>
           {!hasValidExistingBookingId ? (
             <View style={styles.stepperRow}>
               {[
-                { step: 1, label: "1. Schedule" },
-                { step: 2, label: "2. Bags" },
-                { step: 3, label: "3. Review & Pay" }
+                { step: 1 as const, label: "1. Schedule" },
+                { step: 2 as const, label: "2. Bags" },
+                { step: 3 as const, label: "3. Review & Pay" }
               ].map((item) => {
                 const active = currentStep === item.step;
                 const done = currentStep > item.step;
+                const canJump =
+                  item.step < currentStep ||
+                  (item.step === 2 && isScheduleValid) ||
+                  (item.step === 3 && isScheduleValid && totalBags > 0);
                 return (
-                  <View
+                  <TouchableOpacity
                     key={item.step}
                     style={[
                       styles.stepPill,
                       active && styles.stepPillActive,
                       done && styles.stepPillDone
                     ]}
+                    disabled={!canJump || active}
+                    onPress={() => {
+                      if (canJump) {
+                        setCurrentStep(item.step);
+                      }
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active, disabled: !canJump }}
                   >
                     <Text
                       style={[
@@ -685,14 +747,14 @@ export default function TravellerCheckoutScreen() {
                     >
                       {item.label}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
           ) : null}
 
           {currentStep === 1 && !hasValidExistingBookingId ? (
-            <Card variant="elevated" style={styles.cardGap}>
+            <View style={styles.stack}>
               <FormSection
                 title="Storage Window"
                 subtitle={`Operating timezone: ${location?.timezone || "Asia/Colombo"} (${location?.operatingHoursSummary ?? "Operating hours not configured"})`}
@@ -720,18 +782,11 @@ export default function TravellerCheckoutScreen() {
                   }
                 />
               </FormSection>
-
-              <Button
-                title="Continue to Bag Selection"
-                rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
-                disabled={!isScheduleValid}
-                onPress={() => setCurrentStep(2)}
-              />
-            </Card>
+            </View>
           ) : null}
 
           {currentStep === 2 && !hasValidExistingBookingId ? (
-            <Card variant="elevated" style={styles.cardGap}>
+            <View style={styles.stack}>
               <FormSection
                 title="Select Luggage Quantities"
                 subtitle="Prices are computed live by the marketplace pricing engine in LKR."
@@ -808,14 +863,7 @@ export default function TravellerCheckoutScreen() {
                   }
                 />
               ) : null}
-
-              <Button
-                title="Continue to Review & Pay"
-                rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
-                disabled={totalBags === 0 || isQuoting || Boolean(liveQuote && !liveQuote.available)}
-                onPress={() => setCurrentStep(3)}
-              />
-            </Card>
+            </View>
           ) : null}
 
           {currentStep === 3 ? (
@@ -851,62 +899,93 @@ export default function TravellerCheckoutScreen() {
                   <Button
                     title="Sign In to Continue"
                     leftIcon={<MobileIcon name="lock" size={16} color={mobileColors.white} />}
-                    onPress={() => router.push("/(auth)/login")}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(auth)/login",
+                        params: { redirectTo: checkoutRedirectPath }
+                      })
+                    }
                   />
                 </Card>
               ) : null}
 
-              <Card variant="default" style={styles.cardGap}>
+              {!isHostApprovalFlow ? (
                 <FormSection
                   title="Billing & PayHere Contact Details"
-                  subtitle="Optional billing details passed to PayHere Checkout (never leaves the signed payment handoff)."
+                  subtitle="Pre-filled from your account for PayHere Checkout."
+                  rightSlot={
+                    <TouchableOpacity
+                      style={styles.collapseToggleBtn}
+                      onPress={() => setBillingExpanded((prev) => !prev)}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        billingExpanded ? "Hide billing details" : "Edit billing details"
+                      }
+                    >
+                      <Text style={styles.collapseToggleText}>
+                        {billingExpanded ? "Hide" : hasKnownBillingSummary ? "Edit" : "Expand"}
+                      </Text>
+                    </TouchableOpacity>
+                  }
                 >
-                  <TextInput
-                    label="First Name"
-                    value={billingFirstName}
-                    onChangeText={setBillingFirstName}
-                    placeholder="First name"
-                  />
-                  <TextInput
-                    label="Last Name"
-                    value={billingLastName}
-                    onChangeText={setBillingLastName}
-                    placeholder="Last name"
-                  />
-                  <TextInput
-                    label="Email"
-                    value={billingEmail}
-                    onChangeText={setBillingEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                  <TextInput
-                    label="Phone Number"
-                    value={billingPhone}
-                    onChangeText={setBillingPhone}
-                    keyboardType="phone-pad"
-                    placeholder="+94 77 000 0000"
-                  />
-                  <TextInput
-                    label="Street Address"
-                    value={billingAddress}
-                    onChangeText={setBillingAddress}
-                    placeholder="Colombo address or hotel"
-                  />
-                  <TextInput
-                    label="City"
-                    value={billingCity}
-                    onChangeText={setBillingCity}
-                    placeholder="Colombo"
-                  />
-                  <TextInput
-                    label="Country"
-                    value={billingCountry}
-                    onChangeText={setBillingCountry}
-                    placeholder="Sri Lanka"
-                  />
+                  {!billingExpanded && hasKnownBillingSummary ? (
+                    <Text style={styles.bodyText}>
+                      {[billingFirstName, billingLastName].filter(Boolean).join(" ") || "Account holder"}
+                      {billingEmail ? ` · ${billingEmail}` : ""}
+                      {billingPhone ? ` · ${billingPhone}` : ""}
+                    </Text>
+                  ) : null}
+
+                  {billingExpanded || !hasKnownBillingSummary ? (
+                    <>
+                      <TextInput
+                        label="First Name"
+                        value={billingFirstName}
+                        onChangeText={setBillingFirstName}
+                        placeholder="First name"
+                      />
+                      <TextInput
+                        label="Last Name"
+                        value={billingLastName}
+                        onChangeText={setBillingLastName}
+                        placeholder="Last name"
+                      />
+                      <TextInput
+                        label="Email"
+                        value={billingEmail}
+                        onChangeText={setBillingEmail}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                      <TextInput
+                        label="Phone Number"
+                        value={billingPhone}
+                        onChangeText={setBillingPhone}
+                        keyboardType="phone-pad"
+                        placeholder="+94 77 000 0000"
+                      />
+                      <TextInput
+                        label="Street Address"
+                        value={billingAddress}
+                        onChangeText={setBillingAddress}
+                        placeholder="Colombo address or hotel"
+                      />
+                      <TextInput
+                        label="City"
+                        value={billingCity}
+                        onChangeText={setBillingCity}
+                        placeholder="Colombo"
+                      />
+                      <TextInput
+                        label="Country"
+                        value={billingCountry}
+                        onChangeText={setBillingCountry}
+                        placeholder="Sri Lanka"
+                      />
+                    </>
+                  ) : null}
                 </FormSection>
-              </Card>
+              ) : null}
 
               <Card variant="outlined" style={styles.policyCard}>
                 <View style={styles.policyHeader}>
@@ -928,19 +1007,6 @@ export default function TravellerCheckoutScreen() {
               {checkoutError ? (
                 <ErrorState title="Checkout Blocked" message={checkoutError} />
               ) : null}
-
-              <Button
-                title={
-                  location?.bookingMode === "HOST_APPROVAL" && !existingBooking
-                    ? "Submit Booking Request"
-                    : "Confirm & Proceed to Payment"
-                }
-                leftIcon={<MobileIcon name="credit-card" size={16} color={mobileColors.white} />}
-                isLoading={isProcessing}
-                onPress={() => {
-                  void handleConfirmAndPay();
-                }}
-              />
             </View>
           ) : null}
         </View>
@@ -1057,7 +1123,49 @@ const styles = StyleSheet.create({
     ...mobileTypography.bodySm,
     color: mobileTextColors.secondary
   },
-  handoffButtons: {
-    gap: mobileSpacing[3]
+  handoffHint: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted,
+    textAlign: "center",
+    paddingHorizontal: mobileSpacing[2]
+  },
+  collapseToggleBtn: {
+    minHeight: 36,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  collapseToggleText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.terracotta[600]
+  },
+  stickyFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[3],
+    backgroundColor: mobileColors.card,
+    borderTopWidth: 1,
+    borderTopColor: mobileColors.border,
+    paddingHorizontal: mobileSpacing[4],
+    paddingVertical: mobileSpacing[3]
+  },
+  stickySummaryCol: {
+    flex: 1,
+    gap: 2
+  },
+  stickySummaryLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileTextColors.muted
+  },
+  stickySummaryValue: {
+    ...mobileTypography.headingMd,
+    color: mobileColors.navy[900]
+  },
+  stickyCtaWrap: {
+    flex: 1.2
   }
 });

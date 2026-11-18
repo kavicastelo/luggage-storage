@@ -49,6 +49,7 @@ export function ScreenContainer({
         contentStyle
       ]}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
       showsVerticalScrollIndicator={false}
       refreshControl={
         onRefresh ? (
@@ -75,7 +76,7 @@ export function ScreenContainer({
       {keyboardAvoiding ? (
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
           {innerContent}
         </KeyboardAvoidingView>

@@ -1,8 +1,9 @@
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useMemo, useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import {
   Badge,
+  BottomSheet,
   Button,
   Card,
   EmptyState,
@@ -12,6 +13,7 @@ import {
   MobileIcon,
   SafeHeader,
   ScreenContainer,
+  SelectionCard,
   StatusBadge,
   formatColomboDateTime
 } from "../../src/components";
@@ -35,6 +37,7 @@ import {
 export default function HostLiveDeskScreen() {
   const router = useRouter();
   const { selectedHostLocationId, setSelectedHostLocationId } = useMobileStore();
+  const [hubSheetVisible, setHubSheetVisible] = useState(false);
 
   const businessesQuery = useOwnedBusinessesQuery(true);
   const locationsQuery = useOwnedLocationsQuery(true);
@@ -54,8 +57,7 @@ export default function HostLiveDeskScreen() {
     if (!activeLocation) {
       return bookings;
     }
-    const atActive = bookings.filter((b) => b.locationId === activeLocation.id);
-    return atActive.length > 0 ? atActive : bookings;
+    return bookings.filter((b) => b.locationId === activeLocation.id);
   }, [bookings, activeLocation]);
 
   const expectedToday = scopedBookings.filter((b) => b.status === "CONFIRMED");
@@ -142,8 +144,24 @@ export default function HostLiveDeskScreen() {
                   {activeLocation?.addressLine1}, {activeLocation?.city}
                 </Text>
               </View>
-              <MascotIllustration mascot="salute" size="sm" />
+              <MascotIllustration mascot="salute" size="sm" variant="hero" />
             </View>
+
+            {locations.length > 1 ? (
+              <TouchableOpacity
+                style={styles.hubSwitcherPill}
+                onPress={() => setHubSheetVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Switch active storage hub"
+                testID="host-switch-hub-btn"
+              >
+                <MobileIcon name="map-pin" size={14} color={mobileColors.terracotta[300]} />
+                <Text style={styles.hubSwitcherText} numberOfLines={1}>
+                  Hub: {activeLocation?.name} ({locations.length} hubs)
+                </Text>
+                <Text style={styles.hubSwitcherAction}>Switch</Text>
+              </TouchableOpacity>
+            ) : null}
 
             <View style={styles.heroActionsRow}>
               <Button
@@ -161,23 +179,6 @@ export default function HostLiveDeskScreen() {
               />
             </View>
           </Card>
-
-          {locations.length > 1 ? (
-            <Card variant="default" style={styles.hubSwitchCard}>
-              <Text style={styles.sectionLabel}>Active Storage Hub</Text>
-              <View style={styles.hubRow}>
-                {locations.map((loc) => (
-                  <Button
-                    key={loc.id}
-                    title={loc.name}
-                    size="sm"
-                    variant={loc.id === activeLocation?.id ? "primary" : "outline"}
-                    onPress={() => setSelectedHostLocationId(loc.id)}
-                  />
-                ))}
-              </View>
-            </Card>
-          ) : null}
 
           <Card variant="elevated" style={styles.cardGap}>
             <View style={styles.capHeader}>
@@ -287,6 +288,29 @@ export default function HostLiveDeskScreen() {
           )}
         </View>
       )}
+
+      <BottomSheet
+        visible={hubSheetVisible}
+        title="Select Active Storage Hub"
+        subtitle="Filter live capacity and movement queue by hub"
+        onClose={() => setHubSheetVisible(false)}
+        testID="host-hub-switcher-sheet"
+      >
+        <View style={styles.sheetStack}>
+          {locations.map((loc) => (
+            <SelectionCard
+              key={loc.id}
+              title={loc.name}
+              subtitle={`${loc.addressLine1}, ${loc.city}`}
+              selected={loc.id === activeLocation?.id}
+              onPress={() => {
+                setSelectedHostLocationId(loc.id);
+                setHubSheetVisible(false);
+              }}
+            />
+          ))}
+        </View>
+      </BottomSheet>
     </ScreenContainer>
   );
 }
@@ -323,17 +347,30 @@ const styles = StyleSheet.create({
   flexBtn: {
     flex: 1
   },
-  hubSwitchCard: {
-    gap: mobileSpacing[2]
-  },
-  sectionLabel: {
-    ...mobileTypography.label,
-    color: mobileTextColors.primary
-  },
-  hubRow: {
+  hubSwitcherPill: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.16)",
+    borderRadius: mobileRadius.lg,
+    paddingHorizontal: mobileSpacing[3],
+    minHeight: 40
+  },
+  hubSwitcherText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileColors.sand[100]
+  },
+  hubSwitcherAction: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.terracotta[300]
+  },
+  sheetStack: {
+    gap: mobileSpacing[3]
   },
   cardGap: {
     gap: mobileSpacing[3]

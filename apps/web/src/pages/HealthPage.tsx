@@ -1,7 +1,12 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchApi } from "@/lib/api-client";
-import { Activity, CheckCircle2, XCircle } from "lucide-react";
+import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
+import { Activity, RefreshCw } from "lucide-react";
 
 interface HealthData {
   status: string;
@@ -10,55 +15,96 @@ interface HealthData {
 }
 
 export function HealthPage() {
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ["system-health"],
     queryFn: () => fetchApi<HealthData>("/health"),
     refetchInterval: 10000
   });
 
   return (
-    <div className="max-w-xl mx-auto bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
-      <div className="flex items-center gap-3 border-b pb-4">
-        <Activity className="h-6 w-6 text-blue-600" />
-        <h2 className="text-xl font-bold">System Health & API Connectivity</h2>
+    <Card className="max-w-xl mx-auto my-8 bg-white p-6 sm:p-8 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-sand-200 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-terracotta-50 text-terracotta-600 border border-terracotta-200">
+            <Activity className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-extrabold text-navy-950">
+              System Health &amp; API Connectivity
+            </h1>
+            <p className="text-xs text-sand-700">Live platform service heartbeat</p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          isLoading={isFetching}
+          onClick={() => void refetch()}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry
+        </Button>
       </div>
 
       {isLoading && (
-        <div className="text-center py-8 text-slate-500 animate-pulse">
-          Connecting to Fastify Backend API...
+        <div className="space-y-3 py-4">
+          <LoadingSkeleton variant="text" className="w-1/2" />
+          <LoadingSkeleton className="h-24 w-full" />
         </div>
       )}
 
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 text-red-700">
-          <XCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="font-semibold">Backend Unreachable</p>
+        <Alert variant="danger" title="Service Unreachable">
+          <div className="space-y-2">
             <p className="text-sm">{(error as Error).message}</p>
-            <p className="text-xs text-red-500 mt-2">
-              Ensure apps/api is running at http://localhost:3000
-            </p>
+            {import.meta.env.DEV && (
+              <p className="text-xs text-rose-700">
+                Ensure apps/api is running at http://localhost:3000
+              </p>
+            )}
+            <div className="pt-1">
+              <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+                Retry
+              </Button>
+            </div>
           </div>
-        </div>
+        </Alert>
       )}
 
       {data && (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-green-700 font-semibold bg-green-50 p-3 rounded-lg border border-green-200">
-            <CheckCircle2 className="h-5 w-5" />
-            <span>Fastify Modular Monolith Connected</span>
-          </div>
+          <Alert variant="success">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">
+                {import.meta.env.DEV
+                  ? "Fastify Modular Monolith Connected"
+                  : "API Service Connected"}
+              </span>
+              <Badge variant="success" size="sm">
+                Healthy
+              </Badge>
+            </div>
+          </Alert>
 
-          <div className="text-sm space-y-2 bg-slate-50 p-4 rounded-lg font-mono">
-            <p><span className="text-slate-500">API Status:</span> {data.data.status}</p>
-            <p><span className="text-slate-500">Server Time:</span> {data.data.timestamp}</p>
-            <p><span className="text-slate-500">Uptime:</span> {data.data.uptime.toFixed(1)}s</p>
-            {data.meta?.correlationId && (
-              <p><span className="text-slate-500">Correlation ID:</span> {data.meta.correlationId}</p>
+          <div className="text-sm space-y-2 bg-sand-50 border border-sand-200 p-4 rounded-xl font-mono text-navy-950">
+            <p>
+              <span className="text-sand-700">API Status:</span> {data.data.status}
+            </p>
+            <p>
+              <span className="text-sand-700">Server Time:</span> {data.data.timestamp}
+            </p>
+            <p>
+              <span className="text-sand-700">Uptime:</span> {data.data.uptime.toFixed(1)}s
+            </p>
+            {import.meta.env.DEV && data.meta?.correlationId && (
+              <p>
+                <span className="text-sand-700">Correlation ID:</span> {data.meta.correlationId}
+              </p>
             )}
           </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 }

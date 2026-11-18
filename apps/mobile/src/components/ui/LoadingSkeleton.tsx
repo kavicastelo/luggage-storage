@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, type ViewStyle } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { AccessibilityInfo, Animated, View, StyleSheet, type ViewStyle } from "react-native";
 import { mobileColors, mobileRadius, mobileSpacing } from "../../lib/theme";
 import { Card } from "../Card";
 
@@ -16,14 +16,50 @@ export function SkeletonBlock({
   borderRadius = mobileRadius.md,
   style
 }: LoadingSkeletonProps) {
+  const opacity = useRef(new Animated.Value(0.75)).current;
+
+  useEffect(() => {
+    let active = true;
+    let animation: Animated.CompositeAnimation | null = null;
+
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((reduced) => {
+        if (!active || reduced) return;
+        animation = Animated.loop(
+          Animated.sequence([
+            Animated.timing(opacity, {
+              toValue: 0.4,
+              duration: 750,
+              useNativeDriver: true
+            }),
+            Animated.timing(opacity, {
+              toValue: 0.9,
+              duration: 750,
+              useNativeDriver: true
+            })
+          ])
+        );
+        animation.start();
+      })
+      .catch(() => {
+        // Leave static opacity if accessibility query fails in SSR/test
+      });
+
+    return () => {
+      active = false;
+      animation?.stop();
+    };
+  }, [opacity]);
+
   return (
-    <View
+    <Animated.View
       style={[
         styles.block,
         {
           height,
           width,
-          borderRadius
+          borderRadius,
+          opacity
         },
         style
       ]}
@@ -84,4 +120,3 @@ const styles = StyleSheet.create({
     alignItems: "center"
   }
 });
-

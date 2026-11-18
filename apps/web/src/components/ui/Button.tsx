@@ -58,9 +58,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={isDisabled}
         aria-busy={isLoading}
-        className={`inline-flex items-center justify-center font-medium transition-all duration-150 select-none
+        className={`inline-flex items-center justify-center font-medium transition-all duration-150 select-none active:scale-[0.98]
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2
-          disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none
+          disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:active:scale-100
           ${VARIANT_CLASSES[variant]}
           ${SIZE_CLASSES[size]}
           ${className}`}
@@ -89,10 +89,12 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             />
           </svg>
         ) : (
-          leftIcon && <span className="flex-shrink-0">{leftIcon}</span>
+          leftIcon && <span className="flex-shrink-0 inline-flex items-center">{leftIcon}</span>
         )}
-        <span>{children}</span>
-        {!isLoading && rightIcon && <span className="flex-shrink-0">{rightIcon}</span>}
+        <span className="inline-flex items-center justify-center gap-2">{children}</span>
+        {!isLoading && rightIcon && (
+          <span className="flex-shrink-0 inline-flex items-center">{rightIcon}</span>
+        )}
       </button>
     );
   }

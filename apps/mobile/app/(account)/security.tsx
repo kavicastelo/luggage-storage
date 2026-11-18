@@ -1,20 +1,28 @@
-import React, { useState } from "react";
-import { Text, StyleSheet } from "react-native";
+import React, { useRef, useState } from "react";
+import { View, Text, StyleSheet, TextInput as RNTextInput } from "react-native";
 import { ChangePasswordRequestSchema } from "@luggage-storage/contracts";
 import {
-  Badge,
   Button,
   Card,
   ErrorState,
+  MobileIcon,
   ScreenContainer,
   TextInput
 } from "../../src/components";
 import { validateWithZod } from "../../src/lib/validation";
 import { authApi } from "../../src/services/auth-api";
 import { ApiClientError } from "../../src/services/api-client";
-import { mobileSpacing, mobileTextColors, mobileTypography } from "../../src/lib/theme";
+import {
+  mobileRadius,
+  mobileSpacing,
+  mobileStatusTokens,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
 
 export default function MobileSecurityScreen() {
+  const newPasswordRef = useRef<React.ComponentRef<typeof RNTextInput>>(null);
+  const confirmPasswordRef = useRef<React.ComponentRef<typeof RNTextInput>>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -71,7 +79,10 @@ export default function MobileSecurityScreen() {
         </Text>
 
         {successMessage ? (
-          <Badge label={successMessage} variant="success" icon="check-circle" />
+          <View style={styles.successBanner} accessibilityRole="alert">
+            <MobileIcon name="check-circle" size={16} color={mobileStatusTokens.successIcon} />
+            <Text style={styles.successBannerText}>{successMessage}</Text>
+          </View>
         ) : null}
 
         {serverError ? <ErrorState title="Update Failed" message={serverError} /> : null}
@@ -83,30 +94,40 @@ export default function MobileSecurityScreen() {
           placeholder="Enter current password"
           secureTextEntry
           enablePasswordToggle
+          returnKeyType="next"
+          onSubmitEditing={() => newPasswordRef.current?.focus()}
           value={currentPassword}
           onChangeText={setCurrentPassword}
           errorText={fieldErrors.currentPassword}
         />
 
         <TextInput
+          ref={newPasswordRef}
           label="New Password"
           required
           leftIcon="key"
           placeholder="Minimum 8 characters"
           secureTextEntry
           enablePasswordToggle
+          returnKeyType="next"
+          onSubmitEditing={() => confirmPasswordRef.current?.focus()}
           value={newPassword}
           onChangeText={setNewPassword}
           errorText={fieldErrors.newPassword}
         />
 
         <TextInput
+          ref={confirmPasswordRef}
           label="Confirm New Password"
           required
           leftIcon="key"
           placeholder="Confirm new password"
           secureTextEntry
           enablePasswordToggle
+          returnKeyType="done"
+          onSubmitEditing={() => {
+            void handleSubmit();
+          }}
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           errorText={fieldErrors.confirmPassword}
@@ -133,5 +154,21 @@ const styles = StyleSheet.create({
   subtitle: {
     ...mobileTypography.bodyMd,
     color: mobileTextColors.muted
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  successBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success,
+    fontWeight: "600",
+    flex: 1
   }
 });

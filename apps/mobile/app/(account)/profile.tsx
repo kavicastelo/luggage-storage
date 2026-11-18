@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import {
   CurrencyCodeSchema,
@@ -16,7 +16,6 @@ import {
   EmptyState,
   MobileIcon,
   ScreenContainer,
-  SelectionCard,
   StatusBadge,
   TextInput
 } from "../../src/components";
@@ -173,7 +172,7 @@ export default function MobileProfileScreen() {
   const effectiveRoles = profile?.roles ?? user.roles;
 
   return (
-    <ScreenContainer testID="account-profile-screen">
+    <ScreenContainer keyboardAvoiding testID="account-profile-screen">
       <Card variant="elevated" style={styles.headerCard}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{effectiveDisplayName.charAt(0).toUpperCase()}</Text>
@@ -285,14 +284,27 @@ export default function MobileProfileScreen() {
 
           <Text style={styles.detailLabel}>Preferred Currency</Text>
           <View style={styles.chipsWrap}>
-            {CurrencyCodeSchema.options.map((code) => (
-              <SelectionCard
-                key={code}
-                title={code}
-                selected={preferredCurrency === code}
-                onPress={() => setPreferredCurrency(code)}
-              />
-            ))}
+            {CurrencyCodeSchema.options.map((code) => {
+              const selected = preferredCurrency === code;
+              return (
+                <TouchableOpacity
+                  key={code}
+                  style={[styles.currencyChip, selected ? styles.currencyChipActive : null]}
+                  onPress={() => setPreferredCurrency(code)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                >
+                  <Text
+                    style={[
+                      styles.currencyChipText,
+                      selected ? styles.currencyChipTextActive : null
+                    ]}
+                  >
+                    {code}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           <TextInput
@@ -499,6 +511,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: mobileSpacing[2]
+  },
+  currencyChip: {
+    minHeight: 40,
+    minWidth: 64,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  currencyChipActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  currencyChipText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: mobileTextColors.primary
+  },
+  currencyChipTextActive: {
+    color: mobileColors.white
   },
   editActionsRow: {
     flexDirection: "row",

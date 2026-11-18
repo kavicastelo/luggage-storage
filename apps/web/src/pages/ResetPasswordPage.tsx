@@ -4,7 +4,12 @@ import { ResetPasswordRequestSchema } from "@luggage-storage/contracts";
 import { validateWithZod } from "../lib/validation";
 import { authApi } from "../services/auth-api";
 import { ApiClientError } from "../lib/api-client";
-import { Lock, KeyRound, CheckCircle2, AlertCircle, Loader2, Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Alert } from "@/components/ui/Alert";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
+import { Lock, KeyRound, Eye, EyeOff, ArrowLeft } from "lucide-react";
 
 export function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -46,7 +51,9 @@ export function ResetPasswordPage() {
     } catch (err) {
       if (err instanceof ApiClientError) {
         if (err.statusCode === 400) {
-          setServerError("This password reset link is invalid or has expired. Please request a new one.");
+          setServerError(
+            "This password reset link is invalid or has expired. Please request a new one."
+          );
         } else {
           setServerError(err.message || "Failed to reset password. Please try again.");
         }
@@ -60,92 +67,107 @@ export function ResetPasswordPage() {
 
   if (isSuccess) {
     return (
-      <div className="max-w-md mx-auto my-8 bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center">
-        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <CheckCircle2 className="h-6 w-6 text-green-600" />
+      <Card className="max-w-md mx-auto my-8 bg-white p-8 shadow-md text-center space-y-5">
+        <MascotIllustration mascot="jump" size="md" variant="bare" decorative />
+        <div>
+          <h1 className="text-2xl font-extrabold text-navy-950">Password Reset Complete</h1>
+          <p className="text-sm text-sand-700 mt-2 leading-relaxed">
+            Your password has been changed successfully. All previous active sessions across all
+            devices have been revoked for your security.
+          </p>
         </div>
-        <h1 className="text-2xl font-bold text-slate-900">Password Reset Complete</h1>
-        <p className="text-sm text-slate-600 mt-3 leading-relaxed">
-          Your password has been changed successfully. All previous active sessions across all devices have been revoked for your security.
-        </p>
 
-        <button
-          onClick={() => navigate("/login")}
-          className="w-full mt-6 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm"
-        >
+        <Button type="button" variant="primary" onClick={() => navigate("/login")} className="w-full">
           Sign In with New Password
-        </button>
-      </div>
+        </Button>
+      </Card>
     );
   }
 
   return (
-    <div className="max-w-md mx-auto my-8 bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+    <Card className="max-w-md mx-auto my-8 bg-white p-8 shadow-md">
       <Link
         to="/login"
-        className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 mb-6 transition"
+        className="min-h-[44px] inline-flex items-center gap-1.5 text-xs font-semibold text-sand-700 hover:text-navy-950 mb-4 transition-colors"
       >
         <ArrowLeft className="h-4 w-4" />
         <span>Back to sign in</span>
       </Link>
 
-      <div className="text-center mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Reset your password</h1>
-        <p className="text-sm text-slate-500 mt-2">
+      <div className="text-center mb-6 space-y-2">
+        <MascotIllustration mascot="key" size="sm" variant="bare" decorative />
+        <h1 className="text-2xl font-extrabold text-navy-950">Reset your password</h1>
+        <p className="text-sm text-sand-700">
           Enter your recovery token and choose a new secure password
         </p>
+        {initialToken && (
+          <div className="pt-1">
+            <Badge variant="info" size="md">
+              Recovery token detected from link
+            </Badge>
+          </div>
+        )}
       </div>
 
       {serverError && (
-        <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-red-700">{serverError}</div>
-        </div>
+        <Alert variant="danger" className="mb-6">
+          {serverError}
+        </Alert>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="token">
+          <label className="block text-sm font-semibold text-navy-900 mb-1.5" htmlFor="token">
             Recovery Token
           </label>
           <div className="relative">
-            <KeyRound className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="token"
               type="text"
               autoComplete="off"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.token)}
+              aria-describedby={fieldErrors.token ? "reset-token-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-4 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.token
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
               placeholder="Paste token from email"
               disabled={isLoading}
             />
           </div>
           {fieldErrors.token && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.token}</p>
+            <p
+              id="reset-token-error"
+              role="alert"
+              className="mt-1.5 text-xs font-medium text-rose-600"
+            >
+              {fieldErrors.token}
+            </p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="newPassword">
+          <label className="block text-sm font-semibold text-navy-900 mb-1.5" htmlFor="newPassword">
             New Password (min. 8 characters)
           </label>
           <div className="relative">
-            <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="newPassword"
               type={showPassword ? "text" : "password"}
               autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className={`w-full pl-10 pr-10 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.newPassword)}
+              aria-describedby={fieldErrors.newPassword ? "reset-newpw-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-12 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.newPassword
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
               placeholder="••••••••"
               disabled={isLoading}
@@ -153,33 +175,44 @@ export function ResetPasswordPage() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+              className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center absolute right-0 top-1/2 -translate-y-1/2 text-sand-600 hover:text-navy-950 rounded-r-xl transition-colors"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
-              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
           {fieldErrors.newPassword && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.newPassword}</p>
+            <p
+              id="reset-newpw-error"
+              role="alert"
+              className="mt-1.5 text-xs font-medium text-rose-600"
+            >
+              {fieldErrors.newPassword}
+            </p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="confirmPassword">
+          <label
+            className="block text-sm font-semibold text-navy-900 mb-1.5"
+            htmlFor="confirmPassword"
+          >
             Confirm New Password
           </label>
           <div className="relative">
-            <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="confirmPassword"
               type={showConfirmPassword ? "text" : "password"}
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className={`w-full pl-10 pr-10 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.confirmPassword)}
+              aria-describedby={fieldErrors.confirmPassword ? "reset-confirmpw-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-12 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.confirmPassword
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
               placeholder="••••••••"
               disabled={isLoading}
@@ -187,33 +220,27 @@ export function ResetPasswordPage() {
             <button
               type="button"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+              className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center absolute right-0 top-1/2 -translate-y-1/2 text-sand-600 hover:text-navy-950 rounded-r-xl transition-colors"
               aria-label={showConfirmPassword ? "Hide password" : "Show password"}
             >
-              {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
           {fieldErrors.confirmPassword && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.confirmPassword}</p>
+            <p
+              id="reset-confirmpw-error"
+              role="alert"
+              className="mt-1.5 text-xs font-medium text-rose-600"
+            >
+              {fieldErrors.confirmPassword}
+            </p>
           )}
         </div>
 
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="w-full mt-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Updating password...</span>
-            </>
-          ) : (
-            <span>Reset Password</span>
-          )}
-        </button>
+        <Button type="submit" variant="primary" isLoading={isLoading} className="w-full mt-2">
+          {isLoading ? "Updating password..." : "Reset Password"}
+        </Button>
       </form>
-    </div>
+    </Card>
   );
 }
-

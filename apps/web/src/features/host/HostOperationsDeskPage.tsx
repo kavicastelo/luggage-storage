@@ -13,11 +13,12 @@ import {
   Camera,
   Check,
   CheckCircle2,
-  Info,
+  Clock,
   RefreshCw,
   Search,
   ShieldCheck
 } from "lucide-react";
+import { Alert, Badge, Button, Card, LoadingSkeleton } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
   hostQueryKeys,
@@ -131,6 +132,18 @@ export function HostWebCheckInOutOperationsPage() {
       ? selectedLocationId
       : undefined;
 
+  const queueQueryParams = useMemo(
+    () => ({
+      ...(liveLocationId ? { locationId: liveLocationId } : {}),
+      limit: 50
+    }),
+    [liveLocationId]
+  );
+
+  const queueQuery = useHostBookingsQuery(queueQueryParams, {
+    enabled: isAuthenticated && !showDemoOps
+  });
+
   const lookupSearchParams = useMemo(() => {
     const trimmed = committedLookup.trim();
     return {
@@ -144,6 +157,13 @@ export function HostWebCheckInOutOperationsPage() {
     enabled: isAuthenticated && !showDemoOps
   });
 
+  const liveQueueBookings = useMemo(() => {
+    if (!isAuthenticated || showDemoOps) return [];
+    const list = queueQuery.data?.bookings ?? [];
+    const targetStatus = operationMode === "CHECK_IN" ? "CONFIRMED" : "IN_STORAGE";
+    return list.filter((b) => b.status === targetStatus).slice(0, 10);
+  }, [isAuthenticated, showDemoOps, queueQuery.data, operationMode]);
+
   const cachedListBooking = useMemo(() => {
     if (!isAuthenticated || showDemoOps) return null;
     const trimmed = committedLookup.trim() || lookupQuery.trim();
@@ -153,6 +173,11 @@ export function HostWebCheckInOutOperationsPage() {
       (b) => b.id === trimmed || b.referenceCode.toUpperCase() === trimmed.toUpperCase()
     );
     if (fromPrimary) return fromPrimary;
+
+    const fromQueue = (queueQuery.data?.bookings ?? []).find(
+      (b) => b.id === trimmed || b.referenceCode.toUpperCase() === trimmed.toUpperCase()
+    );
+    if (fromQueue) return fromQueue;
 
     const cachedQueries = queryClient.getQueriesData<{ bookings: BookingDetail[] }>({
       queryKey: ["host", "bookings", "list"]
@@ -164,7 +189,15 @@ export function HostWebCheckInOutOperationsPage() {
       if (hit) return hit;
     }
     return null;
-  }, [isAuthenticated, showDemoOps, committedLookup, lookupQuery, bookingsQuery.data, queryClient]);
+  }, [
+    isAuthenticated,
+    showDemoOps,
+    committedLookup,
+    lookupQuery,
+    bookingsQuery.data,
+    queueQuery.data,
+    queryClient
+  ]);
 
   const resolvedBookingId =
     manualBooking?.id ??
@@ -198,6 +231,33 @@ export function HostWebCheckInOutOperationsPage() {
     setReconciledBags(activeBooking.totalBags);
     setBagRows(buildDefaultBagRows(activeBooking, activeBooking.totalBags, sealInput, selectedZoneId));
   }, [activeBooking?.id]);
+
+  const resetHandoverFormForBooking = (booking: BookingDetail | null) => {
+    setPinInput("");
+    setPassVerification(null);
+    setHandoverErrorMessage(null);
+    setHandoverSuccessMessage(null);
+    setBagCountExceptionReason("");
+    setCollectionNotes("");
+    setHasCollectionException(false);
+    setExceptionNotes("");
+    setSealInput("");
+    if (booking) {
+      setReconciledBags(booking.totalBags);
+      setBagRows(buildDefaultBagRows(booking, booking.totalBags, "", selectedZoneId));
+    } else {
+      setReconciledBags(1);
+      setBagRows(buildDefaultBagRows(null, 1, "", selectedZoneId));
+    }
+  };
+
+  const handleSelectQueueBooking = (booking: BookingDetail) => {
+    setLookupQuery(booking.referenceCode);
+    setCommittedLookup(booking.referenceCode);
+    setManualBooking(booking);
+    setManualCustody(null);
+    resetHandoverFormForBooking(booking);
+  };
 
   const isBookingOverdue = useMemo(() => {
     if (!activeBooking || showDemoOps) return false;
@@ -250,8 +310,7 @@ export function HostWebCheckInOutOperationsPage() {
     try {
       const detail = await resolveLiveBooking(lookupQuery);
       if (detail) {
-        setReconciledBags(detail.totalBags);
-        setBagRows(buildDefaultBagRows(detail, detail.totalBags, sealInput, selectedZoneId));
+        resetHandoverFormForBooking(detail);
         if (detail.status === "IN_STORAGE" && !initialModeParam) {
           setOperationMode("CHECK_OUT");
         } else if (detail.status === "CONFIRMED" && !initialModeParam) {
@@ -291,6 +350,17 @@ export function HostWebCheckInOutOperationsPage() {
 
   const updateBagRow = (index: number, patch: Partial<BagCustodyItemInput>) => {
     setBagRows((prev) => prev.map((row, idx) => (idx === index ? { ...row, ...patch } : row)));
+  };
+
+  const handleApplySealToAllBags = () => {
+    const trimmed = sealInput.trim();
+    if (!trimmed) return;
+    setBagRows((prev) =>
+      prev.map((row, idx) => ({
+        ...row,
+        securitySealNumber: prev.length === 1 ? trimmed : `${trimmed}-${idx + 1}`
+      }))
+    );
   };
 
   const handleUploadBagEvidence = async (index: number, file: File | undefined) => {
@@ -418,22 +488,24 @@ export function HostWebCheckInOutOperationsPage() {
 
   return (
     <div className="space-y-6">
-      {(bookingsQuery.isError || zonesQuery.isError) && (
+      {(bookingsQuery.isError || queueQuery.isError || zonesQuery.isError) && (
         <HostQueryErrorAlert
           message={
             (bookingsQuery.error instanceof Error && bookingsQuery.error.message) ||
+            (queueQuery.error instanceof Error && queueQuery.error.message) ||
             (zonesQuery.error instanceof Error && zonesQuery.error.message) ||
             "Unable to load counter operations data."
           }
           onRetry={() => {
             void bookingsQuery.refetch();
+            void queueQuery.refetch();
             void zonesQuery.refetch();
           }}
         />
       )}
 
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -450,7 +522,7 @@ export function HostWebCheckInOutOperationsPage() {
               per-bag tagging, evidence upload, and tamper seal verification.
             </p>
           </div>
-          <div className="flex items-center gap-1.5 bg-sand-100 p-1 rounded-xl text-xs font-bold">
+          <div className="inline-flex items-center gap-1.5 bg-sand-100 p-1 rounded-xl text-xs font-bold flex-shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -459,7 +531,7 @@ export function HostWebCheckInOutOperationsPage() {
                 setHandoverErrorMessage(null);
                 setPassVerification(null);
               }}
-              className={`px-3.5 py-1.5 rounded-lg transition ${
+              className={`px-3.5 py-2 rounded-lg transition whitespace-nowrap ${
                 operationMode === "CHECK_IN"
                   ? "bg-terracotta-500 text-white shadow-xs"
                   : "text-navy-700 hover:text-navy-900"
@@ -475,7 +547,7 @@ export function HostWebCheckInOutOperationsPage() {
                 setHandoverErrorMessage(null);
                 setPassVerification(null);
               }}
-              className={`px-3.5 py-1.5 rounded-lg transition ${
+              className={`px-3.5 py-2 rounded-lg transition whitespace-nowrap ${
                 operationMode === "CHECK_OUT"
                   ? "bg-emerald-600 text-white shadow-xs"
                   : "text-navy-700 hover:text-navy-900"
@@ -485,123 +557,172 @@ export function HostWebCheckInOutOperationsPage() {
             </button>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Mode Notice */}
-      <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-        <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-        <div>
-          {showDemoOps ? (
-            <>
-              <strong className="text-navy-950">
-                Desktop Counter Workstation (Local Prototype Simulation):
-              </strong>{" "}
-              Supports manual barcode scanner input, booking lookup, or 6-digit backup PIN
-              verification. Physical intake and releases in this demo session update client state
-              only.
-            </>
-          ) : (
-            <>
-              <strong className="text-navy-950">Live Counter Custody Workstation:</strong> Look up
-              by human reference code (e.g. <span className="font-mono">LSB-...</span>) or booking
-              UUID, verify the traveller&apos;s QR scan token or 6-digit backup PIN, assign vault
-              compartments, and record custody transitions.
-            </>
-          )}
-        </div>
-      </div>
+      <Alert variant="info">
+        {showDemoOps ? (
+          <>
+            <strong className="text-navy-950">
+              Desktop Counter Workstation (Local Prototype Simulation):
+            </strong>{" "}
+            Supports manual barcode scanner input, booking lookup, or 6-digit backup PIN
+            verification. Physical intake and releases in this demo session update client state
+            only.
+          </>
+        ) : (
+          <>
+            <strong className="text-navy-950">Live Counter Custody Workstation:</strong> Look up by
+            human reference code (e.g. <span className="font-mono">LSB-...</span>) or booking UUID,
+            verify the traveller&apos;s QR scan token or 6-digit backup PIN, assign vault
+            compartments, and record custody transitions.
+          </>
+        )}
+      </Alert>
 
       {/* Zero Possessory Lien Warning for Overdue Live Check-Out */}
       {!showDemoOps && operationMode === "CHECK_OUT" && isBookingOverdue && (
-        <div className="rounded-xl bg-amber-50 border border-amber-300 p-4 text-xs text-amber-950 flex items-start gap-3">
-          <AlertTriangle className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
-          <div>
-            <strong>Zero Possessory Lien Policy — Mandatory Bag Release:</strong> This booking has
-            passed its scheduled collection window. Upon valid QR or PIN verification, physical
-            luggage must be released immediately without demanding off-platform cash at the counter.
-          </div>
-        </div>
+        <Alert variant="warning" title="Zero Possessory Lien Policy — Mandatory Bag Release">
+          This booking has passed its scheduled collection window. Upon valid QR or PIN
+          verification, physical luggage must be released immediately without demanding off-platform
+          cash at the counter.
+        </Alert>
       )}
 
       {/* Counter Workstation Card */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-5 shadow-sm">
-        {/* Quick Demo Pre-fill */}
-        {showDemoOps && (
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <span className="text-[11px] font-bold text-navy-500">Quick Test Records:</span>
-            <button
-              type="button"
-              onClick={() => {
-                setLookupQuery("LS-2026-8841");
-                setPinInput("482910");
-                setReconciledBags(3);
-                setSealInput("SEAL-LK-90211");
-              }}
-              className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
-            >
-              LS-2026-8841 (Amaya)
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setLookupQuery("LS-2026-8842");
-                setPinInput("739204");
-                setReconciledBags(2);
-                setSealInput("SEAL-LK-90214");
-              }}
-              className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
-            >
-              LS-2026-8842 (Liam)
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setLookupQuery("LS-2026-8835");
-                setPinInput("661928");
-                setReconciledBags(2);
-                setSealInput("SEAL-LK-88101");
-              }}
-              className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
-            >
-              LS-2026-8835 (Henrik - Overdue)
-            </button>
+      <Card className="p-6 space-y-6">
+        {/* Step 1: Select or Lookup Booking */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2.5">
+            <span className="h-6 w-6 rounded-full bg-navy-900 text-white text-xs font-extrabold flex items-center justify-center flex-shrink-0">
+              1
+            </span>
+            <h2 className="text-sm font-extrabold text-navy-950 tracking-tight">
+              1. Select or Lookup Booking
+            </h2>
           </div>
-        )}
 
-        {/* Verification Method Toggle */}
-        <div className="flex flex-wrap gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => setVerificationMethod("QR_SCAN")}
-            className={`px-3.5 py-1.5 rounded-xl font-bold transition ${
-              verificationMethod === "QR_SCAN"
-                ? "bg-navy-900 text-white"
-                : "bg-sand-100 text-navy-700 hover:bg-sand-200"
-            }`}
-          >
-            Dynamic QR Scan Token (Primary)
-          </button>
-          <button
-            type="button"
-            onClick={() => setVerificationMethod("PIN_FALLBACK")}
-            className={`px-3.5 py-1.5 rounded-xl font-bold transition ${
-              verificationMethod === "PIN_FALLBACK"
-                ? "bg-amber-600 text-white"
-                : "bg-sand-100 text-navy-700 hover:bg-sand-200"
-            }`}
-          >
-            6-Digit Backup PIN (Rate-Limited Fallback)
-          </button>
-        </div>
+          {/* Live Counter Queue Strip */}
+          {!showDemoOps && (
+            <div className="rounded-xl bg-sand-50 border border-sand-200 p-3.5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-navy-700 flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-terracotta-600" />
+                  <span>
+                    {operationMode === "CHECK_IN"
+                      ? "Confirmed Arrivals Queue"
+                      : "Active Vault Storage Queue"}
+                  </span>
+                </span>
+                <span className="text-[11px] font-semibold text-navy-500">
+                  {liveQueueBookings.length} ready
+                </span>
+              </div>
 
-        {/* Counter Form Inputs */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-          <div>
-            <label className="block font-bold text-navy-900 mb-1">
+              {queueQuery.isLoading ? (
+                <div className="flex flex-wrap gap-2">
+                  <LoadingSkeleton className="h-9 w-44" />
+                  <LoadingSkeleton className="h-9 w-44" />
+                </div>
+              ) : liveQueueBookings.length === 0 ? (
+                <p className="text-xs text-navy-600">
+                  {operationMode === "CHECK_IN"
+                    ? "No confirmed arrivals waiting in queue. Enter a booking reference below."
+                    : "No bags currently in storage for release. Enter a booking reference below."}
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {liveQueueBookings.map((booking) => {
+                    const isSelected = activeBooking?.id === booking.id;
+                    const isOverdue =
+                      booking.status === "IN_STORAGE" &&
+                      new Date(booking.collectionAt).getTime() < Date.now();
+                    return (
+                      <button
+                        key={booking.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => handleSelectQueueBooking(booking)}
+                        className={`px-3 py-1.5 rounded-xl border text-left text-xs transition flex items-center gap-2 ${
+                          isSelected
+                            ? "bg-navy-900 text-white border-navy-900 shadow-sm"
+                            : "bg-white text-navy-900 border-sand-300 hover:border-terracotta-400 hover:bg-sand-100/70"
+                        }`}
+                      >
+                        <span className="font-mono font-bold">{booking.referenceCode}</span>
+                        <span className={isSelected ? "text-sand-200" : "text-navy-600"}>
+                          {booking.travellerDisplayName || "Traveller"} ({booking.totalBags}{" "}
+                          {booking.totalBags === 1 ? "bag" : "bags"})
+                        </span>
+                        {isOverdue && (
+                          <Badge variant="warning" size="sm">
+                            Overdue
+                          </Badge>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quick Demo Pre-fill */}
+          {showDemoOps && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-[11px] font-bold text-navy-500">Quick Test Records:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLookupQuery("LS-2026-8841");
+                  setPinInput("482910");
+                  setReconciledBags(3);
+                  setSealInput("SEAL-LK-90211");
+                }}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
+              >
+                LS-2026-8841 (Amaya)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLookupQuery("LS-2026-8842");
+                  setPinInput("739204");
+                  setReconciledBags(2);
+                  setSealInput("SEAL-LK-90214");
+                }}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
+              >
+                LS-2026-8842 (Liam)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLookupQuery("LS-2026-8835");
+                  setPinInput("661928");
+                  setReconciledBags(2);
+                  setSealInput("SEAL-LK-88101");
+                }}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-sand-100 hover:bg-sand-200 font-mono text-navy-900 font-bold"
+              >
+                LS-2026-8835 (Henrik - Overdue)
+              </button>
+            </div>
+          )}
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleFindBooking();
+            }}
+            className="text-xs"
+          >
+            <label htmlFor="counter-booking-lookup" className="block font-bold text-navy-900 mb-1">
               Booking Reference or Lookup
             </label>
-            <div className="flex gap-1.5">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
+                id="counter-booking-lookup"
                 type="text"
                 value={lookupQuery}
                 onChange={(e) => {
@@ -610,387 +731,452 @@ export function HostWebCheckInOutOperationsPage() {
                   setManualCustody(null);
                 }}
                 placeholder={showDemoOps ? "LS-2026-8841" : "e.g. LSB-2026-... or Booking UUID"}
-                className="flex-1 rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900"
+                className="flex-1 rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900 focus:outline-none focus:ring-2 focus:ring-terracotta-500/40"
               />
               {!showDemoOps && (
-                <button
-                  type="button"
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  size="sm"
                   disabled={lookupLoading}
-                  onClick={() => void handleFindBooking()}
-                  className="px-3 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold inline-flex items-center gap-1"
+                  leftIcon={<Search className="h-3.5 w-3.5" />}
                 >
-                  <Search className="h-3.5 w-3.5" />
-                  <span>{lookupLoading ? "..." : "Find"}</span>
-                </button>
+                  {lookupLoading ? "Searching..." : "Find Booking"}
+                </Button>
               )}
             </div>
-          </div>
+          </form>
 
-          <div>
-            <label className="block font-bold text-navy-900 mb-1">
-              {verificationMethod === "QR_SCAN" ? "QR Token Payload" : "6-Digit Backup PIN"}
-            </label>
-            <input
-              type="text"
-              value={pinInput}
-              onChange={(e) => setPinInput(e.target.value)}
-              placeholder={verificationMethod === "QR_SCAN" ? "64-char QR hex token" : "6-digit PIN"}
-              className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900"
-            />
-          </div>
-
-          <div>
-            <label className="block font-bold text-navy-900 mb-1">
-              Reconciled Physical Bag Count
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={20}
-              value={reconciledBags}
-              onChange={(e) => handleBagCountChange(Number(e.target.value))}
-              className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900"
-            />
-          </div>
-        </div>
-
-        {/* Live Resolved Booking Summary Strip */}
-        {!showDemoOps && activeBooking && (
-          <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div>
-              <span className="text-[11px] text-navy-500 font-bold uppercase">Matched Booking</span>
-              <p className="font-mono font-bold text-navy-950">{activeBooking.referenceCode}</p>
-              <p className="text-navy-700">
-                {activeBooking.travellerDisplayName || "Verified Traveller"} •{" "}
-                {getBookingStatusDisplay(activeBooking.status, {
-                  collectionAt: activeBooking.collectionAt,
-                  hasRefund: Boolean(activeBooking.refundSummary)
-                }).label}
-              </p>
-            </div>
-            <div>
-              <span className="text-[11px] text-navy-500 font-bold uppercase">
-                Hub &amp; Collection Window
-              </span>
-              <p className="font-semibold text-navy-900">{activeBooking.location.name}</p>
-              <p className="text-navy-600">{formatDateTimeDisplay(activeBooking.collectionAt)}</p>
-            </div>
-            <div>
-              <span className="text-[11px] text-navy-500 font-bold uppercase">
-                Booked Bag Breakdown
-              </span>
-              <p className="font-semibold text-navy-900">{activeBooking.totalBags} Total Bags</p>
-              <p className="text-navy-600">
-                {activeBooking.items
-                  .map((item) => `${item.quantity}× ${formatBagCategoryLabel(item.bagCategory)}`)
-                  .join(", ")}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Seal and Live Storage Zone Assignment */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-          <div>
-            <label className="block font-bold text-navy-900 mb-1">
-              Tamper-Evident Security Seal Serial
-            </label>
-            <input
-              type="text"
-              value={sealInput}
-              onChange={(e) => setSealInput(e.target.value)}
-              placeholder="e.g. SEAL-LK-90211"
-              className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900"
-            />
-            <p className="text-[10px] text-navy-500 mt-1">
-              Inspect zip tag and apply physical seal before moving to vault.
-            </p>
-          </div>
-          <div>
-            <label className="block font-bold text-navy-900 mb-1">
-              Assigned Vault Compartment
-            </label>
-            {showDemoOps ? (
-              <select
-                aria-label="Assigned Vault Compartment"
-                defaultValue="RACK-A"
-                className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-bold text-navy-900"
-              >
-                <option value="RACK-A">RACK-A: Main Steel Compartment A (Slot 12)</option>
-                <option value="VAULT-B">VAULT-B: Back Climate-Controlled Bay (Slot 04)</option>
-                <option value="SURF-C">SURF-C: Oversized Surf / Gear Bay</option>
-              </select>
-            ) : (
-              <select
-                aria-label="Assigned Vault Compartment"
-                value={selectedZoneId}
-                onChange={(e) => setSelectedZoneId(e.target.value)}
-                className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-bold text-navy-900"
-              >
-                <option value="">General Facility Storage (No Specific Zone)</option>
-                {liveZones.map((zone) => (
-                  <option key={zone.id} value={zone.id}>
-                    {zone.name} ({zone.zoneType} • {zone.securityTier})
-                  </option>
-                ))}
-              </select>
-            )}
-            <p className="text-[10px] text-navy-500 mt-1">
-              {showDemoOps
-                ? "Logged to staff member Roshan Fernando."
-                : `Logged to counter operator ${user?.displayName || user?.email || "active session"}.`}
-            </p>
-          </div>
-        </div>
-
-        {/* Live Per-Bag Tagging & Evidence Upload (CHECK_IN) */}
-        {!showDemoOps && operationMode === "CHECK_IN" && (
-          <div className="rounded-xl border border-sand-200 bg-sand-50/70 p-4 space-y-3 text-xs">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="font-bold text-navy-950">
-                Per-Bag Physical Tags, Tamper Seals &amp; Photo Evidence
-              </p>
-              <span className="text-[11px] text-navy-600">
-                Each checked-in bag requires a unique tag code.
-              </span>
-            </div>
-
-            {activeBooking && bagRows.length !== activeBooking.totalBags && (
+          {/* Live Resolved Booking Summary Strip */}
+          {!showDemoOps && activeBooking && (
+            <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div>
-                <label className="block font-bold text-amber-950 mb-1">
-                  Bag Count Discrepancy Reason (booked {activeBooking.totalBags}, counting{" "}
-                  {bagRows.length})
-                </label>
-                <input
-                  type="text"
-                  value={bagCountExceptionReason}
-                  onChange={(e) => setBagCountExceptionReason(e.target.value)}
-                  placeholder="Explain why physical bag count differs from reservation (min 5 chars)"
-                  className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs text-navy-900"
-                />
+                <span className="text-[11px] text-navy-500 font-bold uppercase">Matched Booking</span>
+                <p className="font-mono font-bold text-navy-950">{activeBooking.referenceCode}</p>
+                <p className="text-navy-700">
+                  {activeBooking.travellerDisplayName || "Verified Traveller"} •{" "}
+                  {getBookingStatusDisplay(activeBooking.status, {
+                    collectionAt: activeBooking.collectionAt,
+                    hasRefund: Boolean(activeBooking.refundSummary)
+                  }).label}
+                </p>
               </div>
-            )}
-
-            <div className="space-y-2.5">
-              {bagRows.map((bag, index) => (
-                <div
-                  key={index}
-                  className="p-3 rounded-xl bg-white border border-sand-200 grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end"
-                >
-                  <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-bold text-navy-500 mb-1">
-                      Bag Tag #{index + 1}
-                    </label>
-                    <input
-                      type="text"
-                      value={bag.bagTagCode}
-                      onChange={(e) => updateBagRow(index, { bagTagCode: e.target.value })}
-                      className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 text-xs font-mono font-bold text-navy-900"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-bold text-navy-500 mb-1">
-                      Category
-                    </label>
-                    <select
-                      value={bag.bagCategory}
-                      onChange={(e) =>
-                        updateBagRow(index, { bagCategory: e.target.value as BagCategory })
-                      }
-                      className="w-full rounded-lg border border-sand-300 px-2 py-1.5 text-xs font-semibold text-navy-900"
-                    >
-                      {BAG_CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {formatBagCategoryLabel(cat)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-[10px] font-bold text-navy-500 mb-1">
-                      Seal Number
-                    </label>
-                    <input
-                      type="text"
-                      value={bag.securitySealNumber ?? ""}
-                      onChange={(e) =>
-                        updateBagRow(index, { securitySealNumber: e.target.value })
-                      }
-                      placeholder="SEAL-..."
-                      className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 text-xs font-mono text-navy-900"
-                    />
-                  </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-[10px] font-bold text-navy-500 mb-1">
-                      Condition Notes
-                    </label>
-                    <input
-                      type="text"
-                      value={bag.conditionNotes ?? ""}
-                      onChange={(e) => updateBagRow(index, { conditionNotes: e.target.value })}
-                      placeholder="Intact / Scuff note"
-                      className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 text-xs text-navy-900"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-[10px] font-bold text-navy-500 mb-1">
-                      Evidence Photo
-                    </label>
-                    <label className="inline-flex items-center justify-center w-full gap-1 px-2.5 py-1.5 rounded-lg border border-sand-300 bg-sand-50 hover:bg-sand-100 text-[11px] font-bold text-navy-900 cursor-pointer">
-                      <Camera className="h-3.5 w-3.5 text-terracotta-600" />
-                      <span>
-                        {uploadingBagIndex === index
-                          ? "Uploading..."
-                          : bag.photoFileKey
-                            ? "Photo Attached"
-                            : "Upload"}
-                      </span>
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        disabled={!activeBooking || uploadingBagIndex !== null}
-                        onChange={(e) => void handleUploadBagEvidence(index, e.target.files?.[0])}
-                        className="sr-only"
-                      />
-                    </label>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Release Notes & Explicit Exception Toggle (CHECK_OUT) */}
-        {operationMode === "CHECK_OUT" && (
-          <div className="rounded-xl border border-sand-200 bg-sand-50/70 p-4 space-y-3 text-xs">
-            {!showDemoOps && activeCustody && (
-              <div className="text-[11px] text-navy-700 pb-1 border-b border-sand-200">
-                Checked-in custody record:{" "}
-                <strong>{activeCustody.checkedInBagCount ?? activeCustody.expectedBagCount}</strong>{" "}
-                bags • Tags:{" "}
-                <span className="font-mono">
-                  {activeCustody.bags.map((b) => b.bagTagCode).join(", ") || "Pending"}
+              <div>
+                <span className="text-[11px] text-navy-500 font-bold uppercase">
+                  Hub &amp; Collection Window
                 </span>
+                <p className="font-semibold text-navy-900">{activeBooking.location.name}</p>
+                <p className="text-navy-600">{formatDateTimeDisplay(activeBooking.collectionAt)}</p>
               </div>
-            )}
-            <div>
-              <label
-                htmlFor="collection-handover-notes"
-                className="block font-bold text-navy-900 mb-1"
-              >
-                Collection Handover Notes
+              <div>
+                <span className="text-[11px] text-navy-500 font-bold uppercase">
+                  Booked Bag Breakdown
+                </span>
+                <p className="font-semibold text-navy-900">{activeBooking.totalBags} Total Bags</p>
+                <p className="text-navy-600">
+                  {activeBooking.items
+                    .map((item) => `${item.quantity}× ${formatBagCategoryLabel(item.bagCategory)}`)
+                    .join(", ")}
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Step 2: Verify QR / 6-Digit PIN */}
+        <section className="space-y-4 pt-5 border-t border-sand-200">
+          <div className="flex items-center gap-2.5">
+            <span className="h-6 w-6 rounded-full bg-navy-900 text-white text-xs font-extrabold flex items-center justify-center flex-shrink-0">
+              2
+            </span>
+            <h2 className="text-sm font-extrabold text-navy-950 tracking-tight">
+              2. Verify QR / 6-Digit PIN
+            </h2>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setVerificationMethod("QR_SCAN")}
+              className={`px-3.5 py-1.5 rounded-xl font-bold transition ${
+                verificationMethod === "QR_SCAN"
+                  ? "bg-navy-900 text-white"
+                  : "bg-sand-100 text-navy-700 hover:bg-sand-200"
+              }`}
+            >
+              Dynamic QR Scan Token (Primary)
+            </button>
+            <button
+              type="button"
+              onClick={() => setVerificationMethod("PIN_FALLBACK")}
+              className={`px-3.5 py-1.5 rounded-xl font-bold transition ${
+                verificationMethod === "PIN_FALLBACK"
+                  ? "bg-amber-600 text-white"
+                  : "bg-sand-100 text-navy-700 hover:bg-sand-200"
+              }`}
+            >
+              6-Digit Backup PIN (Rate-Limited Fallback)
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end text-xs">
+            <div className="sm:col-span-2">
+              <label htmlFor="counter-credential-input" className="block font-bold text-navy-900 mb-1">
+                {verificationMethod === "QR_SCAN" ? "QR Token Payload" : "6-Digit Backup PIN"}
               </label>
               <input
-                id="collection-handover-notes"
-                aria-label="Collection Handover Notes"
+                id="counter-credential-input"
                 type="text"
-                value={collectionNotes}
-                onChange={(e) => setCollectionNotes(e.target.value)}
-                placeholder="Optional release note (e.g., all bags verified intact at counter)"
-                className="w-full rounded-xl border border-sand-300 bg-white px-3 py-2 text-xs font-medium text-navy-900"
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value)}
+                placeholder={verificationMethod === "QR_SCAN" ? "64-char QR hex token" : "6-digit PIN"}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900"
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="inline-flex items-center gap-2 font-bold text-navy-900 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={hasCollectionException}
-                  onChange={(e) => {
-                    setHasCollectionException(e.target.checked);
-                    if (!e.target.checked) {
-                      setExceptionNotes("");
-                    }
-                  }}
-                  className="h-4 w-4 rounded border-sand-300 text-amber-600 focus:ring-amber-500"
-                />
-                <span>Report custody exception or discrepancy</span>
-              </label>
+            {!showDemoOps && (
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isSubmitting || !isAuthenticated}
+                  onClick={() => void handleVerifyPassOnly()}
+                  leftIcon={<ShieldCheck className="h-4 w-4 text-navy-700" />}
+                  className="w-full"
+                >
+                  Verify Pass Only
+                </Button>
+              </div>
+            )}
+          </div>
 
-              {hasCollectionException && (
-                <div>
-                  <label
-                    htmlFor="custody-exception-details"
-                    className="block font-bold text-amber-950 mb-1"
+          {/* Non-Consuming Pass Pre-Verification Result */}
+          {passVerification && (
+            <Alert variant="info" title={`Pass Verified (${passVerification.operation}): ${passVerification.referenceCode}`}>
+              Expected Bags: {passVerification.expectedBagCount} • Custody Status:{" "}
+              {passVerification.custodyStatus} (credential remains valid for final handover commit)
+            </Alert>
+          )}
+        </section>
+
+        {/* Step 3: Reconcile Bags, Seals & Vault Compartment */}
+        <section className="space-y-4 pt-5 border-t border-sand-200">
+          <div className="flex items-center gap-2.5">
+            <span className="h-6 w-6 rounded-full bg-navy-900 text-white text-xs font-extrabold flex items-center justify-center flex-shrink-0">
+              3
+            </span>
+            <h2 className="text-sm font-extrabold text-navy-950 tracking-tight">
+              3. Reconcile Bags, Seals &amp; Vault Compartment
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+            <div>
+              <label htmlFor="counter-reconciled-bags" className="block font-bold text-navy-900 mb-1">
+                Reconciled Physical Bag Count
+              </label>
+              <input
+                id="counter-reconciled-bags"
+                type="number"
+                min={1}
+                max={20}
+                value={reconciledBags}
+                onChange={(e) => handleBagCountChange(Number(e.target.value))}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="counter-seal-serial" className="block font-bold text-navy-900 mb-1">
+                Tamper-Evident Security Seal Serial
+              </label>
+              <div className="flex gap-1.5">
+                <input
+                  id="counter-seal-serial"
+                  type="text"
+                  value={sealInput}
+                  onChange={(e) => setSealInput(e.target.value)}
+                  placeholder="e.g. SEAL-LK-90211"
+                  className="flex-1 min-w-0 rounded-xl border border-sand-300 px-3 py-2 text-xs font-mono font-bold text-navy-900"
+                />
+                {!showDemoOps && operationMode === "CHECK_IN" && (
+                  <button
+                    type="button"
+                    disabled={!sealInput.trim()}
+                    onClick={handleApplySealToAllBags}
+                    className="px-2.5 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 disabled:opacity-40 text-white text-[11px] font-bold whitespace-nowrap transition"
                   >
-                    Custody Exception Details
+                    Apply to All Bags
+                  </button>
+                )}
+              </div>
+              <p className="text-[10px] text-navy-500 mt-1">
+                Inspect zip tag and apply physical seal before moving to vault.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="counter-vault-compartment" className="block font-bold text-navy-900 mb-1">
+                Assigned Vault Compartment
+              </label>
+              {showDemoOps ? (
+                <select
+                  id="counter-vault-compartment"
+                  aria-label="Assigned Vault Compartment"
+                  defaultValue="RACK-A"
+                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-bold text-navy-900"
+                >
+                  <option value="RACK-A">RACK-A: Main Steel Compartment A (Slot 12)</option>
+                  <option value="VAULT-B">VAULT-B: Back Climate-Controlled Bay (Slot 04)</option>
+                  <option value="SURF-C">SURF-C: Oversized Surf / Gear Bay</option>
+                </select>
+              ) : (
+                <select
+                  id="counter-vault-compartment"
+                  aria-label="Assigned Vault Compartment"
+                  value={selectedZoneId}
+                  onChange={(e) => setSelectedZoneId(e.target.value)}
+                  className="w-full rounded-xl border border-sand-300 px-3 py-2 text-xs font-bold text-navy-900"
+                >
+                  <option value="">General Facility Storage (No Specific Zone)</option>
+                  {liveZones.map((zone) => (
+                    <option key={zone.id} value={zone.id}>
+                      {zone.name} ({zone.zoneType} • {zone.securityTier})
+                    </option>
+                  ))}
+                </select>
+              )}
+              <p className="text-[10px] text-navy-500 mt-1">
+                {showDemoOps
+                  ? "Logged to staff member Roshan Fernando."
+                  : `Logged to counter operator ${user?.displayName || user?.email || "active session"}.`}
+              </p>
+            </div>
+          </div>
+
+          {/* Live Per-Bag Tagging & Evidence Upload (CHECK_IN) */}
+          {!showDemoOps && operationMode === "CHECK_IN" && (
+            <div className="rounded-xl border border-sand-200 bg-sand-50/70 p-4 space-y-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-bold text-navy-950">
+                  Per-Bag Physical Tags, Tamper Seals &amp; Photo Evidence
+                </p>
+                <span className="text-[11px] text-navy-600">
+                  Each checked-in bag requires a unique tag code.
+                </span>
+              </div>
+
+              {activeBooking && bagRows.length !== activeBooking.totalBags && (
+                <div>
+                  <label className="block font-bold text-amber-950 mb-1">
+                    Bag Count Discrepancy Reason (booked {activeBooking.totalBags}, counting{" "}
+                    {bagRows.length})
                   </label>
                   <input
-                    id="custody-exception-details"
-                    aria-label="Custody Exception Details"
                     type="text"
-                    value={exceptionNotes}
-                    onChange={(e) => setExceptionNotes(e.target.value)}
-                    placeholder="Describe damaged seal, missing item, or guest discrepancy (min 3 characters)"
-                    className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-navy-900"
+                    value={bagCountExceptionReason}
+                    onChange={(e) => setBagCountExceptionReason(e.target.value)}
+                    placeholder="Explain why physical bag count differs from reservation (min 5 chars)"
+                    className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs text-navy-900"
                   />
-                  <p className="text-[11px] text-amber-800 mt-1">
-                    Reporting a custody exception records a disputed release and holds settlement
-                    for supervisor review.
-                  </p>
                 </div>
               )}
-            </div>
-          </div>
-        )}
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-          {!showDemoOps && (
+              <div className="space-y-2.5">
+                {bagRows.map((bag, index) => (
+                  <div
+                    key={index}
+                    className="p-3 rounded-xl bg-white border border-sand-200 grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end"
+                  >
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-navy-500 mb-1">
+                        Bag Tag #{index + 1}
+                      </label>
+                      <input
+                        type="text"
+                        value={bag.bagTagCode}
+                        onChange={(e) => updateBagRow(index, { bagTagCode: e.target.value })}
+                        className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 text-xs font-mono font-bold text-navy-900"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-navy-500 mb-1">
+                        Category
+                      </label>
+                      <select
+                        value={bag.bagCategory}
+                        onChange={(e) =>
+                          updateBagRow(index, { bagCategory: e.target.value as BagCategory })
+                        }
+                        className="w-full rounded-lg border border-sand-300 px-2 py-1.5 text-xs font-semibold text-navy-900"
+                      >
+                        {BAG_CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {formatBagCategoryLabel(cat)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-[10px] font-bold text-navy-500 mb-1">
+                        Seal Number
+                      </label>
+                      <input
+                        type="text"
+                        value={bag.securitySealNumber ?? ""}
+                        onChange={(e) =>
+                          updateBagRow(index, { securitySealNumber: e.target.value })
+                        }
+                        placeholder="SEAL-..."
+                        className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 text-xs font-mono text-navy-900"
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-[10px] font-bold text-navy-500 mb-1">
+                        Condition Notes
+                      </label>
+                      <input
+                        type="text"
+                        value={bag.conditionNotes ?? ""}
+                        onChange={(e) => updateBagRow(index, { conditionNotes: e.target.value })}
+                        placeholder="Intact / Scuff note"
+                        className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 text-xs text-navy-900"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[10px] font-bold text-navy-500 mb-1">
+                        Evidence Photo
+                      </label>
+                      <label className="inline-flex items-center justify-center w-full gap-1 px-2.5 py-1.5 rounded-lg border border-sand-300 bg-sand-50 hover:bg-sand-100 text-[11px] font-bold text-navy-900 cursor-pointer">
+                        <Camera className="h-3.5 w-3.5 text-terracotta-600" />
+                        <span>
+                          {uploadingBagIndex === index
+                            ? "Uploading..."
+                            : bag.photoFileKey
+                              ? "Photo Attached"
+                              : "Upload"}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          disabled={!activeBooking || uploadingBagIndex !== null}
+                          onChange={(e) => void handleUploadBagEvidence(index, e.target.files?.[0])}
+                          className="sr-only"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Release Notes & Explicit Exception Toggle (CHECK_OUT) */}
+          {operationMode === "CHECK_OUT" && (
+            <div className="rounded-xl border border-sand-200 bg-sand-50/70 p-4 space-y-3 text-xs">
+              {!showDemoOps && activeCustody && (
+                <div className="text-[11px] text-navy-700 pb-1 border-b border-sand-200">
+                  Checked-in custody record:{" "}
+                  <strong>{activeCustody.checkedInBagCount ?? activeCustody.expectedBagCount}</strong>{" "}
+                  bags • Tags:{" "}
+                  <span className="font-mono">
+                    {activeCustody.bags.map((b) => b.bagTagCode).join(", ") || "Pending"}
+                  </span>
+                </div>
+              )}
+              <div>
+                <label
+                  htmlFor="collection-handover-notes"
+                  className="block font-bold text-navy-900 mb-1"
+                >
+                  Collection Handover Notes
+                </label>
+                <input
+                  id="collection-handover-notes"
+                  aria-label="Collection Handover Notes"
+                  type="text"
+                  value={collectionNotes}
+                  onChange={(e) => setCollectionNotes(e.target.value)}
+                  placeholder="Optional release note (e.g., all bags verified intact at counter)"
+                  className="w-full rounded-xl border border-sand-300 bg-white px-3 py-2 text-xs font-medium text-navy-900"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="inline-flex items-center gap-2 font-bold text-navy-900 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={hasCollectionException}
+                    onChange={(e) => {
+                      setHasCollectionException(e.target.checked);
+                      if (!e.target.checked) {
+                        setExceptionNotes("");
+                      }
+                    }}
+                    className="h-4 w-4 rounded border-sand-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>Report custody exception or discrepancy</span>
+                </label>
+
+                {hasCollectionException && (
+                  <div>
+                    <label
+                      htmlFor="custody-exception-details"
+                      className="block font-bold text-amber-950 mb-1"
+                    >
+                      Custody Exception Details
+                    </label>
+                    <input
+                      id="custody-exception-details"
+                      aria-label="Custody Exception Details"
+                      type="text"
+                      value={exceptionNotes}
+                      onChange={(e) => setExceptionNotes(e.target.value)}
+                      placeholder="Describe damaged seal, missing item, or guest discrepancy (min 3 characters)"
+                      className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-navy-900"
+                    />
+                    <p className="text-[11px] text-amber-800 mt-1">
+                      Reporting a custody exception records a disputed release and holds settlement
+                      for supervisor review.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
               type="button"
-              disabled={isSubmitting || !isAuthenticated}
-              onClick={() => void handleVerifyPassOnly()}
-              className="px-4 py-2.5 rounded-xl border border-navy-300 bg-white hover:bg-sand-50 text-navy-900 font-bold text-xs transition inline-flex items-center gap-1.5"
+              disabled={isSubmitting}
+              onClick={() => void handleSimulateHandover()}
+              className={`px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-sm transition flex items-center gap-2 ${
+                operationMode === "CHECK_IN"
+                  ? "bg-terracotta-500 hover:bg-terracotta-600 disabled:bg-sand-400"
+                  : "bg-emerald-600 hover:bg-emerald-700 disabled:bg-sand-400"
+              }`}
             >
-              <ShieldCheck className="h-4 w-4 text-navy-700" />
-              <span>Verify Pass Only</span>
+              {isSubmitting ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span>Verifying Handover...</span>
+                </>
+              ) : operationMode === "CHECK_IN" ? (
+                <>
+                  <Check className="h-4 w-4" />
+                  <span>Confirm Check-In Handover</span>
+                </>
+              ) : (
+                <>
+                  <Check className="h-4 w-4" />
+                  <span>Verify &amp; Release Bags</span>
+                </>
+              )}
             </button>
-          )}
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => void handleSimulateHandover()}
-            className={`px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-sm transition flex items-center gap-2 ${
-              operationMode === "CHECK_IN"
-                ? "bg-terracotta-500 hover:bg-terracotta-600 disabled:bg-sand-400"
-                : "bg-emerald-600 hover:bg-emerald-700 disabled:bg-sand-400"
-            }`}
-          >
-            {isSubmitting ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                <span>Verifying Handover...</span>
-              </>
-            ) : operationMode === "CHECK_IN" ? (
-              <>
-                <Check className="h-4 w-4" />
-                <span>Confirm Check-In Handover</span>
-              </>
-            ) : (
-              <>
-                <Check className="h-4 w-4" />
-                <span>Verify &amp; Release Bags</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Non-Consuming Pass Pre-Verification Result */}
-        {passVerification && (
-          <div className="p-4 rounded-xl bg-sky-50 border border-sky-200 text-xs text-sky-950 flex items-start gap-2.5">
-            <ShieldCheck className="h-4 w-4 text-sky-700 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold">
-                Pass Verified ({passVerification.operation}): {passVerification.referenceCode}
-              </p>
-              <p className="text-[11px] text-sky-900">
-                Expected Bags: {passVerification.expectedBagCount} • Custody Status:{" "}
-                {passVerification.custodyStatus} (credential remains valid for final handover commit)
-              </p>
-            </div>
           </div>
-        )}
+        </section>
 
         {/* Feedback Messages */}
         {handoverErrorMessage && (
@@ -1020,7 +1206,7 @@ export function HostWebCheckInOutOperationsPage() {
             <p>{handoverSuccessMessage}</p>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

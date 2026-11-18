@@ -1,5 +1,14 @@
 import React from "react";
-import { Modal, View, Text, StyleSheet } from "react-native";
+import {
+  Modal,
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet
+} from "react-native";
 import {
   mobileColors,
   mobileRadius,
@@ -47,52 +56,69 @@ export function ConfirmDialog({
       onRequestClose={onCancel}
       testID={testID ?? "confirm-dialog"}
     >
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {
+            if (!isLoading) onCancel();
+          }}
+          accessibilityLabel={`Dismiss ${title}`}
+          accessibilityRole="button"
+        />
         <View style={styles.dialog} accessibilityRole="alert">
-          <View style={styles.headerRow}>
-            {icon ? (
-              <View
-                style={[
-                  styles.iconCircle,
-                  destructive ? styles.iconCircleDanger : styles.iconCirclePrimary
-                ]}
-              >
-                <MobileIcon
-                  name={icon}
-                  size="md"
-                  color={destructive ? mobileColors.rose[600] : mobileColors.terracotta[600]}
-                />
-              </View>
-            ) : null}
-            <Text style={styles.title}>{title}</Text>
-          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.dialogContent}
+          >
+            <View style={styles.headerRow}>
+              {icon ? (
+                <View
+                  style={[
+                    styles.iconCircle,
+                    destructive ? styles.iconCircleDanger : styles.iconCirclePrimary
+                  ]}
+                >
+                  <MobileIcon
+                    name={icon}
+                    size="md"
+                    color={destructive ? mobileColors.rose[600] : mobileColors.terracotta[600]}
+                  />
+                </View>
+              ) : null}
+              <Text style={styles.title}>{title}</Text>
+            </View>
 
-          <Text style={styles.description}>{description}</Text>
+            <Text style={styles.description}>{description}</Text>
 
-          {children}
+            {children}
 
-          <View style={styles.actions}>
-            <Button
-              title={cancelLabel}
-              variant="outline"
-              size="sm"
-              onPress={onCancel}
-              disabled={isLoading}
-              style={styles.actionBtn}
-              testID={testID ? `${testID}-cancel` : "confirm-dialog-cancel"}
-            />
-            <Button
-              title={confirmLabel}
-              variant={destructive ? "danger" : "primary"}
-              size="sm"
-              onPress={onConfirm}
-              isLoading={isLoading}
-              style={styles.actionBtn}
-              testID={testID ? `${testID}-confirm` : "confirm-dialog-confirm"}
-            />
-          </View>
+            <View style={styles.actions}>
+              <Button
+                title={cancelLabel}
+                variant="outline"
+                size="sm"
+                onPress={onCancel}
+                disabled={isLoading}
+                style={styles.actionBtn}
+                testID={testID ? `${testID}-cancel` : "confirm-dialog-cancel"}
+              />
+              <Button
+                title={confirmLabel}
+                variant={destructive ? "danger" : "primary"}
+                size="sm"
+                onPress={onConfirm}
+                isLoading={isLoading}
+                style={styles.actionBtn}
+                testID={testID ? `${testID}-confirm` : "confirm-dialog-confirm"}
+              />
+            </View>
+          </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -108,11 +134,14 @@ const styles = StyleSheet.create({
   dialog: {
     width: "100%",
     maxWidth: 420,
+    maxHeight: "85%",
     backgroundColor: mobileColors.card,
     borderRadius: mobileRadius["2xl"],
     padding: mobileSpacing[5],
     borderWidth: 1,
-    borderColor: mobileColors.border,
+    borderColor: mobileColors.border
+  },
+  dialogContent: {
     gap: mobileSpacing[3]
   },
   headerRow: {
@@ -149,4 +178,3 @@ const styles = StyleSheet.create({
     flex: 1
   }
 });
-

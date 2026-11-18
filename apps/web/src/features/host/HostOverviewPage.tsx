@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Wallet
 } from "lucide-react";
+import { Badge, Card, LoadingSkeleton, MascotIllustration } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { DEMO_BOOKINGS, DemoBookingRecord, formatLkr } from "@/data/mock-marketplace";
 import {
@@ -74,6 +75,11 @@ export function HostOverviewDashboardPage() {
     enabled: isAuthenticated && !showDemoOverview && canActAsHostOwner
   });
 
+  const isOverviewLoading =
+    isAuthenticated &&
+    !showDemoOverview &&
+    (bookingsQuery.isLoading || (Boolean(liveLocationId) && poolsQuery.isLoading));
+
   const liveBookings = bookingsQuery.data?.bookings ?? [];
   const activePools = useMemo(
     () => (poolsQuery.data ?? []).filter((pool) => pool.isActive),
@@ -102,9 +108,15 @@ export function HostOverviewDashboardPage() {
         (b) => b.status === "CONFIRMED" || b.status === "PENDING_HOST_APPROVAL"
       ).length;
 
-  const todaysCollectionsCount = showDemoOverview
-    ? 5
-    : liveBookings.filter((b) => b.status === "IN_STORAGE" || b.status === "COMPLETED").length;
+  const activeInStorageCount = useMemo(
+    () => liveBookings.filter((b) => b.status === "IN_STORAGE").length,
+    [liveBookings]
+  );
+  const completedBookingsCount = useMemo(
+    () => liveBookings.filter((b) => b.status === "COMPLETED").length,
+    [liveBookings]
+  );
+  const todaysCollectionsCount = showDemoOverview ? 5 : activeInStorageCount;
 
   const overdueLiveBookings = useMemo(
     () =>
@@ -122,6 +134,10 @@ export function HostOverviewDashboardPage() {
     () => (showDemoOverview ? DEMO_BOOKINGS.filter((b) => b.status === "OVERDUE") : []),
     [showDemoOverview]
   );
+
+  const overdueListLength = showDemoOverview
+    ? overdueDemoBookings.length
+    : overdueLiveBookings.length;
 
   const netEarningsFormatted = showDemoOverview
     ? formatLkr(184500)
@@ -163,13 +179,13 @@ export function HostOverviewDashboardPage() {
       )}
 
       {/* Overview Header */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-navy-100 text-navy-900 border border-navy-200">
+              <Badge variant="navy" size="sm">
                 Active Storage Hub
-              </span>
+              </Badge>
               <span className="text-xs text-navy-600 font-medium">
                 {currentLocation?.city || "Host Operations"}
               </span>
@@ -198,116 +214,134 @@ export function HostOverviewDashboardPage() {
             </Link>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* 4 Key Operational Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Bags in Vault */}
-        <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-navy-500">
-            <span>Bags in Vault</span>
-            <Luggage className="h-4 w-4 text-terracotta-500" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-extrabold text-navy-950">
-              {activeBagsInVault}{" "}
-              <span className="text-sm font-semibold text-navy-500">
-                {totalCapacitySlots > 0 ? `/ ${totalCapacitySlots} units` : "bags in storage"}
-              </span>
-            </p>
-            {totalCapacitySlots > 0 ? (
-              <span className="text-xs font-bold text-emerald-700">{occupancyPercentage}% full</span>
-            ) : (
-              <span className="text-xs font-bold text-navy-500">0% configured</span>
-            )}
-          </div>
-          <div className="w-full bg-sand-100 rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-terracotta-500 h-1.5 rounded-full transition-all"
-              style={{ width: `${occupancyPercentage}%` }}
-            />
-          </div>
-          <p className="text-[11px] text-navy-600 font-medium">
-            Reconciled and sealed with tamper tags
-          </p>
+      {isOverviewLoading ? (
+        <div
+          aria-label="Loading host operational metrics"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+        >
+          {Array.from({ length: effectiveHostRole !== "HOST_STAFF" ? 4 : 3 }).map((_, idx) => (
+            <Card key={idx} className="p-5 space-y-3">
+              <LoadingSkeleton variant="text" className="w-28" />
+              <LoadingSkeleton className="h-8 w-36" />
+              <LoadingSkeleton variant="text" className="w-40" />
+            </Card>
+          ))}
         </div>
-
-        {/* Card 2: Arrivals */}
-        <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-navy-500">
-            <span>{showDemoOverview ? "Today's Arrivals" : "Upcoming Arrivals"}</span>
-            <ArrowRight className="h-4 w-4 text-emerald-600" />
-          </div>
-          <p className="text-2xl font-extrabold text-navy-950">
-            {todaysCheckInsCount} {showDemoOverview ? "Bags" : "Bookings"}
-          </p>
-          <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-semibold">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>
-              {showDemoOverview
-                ? "3 checked in • 3 pending arrival"
-                : "Confirmed or awaiting host approval"}
-            </span>
-          </div>
-          <p className="text-[11px] text-navy-500">
-            {showDemoOverview ? "Next arrival scheduled at 11:30 IST" : "Synced with host booking ledger"}
-          </p>
-        </div>
-
-        {/* Card 3: Pickups / Completed */}
-        <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-navy-500">
-            <span>{showDemoOverview ? "Today's Pickups" : "Active & Released"}</span>
-            <Clock className="h-4 w-4 text-sky-600" />
-          </div>
-          <p className="text-2xl font-extrabold text-navy-950">
-            {todaysCollectionsCount} {showDemoOverview ? "Bags" : "Bookings"}
-          </p>
-          <div className="flex items-center gap-1.5 text-[11px] text-navy-700 font-semibold">
-            <span>
-              {showDemoOverview
-                ? "4 completed • 1 overdue notice"
-                : `${overdueLiveBookings.length} overdue custody notice(s)`}
-            </span>
-          </div>
-          <p className="text-[11px] text-amber-700 font-semibold">
-            {showDemoOverview ? "30m grace window monitored" : "Zero Possessory Lien policy active"}
-          </p>
-        </div>
-
-        {/* Card 4: Net Host Earnings (Hidden from HOST_STAFF) */}
-        {effectiveHostRole !== "HOST_STAFF" && (
-          <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-2">
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Bags in Vault */}
+          <Card className="p-5 space-y-2">
             <div className="flex items-center justify-between text-xs font-bold text-navy-500">
-              <span>Net Cleared Earnings</span>
-              <Wallet className="h-4 w-4 text-emerald-600" />
+              <span>Bags in Vault</span>
+              <Luggage className="h-4 w-4 text-terracotta-500" />
             </div>
-            <p className="text-2xl font-extrabold text-navy-950">{netEarningsFormatted}</p>
-            <div className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold">
+            <div className="flex items-baseline gap-2">
+              <p className="text-2xl font-extrabold text-navy-950">
+                {activeBagsInVault}{" "}
+                <span className="text-sm font-semibold text-navy-500">
+                  {totalCapacitySlots > 0 ? `/ ${totalCapacitySlots} units` : "bags in storage"}
+                </span>
+              </p>
+              {totalCapacitySlots > 0 ? (
+                <span className="text-xs font-bold text-emerald-700">{occupancyPercentage}% full</span>
+              ) : (
+                <span className="text-xs font-bold text-navy-500">0% configured</span>
+              )}
+            </div>
+            <div className="w-full bg-sand-100 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="bg-terracotta-500 h-1.5 rounded-full transition-all"
+                style={{ width: `${occupancyPercentage}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-navy-600 font-medium">
+              Reconciled and sealed with tamper tags
+            </p>
+          </Card>
+
+          {/* Card 2: Arrivals */}
+          <Card className="p-5 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-navy-500">
+              <span>{showDemoOverview ? "Today's Arrivals" : "Upcoming Arrivals"}</span>
+              <ArrowRight className="h-4 w-4 text-emerald-600" />
+            </div>
+            <p className="text-2xl font-extrabold text-navy-950">
+              {todaysCheckInsCount} {showDemoOverview ? "Bags" : "Bookings"}
+            </p>
+            <div className="flex items-center gap-1.5 text-[11px] text-emerald-700 font-semibold">
+              <CheckCircle2 className="h-3.5 w-3.5" />
               <span>
                 {showDemoOverview
-                  ? "85% net host share"
-                  : `Eligible now • Accrued ${formatLkrMinor(financeQuery.data?.totalAccruedMinor ?? 0, financeQuery.data?.currency ?? "LKR")}`}
+                  ? "3 checked in • 3 pending arrival"
+                  : "Confirmed or awaiting host approval"}
               </span>
             </div>
             <p className="text-[11px] text-navy-500">
-              {showDemoOverview
-                ? "Next batch payout: Friday (CEFT)"
-                : "View Revenue & Ledger for settlement breakdown"}
+              {showDemoOverview ? "Next arrival scheduled at 11:30 IST" : "Synced with host booking ledger"}
             </p>
-          </div>
-        )}
-      </div>
+          </Card>
+
+          {/* Card 3: Active Pickups vs Completed History */}
+          <Card className="p-5 space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-navy-500">
+              <span>{showDemoOverview ? "Today's Pickups" : "Active Vault Pickups"}</span>
+              <Clock className="h-4 w-4 text-sky-600" />
+            </div>
+            <p className="text-2xl font-extrabold text-navy-950">
+              {todaysCollectionsCount} {showDemoOverview ? "Bags" : "In Storage"}
+            </p>
+            <div className="flex items-center gap-1.5 text-[11px] text-navy-700 font-semibold">
+              <span>
+                {showDemoOverview
+                  ? "4 completed • 1 overdue notice"
+                  : `${completedBookingsCount} completed • ${overdueLiveBookings.length} overdue notice(s)`}
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-700 font-semibold">
+              {showDemoOverview ? "30m grace window monitored" : "Zero Possessory Lien policy active"}
+            </p>
+          </Card>
+
+          {/* Card 4: Net Host Earnings (Hidden from HOST_STAFF) */}
+          {effectiveHostRole !== "HOST_STAFF" && (
+            <Card className="p-5 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-navy-500">
+                <span>Net Cleared Earnings</span>
+                <Wallet className="h-4 w-4 text-emerald-600" />
+              </div>
+              <p className="text-2xl font-extrabold text-navy-950">{netEarningsFormatted}</p>
+              <div className="flex items-center gap-1 text-[11px] text-emerald-700 font-semibold">
+                <span>
+                  {showDemoOverview
+                    ? "85% net host share"
+                    : `Eligible now • Accrued ${formatLkrMinor(financeQuery.data?.totalAccruedMinor ?? 0, financeQuery.data?.currency ?? "LKR")}`}
+                </span>
+              </div>
+              <p className="text-[11px] text-navy-500">
+                {showDemoOverview
+                  ? "Next batch payout: Friday (CEFT)"
+                  : "View Revenue & Ledger for settlement breakdown"}
+              </p>
+            </Card>
+          )}
+        </div>
+      )}
 
       {/* Overdue Bag Urgent Alert Banner */}
-      {(showDemoOverview ? overdueDemoBookings.length > 0 : overdueLiveBookings.length > 0) && (
+      {overdueListLength > 0 && (
         <div className="rounded-2xl bg-amber-50 border border-amber-300 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
           <div className="flex items-start gap-3">
-            <div className="p-2 rounded-xl bg-amber-200/70 text-amber-900 mt-0.5">
+            <div className="flex-shrink-0 hidden sm:block">
+              <MascotIllustration mascot="alarm-clock" size="xs" variant="bare" decorative />
+            </div>
+            <div className="p-2 rounded-xl bg-amber-200/70 text-amber-900 mt-0.5 sm:hidden">
               <AlertTriangle className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-200 text-amber-900">
                   Overdue Custody Notice
                 </span>
@@ -316,6 +350,11 @@ export function HostOverviewDashboardPage() {
                     ? overdueDemoBookings[0].reference
                     : overdueLiveBookings[0].referenceCode}
                 </span>
+                {overdueListLength > 1 && (
+                  <Badge variant="warning" size="sm">
+                    +{overdueListLength - 1} more
+                  </Badge>
+                )}
               </div>
               <p className="text-xs text-navy-800 font-medium mt-1">
                 Traveller{" "}
@@ -370,7 +409,7 @@ export function HostOverviewDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Today's Custody Movement Queue + Zone Capacity */}
         <div className="lg:col-span-8 space-y-6">
-          <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-4">
+          <Card className="p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-bold text-navy-950">
@@ -475,6 +514,12 @@ export function HostOverviewDashboardPage() {
                   </tbody>
                 </table>
               </div>
+            ) : bookingsQuery.isLoading ? (
+              <div className="space-y-2">
+                <LoadingSkeleton className="h-10 w-full" />
+                <LoadingSkeleton className="h-10 w-full" />
+                <LoadingSkeleton className="h-10 w-full" />
+              </div>
             ) : liveBookings.length === 0 ? (
               <div className="p-6 rounded-xl bg-sand-50 border border-sand-200 text-center text-xs text-navy-600">
                 No host bookings recorded yet for your verified locations.
@@ -576,14 +621,18 @@ export function HostOverviewDashboardPage() {
                 </table>
               </div>
             )}
-          </div>
+          </Card>
 
           {/* Physical Zone Capacity Meters */}
-          <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-3">
+          <Card className="p-5 space-y-3">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-navy-950">Physical Zone Capacity</h3>
-                <p className="text-xs text-navy-600">Real-time rack and compartment occupancy</p>
+                <p className="text-xs text-navy-600">
+                  {showDemoOverview
+                    ? "Real-time rack and compartment occupancy"
+                    : "Configured storage compartments and allocated capacity units"}
+                </p>
               </div>
               {effectiveHostRole !== "HOST_STAFF" && currentLocation && (
                 <Link
@@ -631,6 +680,11 @@ export function HostOverviewDashboardPage() {
                   })}
                 </div>
               ) : null
+            ) : zonesQuery.isLoading || poolsQuery.isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <LoadingSkeleton className="h-24 w-full" />
+                <LoadingSkeleton className="h-24 w-full" />
+              </div>
             ) : zones.length === 0 && activePools.length === 0 ? (
               <p className="text-xs text-navy-600">
                 Zone occupancy breakdown loads when compartment rules or capacity pools are
@@ -643,10 +697,19 @@ export function HostOverviewDashboardPage() {
                       const zonePoolUnits = activePools
                         .filter((p) => p.zoneId === zone.id)
                         .reduce((sum, p) => sum + p.totalUnits, 0);
-                      const poolUnitsForMath = zonePoolUnits > 0 ? zonePoolUnits : totalCapacitySlots;
-                      const zonePercent =
-                        poolUnitsForMath > 0
-                          ? Math.min(100, Math.round((activeBagsInVault / poolUnitsForMath) * 100))
+                      const unlinkedSharedUnits = activePools
+                        .filter((p) => !p.zoneId)
+                        .reduce((sum, p) => sum + p.totalUnits, 0);
+                      const allocationSharePercent =
+                        totalCapacitySlots > 0
+                          ? Math.min(
+                              100,
+                              Math.round(
+                                ((zonePoolUnits > 0 ? zonePoolUnits : unlinkedSharedUnits) /
+                                  totalCapacitySlots) *
+                                  100
+                              )
+                            )
                           : 0;
                       return (
                         <div
@@ -658,31 +721,33 @@ export function HostOverviewDashboardPage() {
                               {zone.zoneType}
                             </span>
                             <span className="text-xs font-semibold text-navy-700">
-                              {zonePercent}%
+                              {totalCapacitySlots > 0
+                                ? `${allocationSharePercent}% share`
+                                : "0% configured"}
                             </span>
                           </div>
                           <p className="text-xs font-medium text-navy-800 truncate">{zone.name}</p>
                           <div className="w-full bg-sand-200 rounded-full h-1.5 overflow-hidden">
                             <div
-                              className={`h-1.5 rounded-full transition-all ${
-                                zonePercent > 80 ? "bg-amber-500" : "bg-emerald-500"
-                              }`}
-                              style={{ width: `${zonePercent}%` }}
+                              className="h-1.5 rounded-full transition-all bg-emerald-500"
+                              style={{ width: `${allocationSharePercent}%` }}
                             />
                           </div>
                           <p className="text-[10px] text-navy-500">
                             {zonePoolUnits > 0
                               ? `${zonePoolUnits} dedicated units`
-                              : `${totalCapacitySlots} hub shared units`}{" "}
+                              : totalCapacitySlots > 0
+                                ? `Shared across ${totalCapacitySlots} hub units`
+                                : "No active capacity pool units"}{" "}
                             • {zone.isActive ? "Active" : "Inactive"}
                           </p>
                         </div>
                       );
                     })
                   : activePools.map((pool) => {
-                      const poolPercent =
-                        pool.totalUnits > 0
-                          ? Math.min(100, Math.round((activeBagsInVault / pool.totalUnits) * 100))
+                      const poolSharePercent =
+                        totalCapacitySlots > 0
+                          ? Math.min(100, Math.round((pool.totalUnits / totalCapacitySlots) * 100))
                           : 0;
                       return (
                         <div
@@ -694,7 +759,9 @@ export function HostOverviewDashboardPage() {
                               {pool.poolType}
                             </span>
                             <span className="text-xs font-semibold text-navy-700">
-                              {poolPercent}%
+                              {totalCapacitySlots > 0
+                                ? `${poolSharePercent}% share`
+                                : "0% configured"}
                             </span>
                           </div>
                           <p className="text-xs font-medium text-navy-800 truncate">
@@ -705,7 +772,7 @@ export function HostOverviewDashboardPage() {
                           <div className="w-full bg-sand-200 rounded-full h-1.5 overflow-hidden">
                             <div
                               className="h-1.5 rounded-full bg-emerald-500 transition-all"
-                              style={{ width: `${poolPercent}%` }}
+                              style={{ width: `${poolSharePercent}%` }}
                             />
                           </div>
                           <p className="text-[10px] text-navy-500">
@@ -716,12 +783,12 @@ export function HostOverviewDashboardPage() {
                     })}
               </div>
             )}
-          </div>
+          </Card>
         </div>
 
         {/* Right Column: Staff on Duty & Custody Verification Rules */}
         <div className="lg:col-span-4 space-y-6">
-          <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-3">
+          <Card className="p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-navy-950">Staff on Counter Duty</h3>
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -755,10 +822,10 @@ export function HostOverviewDashboardPage() {
               Responsible for physical seal application, camera evidence checks, and rate-limited
               PIN releases.
             </p>
-          </div>
+          </Card>
 
           {showDemoOverview && (
-            <div className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-3">
+            <Card className="p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-navy-950">Recent Guest Review</h3>
                 <div className="flex items-center text-amber-500 text-xs">
@@ -773,7 +840,7 @@ export function HostOverviewDashboardPage() {
                 <span>Amaya Perera (Sri Lanka)</span>
                 <span>Yesterday</span>
               </div>
-            </div>
+            </Card>
           )}
 
           {/* Custody Verification Rules Card */}

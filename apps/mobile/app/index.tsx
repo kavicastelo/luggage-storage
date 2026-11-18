@@ -16,7 +16,6 @@ import {
   mobileColors,
   mobileRadius,
   mobileSpacing,
-  mobileTextColors,
   mobileTypography
 } from "../src/lib/theme";
 
@@ -42,20 +41,20 @@ export default function MobileEntryGatewayScreen() {
 
   return (
     <ScreenContainer edges={["top", "bottom"]} testID="entry-gateway-screen">
-      <View style={styles.heroHeader}>
+      <View style={styles.heroCard}>
         <Badge label="Sri Lanka · LKR" variant="terracotta" icon="map-pin" />
-        <Text style={styles.brandTitle}>Luggage Storage Marketplace</Text>
+        <Text style={styles.brandTitle}>LuggageStorage Sri Lanka</Text>
         <Text style={styles.brandSubtitle}>
           Verified local partner storage across Colombo, Kandy, Galle & Ella — explore hands-free.
         </Text>
+        <MascotIllustration
+          mascot="suitcase-walk"
+          size="md"
+          variant="hero"
+          badgeText="Tamper-Evident Custody"
+          caption="Instant quote transparency in LKR and QR-verified luggage check-in & collection."
+        />
       </View>
-
-      <MascotIllustration
-        mascot="suitcase-walk"
-        size="md"
-        badgeText="Tamper-Evident Custody"
-        caption="Instant quote transparency in LKR and QR-verified luggage check-in & collection."
-      />
 
       {isAuthenticated && user ? (
         <Card variant="elevated" style={styles.accountCard}>
@@ -170,6 +169,16 @@ export default function MobileEntryGatewayScreen() {
             fullWidth
           />
         )}
+
+        <Button
+          title="How LuggageStorage Works"
+          variant="ghost"
+          size="sm"
+          onPress={() => router.push("/(traveller)/onboarding")}
+          leftIcon={<MobileIcon name="help-circle" size="sm" color={mobileColors.navy[700]} />}
+          fullWidth
+          testID="gateway-onboarding-btn"
+        />
       </View>
 
       <ConfirmDialog
@@ -188,19 +197,23 @@ export default function MobileEntryGatewayScreen() {
 }
 
 const styles = StyleSheet.create({
-  heroHeader: {
+  heroCard: {
+    backgroundColor: mobileColors.navy[900],
+    borderRadius: mobileRadius["2xl"],
+    padding: mobileSpacing[5],
     alignItems: "center",
-    gap: mobileSpacing[2],
+    gap: mobileSpacing[3],
     marginBottom: mobileSpacing[2]
   },
   brandTitle: {
     ...mobileTypography.displaySm,
+    color: mobileColors.white,
     textAlign: "center"
   },
   brandSubtitle: {
     ...mobileTypography.bodyMd,
     textAlign: "center",
-    color: mobileTextColors.muted
+    color: mobileColors.sand[200]
   },
   accountCard: {
     marginTop: mobileSpacing[3],

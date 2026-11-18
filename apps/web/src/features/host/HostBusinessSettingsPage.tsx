@@ -6,8 +6,8 @@ import {
   type HostDocumentType,
   type HostEntityType
 } from "@luggage-storage/contracts";
-import { Building2, CheckCircle2, FileText, Info, Upload, X } from "lucide-react";
-import { Alert } from "@/components/ui/Alert";
+import { CheckCircle2, FileText, Info, Upload } from "lucide-react";
+import { Alert, Button, Card, EmptyState, LoadingSkeleton, Modal } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { uploadFileToR2, validateFileForUpload } from "@/lib/r2-uploader";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -69,6 +69,7 @@ export function HostBusinessProfileLegalPage() {
   const submitVerificationMutation = useSubmitVerificationMutation();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createModalError, setCreateModalError] = useState<string | null>(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -97,6 +98,10 @@ export function HostBusinessProfileLegalPage() {
   const [stagedDocs, setStagedDocs] = useState<StagedKycDoc[]>([]);
 
   useEffect(() => {
+    setEditingProfile(false);
+  }, [currentBusiness?.id]);
+
+  useEffect(() => {
     if (!currentBusiness) return;
     setBankName(payoutQuery.data?.payoutBankName ?? currentBusiness.payoutBankName ?? "");
     setBranchCode(payoutQuery.data?.payoutBranchCode ?? "");
@@ -105,6 +110,7 @@ export function HostBusinessProfileLegalPage() {
 
   const handleCreateBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateModalError(null);
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
@@ -124,7 +130,7 @@ export function HostBusinessProfileLegalPage() {
       setSuccessMsg("Host Business established successfully.");
       setShowCreateModal(false);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to register host business.");
+      setCreateModalError(err instanceof Error ? err.message : "Failed to register host business.");
     }
   };
 
@@ -252,7 +258,10 @@ export function HostBusinessProfileLegalPage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(true)}
+                  onClick={() => {
+                    setCreateModalError(null);
+                    setShowCreateModal(true);
+                  }}
                   className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition"
                 >
                   Register Host Business
@@ -316,9 +325,13 @@ export function HostBusinessProfileLegalPage() {
       )}
 
       {isAuthenticated && businessesQuery.isLoading ? (
-        <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs text-navy-500">
-          Loading business compliance profile...
-        </div>
+        <Card className="p-6 space-y-4">
+          <LoadingSkeleton variant="text" className="w-56 h-6" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <LoadingSkeleton className="h-14 w-full" />
+            <LoadingSkeleton className="h-14 w-full" />
+          </div>
+        </Card>
       ) : currentBusiness ? (
         <>
           {/* Live Corporate Profile */}
@@ -633,7 +646,7 @@ export function HostBusinessProfileLegalPage() {
         </>
       ) : (
         <>
-          {showDemo && (
+          {showDemo ? (
             <>
               <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
                 <div className="flex items-center justify-between">
@@ -707,178 +720,166 @@ export function HostBusinessProfileLegalPage() {
                 </div>
               </div>
             </>
+          ) : (
+            <EmptyState
+              mascot="salute"
+              title="No Host Business Registered Yet"
+              description="To operate storage locations, publish listings, and receive traveller payouts in Sri Lanka (LKR), you must register a Host Business entity."
+              action={
+                <>
+                  {isAuthenticated && (
+                    <Link
+                      to="/host/onboarding"
+                      className="px-5 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition shadow-sm"
+                    >
+                      Launch Onboarding Wizard
+                    </Link>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => {
+                      setCreateModalError(null);
+                      setShowCreateModal(true);
+                    }}
+                  >
+                    Start Business Registration
+                  </Button>
+                </>
+              }
+            />
           )}
-
-          <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-4 shadow-sm">
-            <Building2 className="h-10 w-10 text-sand-400 mx-auto" />
-            <div>
-              <h3 className="text-base font-bold text-navy-950">
-                No Host Business Registered Yet
-              </h3>
-              <p className="text-xs text-navy-600 mt-1 max-w-md mx-auto">
-                To operate storage locations, publish listings, and receive traveller payouts in Sri Lanka (LKR), you must register a Host Business entity.
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-center gap-3">
-              {isAuthenticated && (
-                <Link
-                  to="/host/onboarding"
-                  className="px-5 py-2.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition shadow-sm"
-                >
-                  Launch Onboarding Wizard
-                </Link>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(true)}
-                className="px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold transition shadow-sm"
-              >
-                Start Business Registration
-              </button>
-            </div>
-          </div>
         </>
       )}
 
       {/* Modal: Register Host Business */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form
-            onSubmit={handleCreateBusiness}
-            className="bg-white rounded-2xl border border-sand-200 max-w-lg w-full p-6 space-y-4 shadow-xl text-xs max-h-[90vh] overflow-y-auto"
-          >
-            <div className="flex items-center justify-between border-b border-sand-100 pb-3">
-              <h3 className="text-base font-bold text-navy-950">Register New Host Business</h3>
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(false)}
-                className="p-1 rounded-lg hover:bg-sand-100 text-navy-500"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <Modal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        closeLabel="Close register host business modal"
+        size="md"
+        title="Register New Host Business"
+      >
+        <form onSubmit={handleCreateBusiness} className="space-y-4 text-xs">
+          {createModalError && <Alert variant="danger">{createModalError}</Alert>}
 
-            <div className="space-y-3">
+          <div className="space-y-3">
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">
+                Legal Registered Entity Name
+              </label>
+              <input
+                type="text"
+                required
+                value={legalName}
+                onChange={(e) => setLegalName(e.target.value)}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Trade / Brand Name</label>
+              <input
+                type="text"
+                required
+                value={tradeName}
+                onChange={(e) => setTradeName(e.target.value)}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-bold text-navy-900 mb-1">
-                  Legal Registered Entity Name
-                </label>
+                <label className="block font-bold text-navy-900 mb-1">Entity Type</label>
+                <select
+                  aria-label="Entity Type"
+                  value={entityType}
+                  onChange={(e) => setEntityType(e.target.value as HostEntityType)}
+                  className="w-full rounded-xl border border-sand-300 px-3 py-2"
+                >
+                  {HOST_ENTITY_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">BRN (Optional)</label>
+                <input
+                  type="text"
+                  value={brn}
+                  onChange={(e) => setBrn(e.target.value)}
+                  className="w-full rounded-xl border border-sand-300 px-3 py-2 font-mono"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">TIN (Optional)</label>
+                <input
+                  type="text"
+                  value={tin}
+                  onChange={(e) => setTin(e.target.value)}
+                  className="w-full rounded-xl border border-sand-300 px-3 py-2 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-navy-900 mb-1">Contact Phone</label>
                 <input
                   type="text"
                   required
-                  value={legalName}
-                  onChange={(e) => setLegalName(e.target.value)}
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
                   className="w-full rounded-xl border border-sand-300 px-3 py-2"
                 />
               </div>
+            </div>
+            <div>
+              <label className="block font-bold text-navy-900 mb-1">Contact Email</label>
+              <input
+                type="email"
+                required
+                value={contactEmail}
+                onChange={(e) => setContactEmail(e.target.value)}
+                className="w-full rounded-xl border border-sand-300 px-3 py-2"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-bold text-navy-900 mb-1">Trade / Brand Name</label>
+                <label className="block font-bold text-navy-900 mb-1">City</label>
                 <input
                   type="text"
-                  required
-                  value={tradeName}
-                  onChange={(e) => setTradeName(e.target.value)}
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
                   className="w-full rounded-xl border border-sand-300 px-3 py-2"
                 />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-navy-900 mb-1">Entity Type</label>
-                  <select
-                    aria-label="Entity Type"
-                    value={entityType}
-                    onChange={(e) => setEntityType(e.target.value as HostEntityType)}
-                    className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                  >
-                    {HOST_ENTITY_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type.replace(/_/g, " ")}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-navy-900 mb-1">BRN (Optional)</label>
-                  <input
-                    type="text"
-                    value={brn}
-                    onChange={(e) => setBrn(e.target.value)}
-                    className="w-full rounded-xl border border-sand-300 px-3 py-2 font-mono"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-navy-900 mb-1">TIN (Optional)</label>
-                  <input
-                    type="text"
-                    value={tin}
-                    onChange={(e) => setTin(e.target.value)}
-                    className="w-full rounded-xl border border-sand-300 px-3 py-2 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-navy-900 mb-1">Contact Phone</label>
-                  <input
-                    type="text"
-                    required
-                    value={contactPhone}
-                    onChange={(e) => setContactPhone(e.target.value)}
-                    className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                  />
-                </div>
               </div>
               <div>
-                <label className="block font-bold text-navy-900 mb-1">Contact Email</label>
+                <label className="block font-bold text-navy-900 mb-1">Address Line 1</label>
                 <input
-                  type="email"
-                  required
-                  value={contactEmail}
-                  onChange={(e) => setContactEmail(e.target.value)}
+                  type="text"
+                  value={addressLine1}
+                  onChange={(e) => setAddressLine1(e.target.value)}
                   className="w-full rounded-xl border border-sand-300 px-3 py-2"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-navy-900 mb-1">City</label>
-                  <input
-                    type="text"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-navy-900 mb-1">Address Line 1</label>
-                  <input
-                    type="text"
-                    value={addressLine1}
-                    onChange={(e) => setAddressLine1(e.target.value)}
-                    className="w-full rounded-xl border border-sand-300 px-3 py-2"
-                  />
-                </div>
-              </div>
             </div>
+          </div>
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowCreateModal(false)}
-                className="px-4 py-2 rounded-xl border border-sand-300 font-bold text-navy-800"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={createBusinessMutation.isPending}
-                className="px-4 py-2 rounded-xl bg-terracotta-500 text-white font-bold disabled:opacity-50"
-              >
-                {createBusinessMutation.isPending ? "Registering..." : "Create Business"}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowCreateModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" isLoading={createBusinessMutation.isPending}>
+              {createBusinessMutation.isPending ? "Registering..." : "Create Business"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

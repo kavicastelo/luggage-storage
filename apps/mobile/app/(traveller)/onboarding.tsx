@@ -1,5 +1,14 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useRef, useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  useWindowDimensions,
+  StyleSheet,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent
+} from "react-native";
 import { useRouter } from "expo-router";
 import {
   Button,
@@ -13,6 +22,7 @@ import {
 import { useAuthStore } from "../../src/store/useAuthStore";
 import {
   mobileColors,
+  mobileLayout,
   mobileRadius,
   mobileSpacing,
   mobileTextColors,
@@ -50,17 +60,35 @@ const SLIDES: ReadonlyArray<{
 
 export default function TravellerOnboardingScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { isAuthenticated } = useAuthStore();
+  const scrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
   const [index, setIndex] = useState(0);
 
-  const current = SLIDES[index];
+  const slideWidth = Math.max(
+    260,
+    Math.min(width, mobileLayout.maxContentWidth) - mobileLayout.screenPaddingHorizontal * 2
+  );
   const isLast = index === SLIDES.length - 1;
+
+  const goToSlide = (nextIdx: number) => {
+    const clamped = Math.max(0, Math.min(SLIDES.length - 1, nextIdx));
+    setIndex(clamped);
+    scrollRef.current?.scrollTo({ x: clamped * slideWidth, animated: true });
+  };
+
+  const handleMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const nextIdx = Math.round(e.nativeEvent.contentOffset.x / slideWidth);
+    if (nextIdx >= 0 && nextIdx < SLIDES.length) {
+      setIndex(nextIdx);
+    }
+  };
 
   return (
     <ScreenContainer
       header={
         <SafeHeader
-          title="Welcome to BagBox"
+          title="Welcome to LuggageStorage"
           rightAction={
             <Button
               title="Skip"
@@ -73,21 +101,40 @@ export default function TravellerOnboardingScreen() {
       }
       testID="traveller-onboarding-screen"
     >
-      <Card variant="elevated" style={styles.slideCard}>
-        <MascotIllustration mascot={current.mascot} size="lg" />
-        <Text style={styles.eyebrow}>{current.eyebrow}</Text>
-        <Text style={styles.title}>{current.title}</Text>
-        <Text style={styles.description}>{current.description}</Text>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={handleMomentumEnd}
+        decelerationRate="fast"
+        style={{ width: slideWidth }}
+      >
+        {SLIDES.map((slide) => (
+          <View key={slide.eyebrow} style={{ width: slideWidth }}>
+            <Card variant="elevated" style={styles.slideCard}>
+              <MascotIllustration mascot={slide.mascot} size="lg" />
+              <Text style={styles.eyebrow}>{slide.eyebrow}</Text>
+              <Text style={styles.title}>{slide.title}</Text>
+              <Text style={styles.description}>{slide.description}</Text>
+            </Card>
+          </View>
+        ))}
+      </ScrollView>
 
-        <View style={styles.dotsRow}>
-          {SLIDES.map((s, idx) => (
-            <View
-              key={s.eyebrow}
-              style={[styles.dot, idx === index && styles.dotActive]}
-            />
-          ))}
-        </View>
-      </Card>
+      <View style={styles.dotsRow}>
+        {SLIDES.map((s, idx) => (
+          <TouchableOpacity
+            key={s.eyebrow}
+            onPress={() => goToSlide(idx)}
+            accessibilityRole="button"
+            accessibilityLabel={`Slide ${idx + 1} of ${SLIDES.length}`}
+            hitSlop={8}
+          >
+            <View style={[styles.dot, idx === index && styles.dotActive]} />
+          </TouchableOpacity>
+        ))}
+      </View>
 
       <View style={styles.actionsStack}>
         <Button
@@ -103,7 +150,7 @@ export default function TravellerOnboardingScreen() {
             if (isLast) {
               router.replace("/(traveller)");
             } else {
-              setIndex((prev) => prev + 1);
+              goToSlide(index + 1);
             }
           }}
         />
@@ -143,8 +190,9 @@ const styles = StyleSheet.create({
   },
   dotsRow: {
     flexDirection: "row",
+    justifyContent: "center",
     gap: 8,
-    marginTop: mobileSpacing[3]
+    marginVertical: mobileSpacing[4]
   },
   dot: {
     width: 8,

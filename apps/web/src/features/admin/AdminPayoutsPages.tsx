@@ -5,11 +5,14 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Download,
   Eye,
   Layers,
   Send
 } from "lucide-react";
+import { LoadingSkeleton, SlideOverDrawer } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { formatLkr } from "@/data/mock-marketplace";
 import {
@@ -23,10 +26,12 @@ import { downloadCsvFile, serializeCsv } from "@/lib/csv-export";
 import { formatDateTimeDisplay, formatLkrMinor } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
   AdminPageHeader,
   AdminPaginationBar,
   AdminQueryErrorAlert,
+  AdminTableSkeleton,
   isUuid,
   statusBadgeToneClasses
 } from "./admin-helpers";
@@ -46,6 +51,8 @@ export function AdminHostPayoutBatchGenerationPage() {
 
   const [selectedMethods, setSelectedMethods] = useState<Record<string, PayoutMethod>>({});
   const [notesByBusiness, setNotesByBusiness] = useState<Record<string, string>>({});
+  const [expandedBookings, setExpandedBookings] = useState<Record<string, boolean>>({});
+  const [pendingBusinessId, setPendingBusinessId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [createdBatchCode, setCreatedBatchCode] = useState<string | null>(null);
 
@@ -76,6 +83,7 @@ export function AdminHostPayoutBatchGenerationPage() {
   const handleGenerateBatch = async (businessId: string, payableIds: string[]) => {
     setActionError(null);
     setCreatedBatchCode(null);
+    setPendingBusinessId(businessId);
     try {
       const batch = await createBatchMutation.mutateAsync({
         businessId,
@@ -86,6 +94,8 @@ export function AdminHostPayoutBatchGenerationPage() {
       setCreatedBatchCode(batch.batchCode);
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : "Failed to generate payout batch.");
+    } finally {
+      setPendingBusinessId(null);
     }
   };
 
@@ -132,14 +142,14 @@ export function AdminHostPayoutBatchGenerationPage() {
                 type="button"
                 onClick={handleExportEligibleCsv}
                 disabled={groups.length === 0}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-sand-200 bg-white text-xs font-bold text-navy-900 hover:bg-sand-100 disabled:opacity-40 transition"
               >
                 <Download className="h-3.5 w-3.5" />
                 <span>Export CSV</span>
               </button>
               <Link
                 to="/admin/payouts/disburse"
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold transition"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold transition shadow-sm"
               >
                 <Send className="h-3.5 w-3.5" />
                 <span>Disbursement Console</span>
@@ -150,12 +160,12 @@ export function AdminHostPayoutBatchGenerationPage() {
       />
 
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 flex items-center justify-between text-xs">
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 flex items-center justify-between text-xs shadow-sm">
           <div>
-            <p className="font-bold text-slate-900">Sample Payout Cycle Preview</p>
-            <p className="text-slate-600 mt-0.5">Eligible partner settlements ready for batching.</p>
+            <p className="font-bold text-navy-950">Sample Payout Cycle Preview</p>
+            <p className="text-sand-700 mt-0.5">Eligible partner settlements ready for batching.</p>
           </div>
-          <span className="font-extrabold text-emerald-700">{formatLkr(1245000)}</span>
+          <span className="font-extrabold text-emerald-700 tabular-nums">{formatLkr(1245000)}</span>
         </div>
       ) : (
         <>
@@ -193,7 +203,7 @@ export function AdminHostPayoutBatchGenerationPage() {
               </div>
               <Link
                 to={`/admin/payouts/disburse${querySuffix}`}
-                className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold"
+                className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold transition"
               >
                 Record Wire Proof
               </Link>
@@ -202,33 +212,49 @@ export function AdminHostPayoutBatchGenerationPage() {
 
           {/* Aggregate Totals */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-            <div className="bg-white rounded-2xl border border-slate-200 p-4">
-              <span className="text-[11px] font-bold uppercase text-slate-500">
+            <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-sm">
+              <span className="text-[11px] font-bold uppercase text-sand-700">
                 Eligible Payables Queue
               </span>
-              <p className="text-lg font-extrabold text-slate-950 mt-1">
-                {totals.count} booking payable(s)
-              </p>
+              {eligibleQuery.isLoading ? (
+                <LoadingSkeleton variant="text" className="h-6 w-32 mt-2" />
+              ) : (
+                <p className="text-lg font-extrabold text-navy-950 mt-1 tabular-nums">
+                  {totals.count} booking payable(s)
+                </p>
+              )}
             </div>
-            <div className="bg-white rounded-2xl border border-slate-200 p-4">
-              <span className="text-[11px] font-bold uppercase text-slate-500">
+            <div className="bg-white rounded-2xl border border-sand-200 p-4 shadow-sm">
+              <span className="text-[11px] font-bold uppercase text-sand-700">
                 Gross Storage / Commission (15%)
               </span>
-              <p className="text-sm font-bold text-slate-800 mt-1">
-                {formatLkrMinor(totals.gross, "LKR")} gross • {formatLkrMinor(totals.commission, "LKR")} fee
-              </p>
+              {eligibleQuery.isLoading ? (
+                <LoadingSkeleton variant="text" className="h-6 w-40 mt-2" />
+              ) : (
+                <p className="text-sm font-bold text-navy-900 mt-1 tabular-nums">
+                  {formatLkrMinor(totals.gross, "LKR")} gross • {formatLkrMinor(totals.commission, "LKR")} fee
+                </p>
+              )}
             </div>
-            <div className="bg-emerald-50 rounded-2xl border border-emerald-200 p-4">
+            <div className="bg-emerald-50 rounded-2xl border border-emerald-200 p-4 shadow-sm">
               <span className="text-[11px] font-bold uppercase text-emerald-800">
                 Ready for Host Settlement (85%)
               </span>
-              <p className="text-lg font-extrabold text-emerald-950 mt-1">
-                {formatLkrMinor(totals.net, "LKR")}
-              </p>
+              {eligibleQuery.isLoading ? (
+                <LoadingSkeleton variant="text" className="h-6 w-32 mt-2" />
+              ) : (
+                <p className="text-lg font-extrabold text-emerald-950 mt-1 tabular-nums">
+                  {formatLkrMinor(totals.net, "LKR")}
+                </p>
+              )}
             </div>
           </div>
 
-          {groups.length === 0 ? (
+          {eligibleQuery.isLoading ? (
+            <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm">
+              <AdminCardListSkeleton count={3} />
+            </div>
+          ) : groups.length === 0 ? (
             <AdminEmptyStateCard
               title="No Unbatched Eligible Payables Pending"
               description="Completed bookings whose luggage has been released cleanly without active disputes automatically accrue ELIGIBLE host payables here for weekly or manual batch generation."
@@ -239,26 +265,26 @@ export function AdminHostPayoutBatchGenerationPage() {
             <div className="space-y-4">
               {groups.map((group) => {
                 const method = selectedMethods[group.businessId] ?? "CEFT_SLIPS";
-                const bankConfigured = Boolean(
-                  group.payoutBankName && group.payoutAccountMasked
-                );
+                const bankConfigured = Boolean(group.payoutBankName && group.payoutAccountMasked);
+                const isExpanded = Boolean(expandedBookings[group.businessId]);
+                const isThisBusinessPending = pendingBusinessId === group.businessId;
                 return (
                   <div
                     key={group.businessId}
-                    className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4 text-xs"
+                    className="bg-white rounded-2xl border border-sand-200 p-5 shadow-sm space-y-4 text-xs"
                   >
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-purple-700" />
-                          <h2 className="text-sm font-extrabold text-slate-950">
+                          <Building2 className="h-4 w-4 text-terracotta-600" />
+                          <h2 className="text-sm font-extrabold text-navy-950">
                             {group.tradeName}
                           </h2>
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[10px]">
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold text-[10px] tabular-nums">
                             {group.eligibleCount} Eligible Booking(s)
                           </span>
                         </div>
-                        <p className="text-slate-600">
+                        <p className="text-sand-700">
                           {group.legalBusinessName} •{" "}
                           {bankConfigured
                             ? `${group.payoutBankName} (${group.payoutAccountMasked})`
@@ -266,10 +292,10 @@ export function AdminHostPayoutBatchGenerationPage() {
                         </p>
                       </div>
                       <div className="text-left md:text-right">
-                        <span className="text-[11px] font-bold text-slate-500 uppercase">
+                        <span className="text-[11px] font-bold text-sand-700 uppercase">
                           Net Payout Batch Amount
                         </span>
-                        <p className="text-lg font-extrabold text-emerald-700">
+                        <p className="text-lg font-extrabold text-emerald-700 tabular-nums">
                           {formatLkrMinor(group.totalNetPayableMinor, group.currency)}
                         </p>
                       </div>
@@ -285,9 +311,70 @@ export function AdminHostPayoutBatchGenerationPage() {
                       </div>
                     )}
 
+                    {/* Collapsible Eligible Bookings Preview */}
+                    <div className="border border-sand-200 rounded-xl overflow-hidden bg-sand-50/50">
+                      <button
+                        type="button"
+                        aria-expanded={isExpanded}
+                        onClick={() =>
+                          setExpandedBookings((prev) => ({
+                            ...prev,
+                            [group.businessId]: !prev[group.businessId]
+                          }))
+                        }
+                        className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-bold text-navy-900 hover:bg-sand-100/70 transition"
+                      >
+                        <span>
+                          Preview Eligible Booking Payables ({group.payables.length})
+                        </span>
+                        {isExpanded ? (
+                          <ChevronUp className="h-4 w-4 text-sand-700" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 text-sand-700" />
+                        )}
+                      </button>
+                      {isExpanded && (
+                        <div className="border-t border-sand-200 bg-white overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-[11px]">
+                            <thead>
+                              <tr className="bg-sand-50 border-b border-sand-200 text-sand-700 uppercase font-bold text-[10px]">
+                                <th className="p-2.5">Booking Ref</th>
+                                <th className="p-2.5">Gross</th>
+                                <th className="p-2.5">Commission (15%)</th>
+                                <th className="p-2.5">Net Payable</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-sand-100 tabular-nums">
+                              {group.payables.map((p) => (
+                                <tr key={p.id}>
+                                  <td className="p-2.5 font-mono font-bold">
+                                    <Link
+                                      to={`/admin/bookings/${p.bookingId}${querySuffix}`}
+                                      className="text-terracotta-600 hover:underline"
+                                    >
+                                      {p.referenceCode || p.bookingId.slice(0, 8)}
+                                    </Link>
+                                  </td>
+                                  <td className="p-2.5 text-navy-900">
+                                    {formatLkrMinor(p.grossSubtotalMinor, p.currency)}
+                                  </td>
+                                  <td className="p-2.5 text-sand-700">
+                                    {formatLkrMinor(p.commissionMinor, p.currency)}
+                                  </td>
+                                  <td className="p-2.5 font-bold text-emerald-700">
+                                    {formatLkrMinor(p.netPayableMinor, p.currency)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">
+                        <label className="block font-bold text-navy-900 mb-1">
                           Settlement Rail
                         </label>
                         <select
@@ -298,7 +385,7 @@ export function AdminHostPayoutBatchGenerationPage() {
                               [group.businessId]: e.target.value as PayoutMethod
                             }))
                           }
-                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold"
+                          className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 text-xs font-semibold text-navy-950"
                         >
                           {PAYOUT_METHODS.map((m) => (
                             <option key={m} value={m}>
@@ -308,7 +395,7 @@ export function AdminHostPayoutBatchGenerationPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block font-bold text-slate-700 mb-1">
+                        <label className="block font-bold text-navy-900 mb-1">
                           Batch Note (Optional)
                         </label>
                         <input
@@ -321,7 +408,7 @@ export function AdminHostPayoutBatchGenerationPage() {
                             }))
                           }
                           placeholder="e.g. Weekly Colombo Friday CEFT Run"
-                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                          className="w-full rounded-xl border border-sand-200 px-3 py-2 text-xs text-navy-950"
                         />
                       </div>
                       <div className="flex sm:justify-end">
@@ -334,13 +421,11 @@ export function AdminHostPayoutBatchGenerationPage() {
                               group.payables.map((p) => p.id)
                             )
                           }
-                          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold transition"
+                          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 disabled:opacity-50 text-white font-bold transition shadow-sm"
                         >
                           <Layers className="h-3.5 w-3.5" />
                           <span>
-                            {createBatchMutation.isPending
-                              ? "Locking Batch..."
-                              : "Generate Payout Batch"}
+                            {isThisBusinessPending ? "Locking Batch..." : "Generate Payout Batch"}
                           </span>
                         </button>
                       </div>
@@ -352,12 +437,12 @@ export function AdminHostPayoutBatchGenerationPage() {
           )}
 
           {recentBatches.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-              <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-950">Recent Payout Batches</h3>
+            <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-sand-200 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-navy-950">Recent Payout Batches</h3>
                 <Link
                   to="/admin/payouts/disburse"
-                  className="text-xs font-bold text-purple-700 hover:text-purple-800"
+                  className="text-xs font-bold text-terracotta-600 hover:text-terracotta-700"
                 >
                   Open Disbursement Queue
                 </Link>
@@ -365,7 +450,7 @@ export function AdminHostPayoutBatchGenerationPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold text-[10px]">
+                    <tr className="bg-sand-50 border-b border-sand-200 text-sand-700 uppercase font-bold text-[10px]">
                       <th className="p-3.5">Batch Code</th>
                       <th className="p-3.5">Host Organization</th>
                       <th className="p-3.5">Items</th>
@@ -373,14 +458,19 @@ export function AdminHostPayoutBatchGenerationPage() {
                       <th className="p-3.5">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-sand-100 tabular-nums">
                     {recentBatches.map((batch) => (
-                      <tr key={batch.id}>
-                        <td className="p-3.5 font-mono font-bold text-slate-900">
-                          {batch.batchCode}
+                      <tr key={batch.id} className="hover:bg-sand-50/70">
+                        <td className="p-3.5 font-mono font-bold text-navy-950">
+                          <Link
+                            to={`/admin/payouts/disburse?batch=${batch.id}`}
+                            className="text-terracotta-600 hover:underline"
+                          >
+                            {batch.batchCode}
+                          </Link>
                         </td>
-                        <td className="p-3.5 text-slate-700">{batch.businessName}</td>
-                        <td className="p-3.5 text-slate-700">{batch.itemCount}</td>
+                        <td className="p-3.5 text-navy-900">{batch.businessName}</td>
+                        <td className="p-3.5 text-navy-900">{batch.itemCount}</td>
                         <td className="p-3.5 font-bold text-emerald-700">
                           {formatLkrMinor(batch.totalNetPayableMinor, batch.currency)}
                         </td>
@@ -467,6 +557,16 @@ export function AdminManualPayoutDisbursementPage() {
     setSearchParams(next);
   };
 
+  const closeBatch = () => {
+    setSelectedBatchId(null);
+    setActionError(null);
+    if (searchParams.has("batch")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("batch");
+      setSearchParams(next);
+    }
+  };
+
   const handleDisburseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!effectiveBatchId) return;
@@ -507,7 +607,7 @@ export function AdminManualPayoutDisbursementPage() {
           !showDemoPreview ? (
             <Link
               to="/admin/payouts/batches"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 hover:bg-slate-50"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-sand-200 bg-white text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
             >
               <Layers className="h-3.5 w-3.5" />
               <span>Generate New Batch</span>
@@ -517,9 +617,9 @@ export function AdminManualPayoutDisbursementPage() {
       />
 
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs space-y-2">
-          <p className="font-bold text-slate-900">Manual Wire Proof Entry (Demo Preview)</p>
-          <p className="text-slate-600">Commercial Bank SLFT settlement proof preview.</p>
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs space-y-2 shadow-sm">
+          <p className="font-bold text-navy-950">Manual Wire Proof Entry (Demo Preview)</p>
+          <p className="text-sand-700">Commercial Bank SLFT settlement proof preview.</p>
         </div>
       ) : (
         <>
@@ -570,8 +670,8 @@ export function AdminManualPayoutDisbursementPage() {
                 }}
                 className={`px-3.5 py-1.5 rounded-full font-bold transition ${
                   statusFilter === status
-                    ? "bg-purple-700 text-white shadow-sm"
-                    : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-50"
+                    ? "bg-navy-900 text-white shadow-sm"
+                    : "bg-white border border-sand-200 text-navy-900 hover:bg-sand-100"
                 }`}
               >
                 {status === "ALL" ? "All Batches" : status}
@@ -579,7 +679,11 @@ export function AdminManualPayoutDisbursementPage() {
             ))}
           </div>
 
-          {batches.length === 0 ? (
+          {batchesQuery.isLoading ? (
+            <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm">
+              <AdminTableSkeleton rows={5} columns={7} />
+            </div>
+          ) : batches.length === 0 ? (
             <AdminEmptyStateCard
               title="No Payout Batches Found"
               description="Generate a payout batch from eligible host payables first, then return here to record CEFT / SLIPS wire proof."
@@ -587,11 +691,11 @@ export function AdminManualPayoutDisbursementPage() {
               actionLabel="Go to Payout Batch Generation"
             />
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold text-[10px]">
+                    <tr className="bg-sand-50 border-b border-sand-200 text-sand-700 uppercase font-bold text-[10px]">
                       <th className="p-3.5">Batch Code</th>
                       <th className="p-3.5">Host Organization</th>
                       <th className="p-3.5">Beneficiary Bank</th>
@@ -602,23 +706,23 @@ export function AdminManualPayoutDisbursementPage() {
                       <th className="p-3.5 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-sand-100 tabular-nums">
                     {batches.map((batch) => (
-                      <tr key={batch.id} className="hover:bg-slate-50/70 transition">
-                        <td className="p-3.5 font-mono font-bold text-slate-900">
+                      <tr key={batch.id} className="hover:bg-sand-50/70 transition">
+                        <td className="p-3.5 font-mono font-bold text-navy-950">
                           {batch.batchCode}
                         </td>
-                        <td className="p-3.5 font-semibold text-slate-800">{batch.businessName}</td>
-                        <td className="p-3.5 text-slate-600">
+                        <td className="p-3.5 font-semibold text-navy-900">{batch.businessName}</td>
+                        <td className="p-3.5 text-sand-700">
                           {batch.payoutBankName
                             ? `${batch.payoutBankName} (${batch.payoutAccountMasked ?? "****"})`
                             : "Not Configured"}
                         </td>
-                        <td className="p-3.5 text-slate-700">{batch.itemCount}</td>
+                        <td className="p-3.5 text-navy-900">{batch.itemCount}</td>
                         <td className="p-3.5 font-bold text-emerald-700">
                           {formatLkrMinor(batch.totalNetPayableMinor, batch.currency)}
                         </td>
-                        <td className="p-3.5 font-mono text-slate-600">
+                        <td className="p-3.5 font-mono text-sand-700">
                           {batch.payoutReference || "—"}
                         </td>
                         <td className="p-3.5">
@@ -634,7 +738,7 @@ export function AdminManualPayoutDisbursementPage() {
                           <button
                             type="button"
                             onClick={() => openBatch(batch.id)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
                           >
                             <Eye className="h-3.5 w-3.5" />
                             <span>{batch.status === "GENERATED" ? "Disburse" : "Inspect"}</span>
@@ -656,163 +760,194 @@ export function AdminManualPayoutDisbursementPage() {
             </div>
           )}
 
-          {inspectedBatch && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5 text-xs">
-              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-extrabold text-slate-950 font-mono">
-                      {inspectedBatch.batchCode}
-                    </h2>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadgeToneClasses(
-                        inspectedBatch.status === "DISBURSED" ? "PAID" : "PENDING_PAYMENT"
-                      )}`}
-                    >
-                      {inspectedBatch.status}
-                    </span>
-                  </div>
-                  <p className="text-slate-600 mt-0.5">
-                    {inspectedBatch.legalBusinessName} • {inspectedBatch.itemCount} booking payable(s) •
-                    Net {formatLkrMinor(inspectedBatch.totalNetPayableMinor, inspectedBatch.currency)}
-                  </p>
-                </div>
-                {inspectedBatch.ledgerTransactionGroupId && (
-                  <Link
-                    to="/admin/finance/ledger"
-                    className="px-3 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-purple-900 font-bold"
-                  >
-                    Ledger Tx: {inspectedBatch.ledgerTransactionGroupId.slice(0, 8)}...
-                  </Link>
-                )}
-              </div>
-
-              {inspectedBatch.status === "GENERATED" ? (
-                <form
-                  onSubmit={(e) => void handleDisburseSubmit(e)}
-                  className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3"
+          {/* Batch Detail & Disbursement Slide-Over Drawer */}
+          <SlideOverDrawer
+            open={!showDemoPreview && Boolean(effectiveBatchId)}
+            onClose={closeBatch}
+            ariaLabel="Payout Batch Disbursement Drawer"
+            closeLabel="Close payout batch drawer"
+            size="xl"
+            title={
+              inspectedBatch?.batchCode ??
+              (effectiveBatchId ? `Batch ${effectiveBatchId.slice(0, 8)}` : "Payout Batch")
+            }
+            subtitle={
+              inspectedBatch
+                ? `${inspectedBatch.legalBusinessName} • ${inspectedBatch.itemCount} booking payable(s) • Net ${formatLkrMinor(
+                    inspectedBatch.totalNetPayableMinor,
+                    inspectedBatch.currency
+                  )}`
+                : undefined
+            }
+            badge={
+              inspectedBatch && (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadgeToneClasses(
+                    inspectedBatch.status === "DISBURSED" ? "PAID" : "PENDING_PAYMENT"
+                  )}`}
                 >
-                  <h3 className="font-bold text-slate-900">
-                    Record Manual Bank Wire / CEFT Proof &amp; Settle Host Payables
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">
-                        Bank Transfer Reference
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={payoutReference}
-                        onChange={(e) => setPayoutReference(e.target.value)}
-                        placeholder="e.g. CEFT-20261116-90412"
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Payout Method</label>
-                      <select
-                        value={payoutMethod}
-                        onChange={(e) => setPayoutMethod(e.target.value as PayoutMethod)}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold"
-                      >
-                        {PAYOUT_METHODS.map((m) => (
-                          <option key={m} value={m}>
-                            {m}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">
-                        Attestation Notes (Optional)
-                      </label>
-                      <input
-                        type="text"
-                        value={disburseNotes}
-                        onChange={(e) => setDisburseNotes(e.target.value)}
-                        placeholder="Verified Commercial Bank SLIPS receipt"
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={disburseMutation.isPending}
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold transition"
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      <span>
-                        {disburseMutation.isPending
-                          ? "Posting Ledger Settlement..."
-                          : "Confirm Wire Proof & Mark Disbursed"}
-                      </span>
-                    </button>
-                  </div>
-                </form>
+                  {inspectedBatch.status}
+                </span>
+              )
+            }
+          >
+            <div className="space-y-5 text-xs">
+              {detailQuery.isError ? (
+                <AdminQueryErrorAlert
+                  message={
+                    detailQuery.error instanceof Error
+                      ? detailQuery.error.message
+                      : "Unable to load payout batch detail."
+                  }
+                  onRetry={() => void detailQuery.refetch()}
+                />
+              ) : detailQuery.isLoading || !inspectedBatch ? (
+                <AdminCardListSkeleton count={3} />
               ) : (
-                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-emerald-950 space-y-1">
-                  <p className="font-bold">
-                    Disbursed via {inspectedBatch.payoutMethod} • Ref{" "}
-                    <span className="font-mono">{inspectedBatch.payoutReference}</span>
-                  </p>
-                  {inspectedBatch.disbursedAt && (
-                    <p>Disbursed At: {formatDateTimeDisplay(inspectedBatch.disbursedAt)}</p>
+                <>
+                  {inspectedBatch.ledgerTransactionGroupId && (
+                    <div className="flex justify-end">
+                      <Link
+                        to="/admin/finance/ledger"
+                        className="px-3 py-1.5 rounded-lg border border-terracotta-200 bg-terracotta-50 text-terracotta-800 font-bold hover:bg-terracotta-100 transition"
+                      >
+                        Ledger Tx: {inspectedBatch.ledgerTransactionGroupId.slice(0, 8)}...
+                      </Link>
+                    </div>
                   )}
-                </div>
-              )}
 
-              <div>
-                <h3 className="font-bold text-slate-900 mb-2">Included Booking Payables</h3>
-                <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-bold text-[10px]">
-                        <th className="p-3">Booking Ref</th>
-                        <th className="p-3">Gross</th>
-                        <th className="p-3">Commission (15%)</th>
-                        <th className="p-3">Net Payable</th>
-                        <th className="p-3">Payable Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {inspectedBatch.items.map((item) => (
-                        <tr key={item.id}>
-                          <td className="p-3 font-mono font-bold text-slate-900">
-                            <Link
-                              to={`/admin/bookings/${item.bookingId}`}
-                              className="text-purple-700 hover:underline"
-                            >
-                              {item.referenceCode || item.bookingId.slice(0, 8)}
-                            </Link>
-                          </td>
-                          <td className="p-3 text-slate-700">
-                            {formatLkrMinor(item.grossSubtotalMinor, item.currency)}
-                          </td>
-                          <td className="p-3 text-slate-600">
-                            {formatLkrMinor(item.commissionMinor, item.currency)}
-                          </td>
-                          <td className="p-3 font-bold text-emerald-700">
-                            {formatLkrMinor(item.netPayableMinor, item.currency)}
-                          </td>
-                          <td className="p-3">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadgeToneClasses(
-                                item.payableStatus
-                              )}`}
-                            >
-                              {item.payableStatus}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                  {inspectedBatch.status === "GENERATED" ? (
+                    <form
+                      onSubmit={(e) => void handleDisburseSubmit(e)}
+                      className="rounded-xl bg-sand-50 border border-sand-200 p-4 space-y-3"
+                    >
+                      <h3 className="font-bold text-navy-950">
+                        Record Manual Bank Wire / CEFT Proof &amp; Settle Host Payables
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block font-bold text-navy-900 mb-1">
+                            Bank Transfer Reference
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={payoutReference}
+                            onChange={(e) => setPayoutReference(e.target.value)}
+                            placeholder="e.g. CEFT-20261116-90412"
+                            className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 font-mono text-navy-950"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-navy-900 mb-1">
+                            Payout Method
+                          </label>
+                          <select
+                            value={payoutMethod}
+                            onChange={(e) => setPayoutMethod(e.target.value as PayoutMethod)}
+                            className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 font-semibold text-navy-950"
+                          >
+                            {PAYOUT_METHODS.map((m) => (
+                              <option key={m} value={m}>
+                                {m}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block font-bold text-navy-900 mb-1">
+                            Attestation Notes (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={disburseNotes}
+                            onChange={(e) => setDisburseNotes(e.target.value)}
+                            placeholder="Verified Commercial Bank SLIPS receipt"
+                            className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 text-navy-950"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          type="submit"
+                          disabled={disburseMutation.isPending}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white font-bold transition"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          <span>
+                            {disburseMutation.isPending
+                              ? "Posting Ledger Settlement..."
+                              : "Confirm Wire Proof & Mark Disbursed"}
+                          </span>
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-emerald-950 space-y-1">
+                      <p className="font-bold">
+                        Disbursed via {inspectedBatch.payoutMethod} • Ref{" "}
+                        <span className="font-mono">{inspectedBatch.payoutReference}</span>
+                      </p>
+                      {inspectedBatch.disbursedAt && (
+                        <p className="tabular-nums">
+                          Disbursed At: {formatDateTimeDisplay(inspectedBatch.disbursedAt)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <h3 className="font-bold text-navy-950 mb-2">Included Booking Payables</h3>
+                    <div className="overflow-x-auto border border-sand-200 rounded-xl">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-sand-50 border-b border-sand-200 text-sand-700 uppercase font-bold text-[10px]">
+                            <th className="p-3">Booking Ref</th>
+                            <th className="p-3">Gross</th>
+                            <th className="p-3">Commission (15%)</th>
+                            <th className="p-3">Net Payable</th>
+                            <th className="p-3">Payable Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-sand-100 tabular-nums">
+                          {inspectedBatch.items.map((item) => (
+                            <tr key={item.id}>
+                              <td className="p-3 font-mono font-bold text-navy-950">
+                                <Link
+                                  to={`/admin/bookings/${item.bookingId}`}
+                                  className="text-terracotta-600 hover:underline"
+                                >
+                                  {item.referenceCode || item.bookingId.slice(0, 8)}
+                                </Link>
+                              </td>
+                              <td className="p-3 text-navy-900">
+                                {formatLkrMinor(item.grossSubtotalMinor, item.currency)}
+                              </td>
+                              <td className="p-3 text-sand-700">
+                                {formatLkrMinor(item.commissionMinor, item.currency)}
+                              </td>
+                              <td className="p-3 font-bold text-emerald-700">
+                                {formatLkrMinor(item.netPayableMinor, item.currency)}
+                              </td>
+                              <td className="p-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadgeToneClasses(
+                                    item.payableStatus
+                                  )}`}
+                                >
+                                  {item.payableStatus}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-          )}
+          </SlideOverDrawer>
         </>
       )}
     </div>

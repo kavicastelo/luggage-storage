@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Tabs, usePathname, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Button,
   Card,
@@ -21,6 +22,7 @@ import {
 export default function HostLayout() {
   const router = useRouter();
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuthStore();
 
   const isOnboardingRoute = pathname.endsWith("/onboarding");
@@ -101,8 +103,8 @@ export default function HostLayout() {
           tabBarStyle: {
             backgroundColor: mobileColors.navy[900],
             borderTopColor: mobileColors.navy[800],
-            height: 62,
-            paddingBottom: 8,
+            height: 62 + insets.bottom,
+            paddingBottom: Math.max(insets.bottom, 8),
             paddingTop: 6
           },
           tabBarLabelStyle: {
