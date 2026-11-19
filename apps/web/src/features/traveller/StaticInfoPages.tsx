@@ -243,7 +243,7 @@ export function HowItWorksPage() {
         })}
       </div>
 
-      <Card className="p-6 sm:p-8 bg-navy-950 text-white space-y-3">
+      <Card className="p-6 sm:p-8 bg-navy-950 text-white space-y-4" variant="dark">
         <div className="flex items-center gap-2 text-terracotta-400 text-xs font-bold uppercase tracking-wider">
           <Scale className="h-4 w-4" />
           Mandatory Protection Policy
