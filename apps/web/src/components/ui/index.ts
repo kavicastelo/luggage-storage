@@ -12,3 +12,4 @@ export * from "./EmptyState.js";
 export * from "./Select.js";
 export * from "./Textarea.js";
 export * from "./PageHeader.js";
+export * from "./PaginationBar.js";

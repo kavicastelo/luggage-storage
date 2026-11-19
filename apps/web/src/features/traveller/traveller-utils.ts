@@ -39,6 +39,7 @@ export interface ParsedTravellerSearchParams {
   sortBy?: DiscoverySortOption;
   latitude?: number;
   longitude?: number;
+  page?: number;
 }
 
 function parseNonNegativeInt(raw: string | null, fallback = 0): number {
@@ -115,7 +116,8 @@ export function parseTravellerScheduleParams(
     acceptsOversized,
     sortBy,
     latitude: parseOptionalCoord(params.get("latitude"), -90, 90),
-    longitude: parseOptionalCoord(params.get("longitude"), -180, 180)
+    longitude: parseOptionalCoord(params.get("longitude"), -180, 180),
+    page: parseNonNegativeInt(params.get("page"), 1) || 1
   };
 }
 
@@ -133,6 +135,7 @@ export function buildTravellerScheduleQuery(params: {
   sortBy?: DiscoverySortOption;
   latitude?: number;
   longitude?: number;
+  page?: number;
   preserveDemoPreview?: boolean;
 }): string {
   const query = new URLSearchParams();
@@ -153,6 +156,9 @@ export function buildTravellerScheduleQuery(params: {
   if (params.latitude !== undefined && params.longitude !== undefined) {
     query.set("latitude", params.latitude.toFixed(4));
     query.set("longitude", params.longitude.toFixed(4));
+  }
+  if (params.page && params.page > 1) {
+    query.set("page", String(params.page));
   }
   if (params.preserveDemoPreview) {
     query.set("preview", "demo");

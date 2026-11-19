@@ -43,6 +43,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
 import { Modal } from "@/components/ui/Modal";
+import { PaginationBar } from "@/components/ui/PaginationBar";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import {
@@ -84,6 +85,7 @@ export function TravellerWebPortalPage() {
   const [activeTab, setActiveTab] = useState<PortalTabKey>("active");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>("ALL");
+  const [page, setPage] = useState(1);
 
   // Active modals in live mode
   const [activePassModal, setActivePassModal] = useState<{
@@ -103,7 +105,12 @@ export function TravellerWebPortalPage() {
   } | null>(null);
 
   const bookingsQuery = useTravellerBookings(
-    { limit: 50 },
+    {
+      page,
+      limit: 10,
+      ...(selectedStatusFilter !== "ALL" ? { status: selectedStatusFilter as any } : {}),
+      ...(searchTerm.trim() ? { search: searchTerm.trim() } : {})
+    },
     { enabled: !isDemoMode && isAuthenticated }
   );
 
@@ -371,7 +378,10 @@ export function TravellerWebPortalPage() {
                 type="button"
                 role="tab"
                 aria-selected={activeTab === tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  setActiveTab(tab.key);
+                  setPage(1);
+                }}
                 className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
                   activeTab === tab.key
                     ? "bg-navy-900 text-white"
@@ -394,7 +404,10 @@ export function TravellerWebPortalPage() {
                 id="portal-search-input"
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setPage(1);
+                }}
                 placeholder="Search reference or hub..."
                 className="min-h-[44px] pl-8 pr-3 py-1.5 rounded-xl border border-sand-300 text-xs focus:outline-none focus:ring-2 focus:ring-terracotta-500"
               />
@@ -407,7 +420,10 @@ export function TravellerWebPortalPage() {
               id="portal-status-filter"
               aria-label="Filter booking status"
               value={selectedStatusFilter}
-              onChange={(e) => setSelectedStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setSelectedStatusFilter(e.target.value);
+                setPage(1);
+              }}
               className="min-h-[44px] px-3 py-1.5 rounded-xl border border-sand-300 text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-terracotta-500"
             >
               <option value="ALL">All Statuses</option>
@@ -646,6 +662,24 @@ export function TravellerWebPortalPage() {
           })}
         </div>
       )}
+
+      {!isDemoMode &&
+        bookingsQuery.data?.pagination &&
+        bookingsQuery.data.pagination.totalPages > 1 && (
+          <PaginationBar
+            page={bookingsQuery.data.pagination.page}
+            totalPages={bookingsQuery.data.pagination.totalPages}
+            total={bookingsQuery.data.pagination.total}
+            limit={bookingsQuery.data.pagination.limit}
+            itemLabel="reservations"
+            onPageChange={(nextPage) => {
+              setPage(nextPage);
+              if (typeof window !== "undefined") {
+                window.scrollTo({ top: 100, behavior: "smooth" });
+              }
+            }}
+          />
+        )}
 
       {/* Digital Custody Pass Modal */}
       <Modal

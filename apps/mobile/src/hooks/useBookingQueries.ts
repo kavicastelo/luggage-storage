@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BookingListQuery,
   BookingQuoteRequest,
@@ -21,6 +21,24 @@ export function useMyBookingsQuery(
   return useQuery({
     queryKey: mobileQueryKeys.bookings.list(params),
     queryFn: () => marketplaceApi.getMyBookings(params),
+    enabled
+  });
+}
+
+export function useInfiniteMyBookingsQuery(
+  params?: Omit<Partial<BookingListQuery>, "page">,
+  enabled: boolean = true
+) {
+  return useInfiniteQuery({
+    queryKey: [...mobileQueryKeys.bookings.list(params), "infinite"] as const,
+    queryFn: ({ pageParam = 1 }) =>
+      marketplaceApi.getMyBookings({ ...params, page: pageParam as number }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.pagination) return undefined;
+      const { page, totalPages } = lastPage.pagination;
+      return page < totalPages ? page + 1 : undefined;
+    },
     enabled
   });
 }

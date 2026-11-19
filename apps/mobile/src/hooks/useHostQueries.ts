@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AddHostStaffRequest,
   BookingListQuery,
@@ -104,6 +104,24 @@ export function useHostBookingsQuery(
   return useQuery({
     queryKey: mobileQueryKeys.host.bookings(params),
     queryFn: () => marketplaceApi.getHostBookings(params),
+    enabled
+  });
+}
+
+export function useInfiniteHostBookingsQuery(
+  params?: Omit<Partial<BookingListQuery>, "page">,
+  enabled: boolean = true
+) {
+  return useInfiniteQuery({
+    queryKey: [...mobileQueryKeys.host.bookings(params), "infinite"] as const,
+    queryFn: ({ pageParam = 1 }) =>
+      marketplaceApi.getHostBookings({ ...params, page: pageParam as number }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.pagination) return undefined;
+      const { page, totalPages } = lastPage.pagination;
+      return page < totalPages ? page + 1 : undefined;
+    },
     enabled
   });
 }

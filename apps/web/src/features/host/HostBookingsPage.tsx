@@ -7,7 +7,7 @@ import {
   type RecordBookingExceptionRequest
 } from "@luggage-storage/contracts";
 import { AlertTriangle, CheckCircle2, ExternalLink, Search, ShieldCheck } from "lucide-react";
-import { Alert, Button, Card, EmptyState, LoadingSkeleton, Modal } from "@/components/ui";
+import { Alert, Button, Card, EmptyState, LoadingSkeleton, Modal, PaginationBar } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { DEMO_BOOKINGS, DemoBookingRecord, formatLkr } from "@/data/mock-marketplace";
 import {
@@ -118,6 +118,7 @@ export function HostBookingManagementHubPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [page, setPage] = useState(1);
   const [hubNotice, setHubNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -142,9 +143,10 @@ export function HostBookingManagementHubPage() {
       ...(liveLocationId ? { locationId: liveLocationId } : {}),
       ...(validStatus ? { status: validStatus } : {}),
       ...(trimmedSearch ? { search: trimmedSearch } : {}),
-      limit: 50
+      page,
+      limit: 20
     };
-  }, [liveLocationId, statusFilter, searchInput]);
+  }, [liveLocationId, statusFilter, searchInput, page]);
 
   const bookingsQuery = useHostBookingsQuery(liveQueryParams, {
     enabled: isAuthenticated && !showDemoBookings
@@ -408,7 +410,10 @@ export function HostBookingManagementHubPage() {
                   : "Search by booking reference (e.g. LSB-...) or traveller..."
               }
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                setPage(1);
+              }}
               className="w-full rounded-xl border border-sand-300 pl-10 pr-4 py-2.5 text-xs text-navy-900 placeholder:text-navy-400 focus:outline-none focus:ring-2 focus:ring-terracotta-500/40"
             />
           </div>
@@ -423,7 +428,10 @@ export function HostBookingManagementHubPage() {
                     type="button"
                     role="tab"
                     aria-selected={isSelected}
-                    onClick={() => setStatusFilter(tab.value)}
+                    onClick={() => {
+                      setStatusFilter(tab.value);
+                      setPage(1);
+                    }}
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                       isSelected
                         ? "bg-navy-900 text-white shadow-sm"
@@ -456,7 +464,10 @@ export function HostBookingManagementHubPage() {
                   id="secondary-booking-status"
                   aria-label="Other booking statuses"
                   value={isSecondaryStatusActive ? statusFilter : ""}
-                  onChange={(e) => setStatusFilter(e.target.value || "ALL")}
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value || "ALL");
+                    setPage(1);
+                  }}
                   className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
                     isSecondaryStatusActive
                       ? "bg-navy-900 text-white border-navy-900"
@@ -681,6 +692,25 @@ export function HostBookingManagementHubPage() {
             </tbody>
           </table>
         </div>
+        {!showDemoBookings &&
+          bookingsQuery.data?.pagination &&
+          bookingsQuery.data.pagination.totalPages > 1 && (
+            <div className="p-4 border-t border-sand-200">
+              <PaginationBar
+                page={bookingsQuery.data.pagination.page}
+                totalPages={bookingsQuery.data.pagination.totalPages}
+                total={bookingsQuery.data.pagination.total}
+                limit={bookingsQuery.data.pagination.limit}
+                itemLabel="partner reservations"
+                onPageChange={(nextPage) => {
+                  setPage(nextPage);
+                  if (typeof window !== "undefined") {
+                    window.scrollTo({ top: 100, behavior: "smooth" });
+                  }
+                }}
+              />
+            </div>
+          )}
       </Card>
 
       {/* Live Action Modal */}
