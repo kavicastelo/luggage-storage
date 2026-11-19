@@ -90,7 +90,13 @@ import {
   AdminUpdateSupportTicketRequest,
   AdminSupportTicketQuery,
   PaginatedApiResponse,
-  PaginationMeta
+  PaginationMeta,
+  RouteRequest,
+  RouteResult,
+  GeocodingQuery,
+  GeocodingResponse,
+  ReverseGeocodingQuery,
+  GeocodingResult
 } from "@luggage-storage/contracts";
 import { ApiClientError, fetchApi } from "../lib/api-client";
 
@@ -1270,6 +1276,34 @@ export const marketplaceApi = {
         body: JSON.stringify(data)
       }
     );
+    return res.data;
+  },
+
+  async calculateRoute(data: RouteRequest): Promise<RouteResult> {
+    const res = await fetchApi<RouteResult>("/maps/routes", {
+      method: "POST",
+      body: JSON.stringify(data)
+    });
+    return res.data;
+  },
+
+  async searchPlaces(query: GeocodingQuery): Promise<GeocodingResponse> {
+    const params = new URLSearchParams({ query: query.query });
+    if (query.limit) params.set("limit", String(query.limit));
+    const res = await fetchApi<GeocodingResponse>(`/maps/geocoding?${params.toString()}`, {
+      method: "GET"
+    });
+    return res.data;
+  },
+
+  async reverseGeocode(query: ReverseGeocodingQuery): Promise<GeocodingResult | null> {
+    const params = new URLSearchParams({
+      latitude: String(query.latitude),
+      longitude: String(query.longitude)
+    });
+    const res = await fetchApi<GeocodingResult | null>(`/maps/reverse-geocoding?${params.toString()}`, {
+      method: "GET"
+    });
     return res.data;
   }
 };

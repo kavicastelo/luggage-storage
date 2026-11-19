@@ -176,6 +176,30 @@ export default function TravellerCustodyPassScreen() {
       typeof detail.location.exactLatitude === "number" &&
       typeof detail.location.exactLongitude === "number"
     ) {
+      router.push({
+        pathname: "/(traveller)/navigation",
+        params: {
+          bookingId,
+          destinationLat: String(detail.location.exactLatitude),
+          destinationLng: String(detail.location.exactLongitude),
+          destinationTitle: detail.location.name,
+          destinationAddress: detail.location.addressLine1 || detail.location.city
+        }
+      });
+      return;
+    }
+    const query = encodeURIComponent(
+      `${detail.location.addressLine1 || ""} ${detail.location.city}`.trim()
+    );
+    void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+  };
+
+  const handleOpenExternalDirections = () => {
+    if (!detail?.location.addressDisclosed) return;
+    if (
+      typeof detail.location.exactLatitude === "number" &&
+      typeof detail.location.exactLongitude === "number"
+    ) {
       const coords = `${detail.location.exactLatitude},${detail.location.exactLongitude}`;
       void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${coords}`);
       return;
