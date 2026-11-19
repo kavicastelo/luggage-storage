@@ -17,6 +17,7 @@ import {
   EmptyState,
   ErrorState,
   IconButton,
+  InteractiveMobileMap,
   LoadingSkeleton,
   LocationCard,
   MobileIcon,
@@ -98,6 +99,8 @@ export function DiscoveryView({
     BAG_LARGE: 0,
     BAG_OVERSIZED: 0
   });
+  const [viewMode, setViewMode] = useState<"list" | "map">("list");
+  const [selectedMapLocationId, setSelectedMapLocationId] = useState<string | null>(null);
 
   useEffect(() => {
     void hydrateSaved();
@@ -447,7 +450,33 @@ export function DiscoveryView({
           <Text style={styles.resultsTitle}>
             {selectedCity === "All" ? "Verified Sri Lanka Hubs" : `Hubs in ${selectedCity}`}
           </Text>
-          <Badge label={`${visibleLocations.length} open`} variant="navy" size="sm" />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={styles.viewModeToggle}>
+              <TouchableOpacity
+                onPress={() => setViewMode("list")}
+                style={[styles.viewModeBtn, viewMode === "list" && styles.viewModeBtnActive]}
+                accessibilityLabel="Switch to list view"
+              >
+                <MobileIcon
+                  name="list"
+                  size={14}
+                  color={viewMode === "list" ? mobileColors.white : mobileColors.navy[900]}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setViewMode("map")}
+                style={[styles.viewModeBtn, viewMode === "map" && styles.viewModeBtnActive]}
+                accessibilityLabel="Switch to map view"
+              >
+                <MobileIcon
+                  name="map"
+                  size={14}
+                  color={viewMode === "map" ? mobileColors.white : mobileColors.navy[900]}
+                />
+              </TouchableOpacity>
+            </View>
+            <Badge label={`${visibleLocations.length} open`} variant="navy" size="sm" />
+          </View>
         </View>
 
         {locationsQuery.isLoading ? (
@@ -474,6 +503,47 @@ export function DiscoveryView({
               setAvailabilityFilterActive(false);
             }}
           />
+        ) : viewMode === "map" ? (
+          <View style={{ gap: mobileSpacing[4] }}>
+            <InteractiveMobileMap
+              locations={visibleLocations.map((l) => ({
+                id: l.id,
+                name: l.name,
+                city: l.city,
+                latitude: l.approximateLatitude,
+                longitude: l.approximateLongitude,
+                priceLabel: typeof l.baseRateMinor === "number"
+                  ? formatCurrencyMinorUnits(l.baseRateMinor, (l.currency || "LKR") as CurrencyCode)
+                  : undefined
+              }))}
+              selectedLocationId={selectedMapLocationId || visibleLocations[0]?.id}
+              onSelectLocation={(id) => setSelectedMapLocationId(id)}
+              userLocation={nearMeCoords}
+              height={300}
+            />
+            {(() => {
+              const activeLoc =
+                visibleLocations.find(
+                  (l) => l.id === (selectedMapLocationId || visibleLocations[0]?.id)
+                ) || visibleLocations[0];
+              if (!activeLoc) return null;
+              return (
+                <LocationCard
+                  location={activeLoc}
+                  isSaved={savedIds.includes(activeLoc.id) || isSaved(activeLoc.id)}
+                  onToggleSaved={() => {
+                    void toggleSaved(activeLoc.id);
+                  }}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(traveller)/location",
+                      params: { id: activeLoc.id }
+                    })
+                  }
+                />
+              );
+            })()}
+          </View>
         ) : (
           <View style={styles.listGap}>
             {visibleLocations.map((loc) => {
@@ -878,6 +948,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center"
+  },
+  viewModeToggle: {
+    flexDirection: "row",
+    backgroundColor: mobileColors.sand[200],
+    borderRadius: mobileRadius.md,
+    padding: 2
+  },
+  viewModeBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: mobileRadius.sm
+  },
+  viewModeBtnActive: {
+    backgroundColor: mobileColors.navy[900]
   },
   resultsTitle: {
     ...mobileTypography.headingMd,

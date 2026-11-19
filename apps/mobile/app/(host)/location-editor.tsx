@@ -22,6 +22,7 @@ import {
   ErrorState,
   FormSection,
   ImageGallery,
+  InteractiveMobileMap,
   LoadingSkeleton,
   MobileIcon,
   SafeHeader,
@@ -644,6 +645,26 @@ export default function HostLocationEditorScreen() {
                   void handleUseDeviceGps();
                 }}
               />
+
+              {Number.isFinite(Number(latitudeText)) && Number.isFinite(Number(longitudeText)) && (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={[styles.fieldLabel, { marginBottom: 6 }]}>Pin Location Preview</Text>
+                  <InteractiveMobileMap
+                    locations={[
+                      {
+                        id: "host-facility-preview",
+                        name: name.trim() || "Storage Facility",
+                        city: city.trim() || "Sri Lanka",
+                        latitude: Number(latitudeText),
+                        longitude: Number(longitudeText)
+                      }
+                    ]}
+                    selectedLocationId="host-facility-preview"
+                    height={160}
+                    showControls={false}
+                  />
+                </View>
+              )}
 
               <Text style={styles.fieldLabel}>Booking Acceptance Mode</Text>
               <SelectionCard

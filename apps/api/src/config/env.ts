@@ -211,6 +211,14 @@ export const EnvSchema = z
       (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
       z.string().optional()
     ),
+    MAPS_PROVIDER: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.enum(["sandbox", "maptiler"]).default("sandbox")
+    ),
+    MAPTILER_API_KEY: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
     CUSTODY_TOKEN_HMAC_SECRET: z.preprocess(
       (val) => (typeof val === "string" ? val.trim() : val),
       z.string().min(32, "CUSTODY_TOKEN_HMAC_SECRET must be at least 32 characters")
@@ -401,6 +409,15 @@ export const EnvSchema = z
             code: z.ZodIssueCode.custom,
             message: "PAYPAL_CLIENT_SECRET is required in production when PAYMENT_PROVIDER is 'paypal'",
             path: ["PAYPAL_CLIENT_SECRET"]
+          });
+        }
+      }
+      if (data.MAPS_PROVIDER === "maptiler") {
+        if (!data.MAPTILER_API_KEY || data.MAPTILER_API_KEY.startsWith("dev_") || data.MAPTILER_API_KEY.includes("REPLACE_WITH")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "MAPTILER_API_KEY is required in production when MAPS_PROVIDER is 'maptiler'",
+            path: ["MAPTILER_API_KEY"]
           });
         }
       }

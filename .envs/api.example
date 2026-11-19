@@ -130,3 +130,7 @@ PAYPAL_SANDBOX_MODE=true
 # Keyed HMAC-SHA256 secret for single-use custody QR tokens and 6-digit PINs (never stored in DB)
 CUSTODY_TOKEN_HMAC_SECRET=REPLACE_WITH_UNIQUE_RANDOM_CUSTODY_HMAC_SECRET_MINIMUM_32_CHARS
 
+# Maps, Routing & Geocoding Provider
+MAPS_PROVIDER=sandbox
+MAPTILER_API_KEY=
+

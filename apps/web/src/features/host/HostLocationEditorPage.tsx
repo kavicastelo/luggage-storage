@@ -26,6 +26,7 @@ import {
   NoLocationSelectedCard
 } from "./host-helpers";
 import { useHostVenue } from "./HostDashboardLayout";
+import { LocationDiscoveryMap } from "../traveller/LocationDiscoveryMap";
 
 const AMENITY_LABELS: Record<LocationAmenity, string> = {
   CCTV: "24/7 Monitored CCTV Recording",
@@ -459,6 +460,29 @@ export function HostLocationProfileEditorPage() {
                     />
                   </div>
                 </div>
+
+                {Number.isFinite(latitude) && Number.isFinite(longitude) && (
+                  <div className="pt-2">
+                    <span className="block text-xs font-bold text-navy-900 mb-1.5">
+                      Facility Location Pin Preview
+                    </span>
+                    <LocationDiscoveryMap
+                      locations={[
+                        {
+                          id: "host-facility-preview",
+                          name: name.trim() || "My Facility",
+                          city: city.trim() || "Sri Lanka",
+                          approximateArea: addressLine1.trim() || "Transit Area",
+                          approximateLatitude: latitude,
+                          approximateLongitude: longitude,
+                          priceLabel: "Host Facility",
+                          href: "#"
+                        }
+                      ]}
+                      selectedLocationId="host-facility-preview"
+                    />
+                  </div>
+                )}
               </>
             )}
           </div>

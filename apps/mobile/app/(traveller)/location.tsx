@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { formatCurrencyMinorUnits, type CurrencyCode } from "@luggage-storage/contracts";
 import {
@@ -10,6 +10,7 @@ import {
   ErrorState,
   IconButton,
   ImageGallery,
+  InteractiveMobileMap,
   LoadingSkeleton,
   MobileIcon,
   SafeHeader,
@@ -192,6 +193,46 @@ export default function TravellerLocationDetailScreen() {
                 address and counter directions unlock after payment confirmation.
               </Text>
             </View>
+          </Card>
+
+          <Card variant="default" style={styles.cardPad}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={styles.sectionTitle}>Transit Route & Map</Text>
+              <TouchableOpacity
+                onPress={() =>
+                  router.push({
+                    pathname: "/(traveller)/navigation",
+                    params: {
+                      destinationLat: String(location.approximateLatitude),
+                      destinationLng: String(location.approximateLongitude),
+                      destinationTitle: location.name,
+                      destinationAddress: location.approximateArea
+                    }
+                  })
+                }
+                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                accessibilityLabel="Preview in-app route"
+              >
+                <MobileIcon name="navigation" size={14} color={mobileColors.terracotta[500]} />
+                <Text style={{ fontSize: 12, fontWeight: "700", color: mobileColors.terracotta[500] }}>
+                  Preview Route
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <InteractiveMobileMap
+              locations={[
+                {
+                  id: location.id,
+                  name: location.name,
+                  city: location.city,
+                  latitude: location.approximateLatitude,
+                  longitude: location.approximateLongitude
+                }
+              ]}
+              selectedLocationId={location.id}
+              height={180}
+              showControls={false}
+            />
           </Card>
 
           <Card variant="default" style={styles.cardPad}>
