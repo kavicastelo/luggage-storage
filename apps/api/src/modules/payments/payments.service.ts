@@ -253,8 +253,9 @@ export class PaymentsService {
     const requestedChannel: PaymentCheckoutChannel = input.channel ?? "WEB";
     await quotationService.sweepExpiredHolds();
 
+    const effectiveAppEnv = env.APP_ENV ?? (env.NODE_ENV === "production" ? "production" : env.NODE_ENV);
     if (
-      env.NODE_ENV === "production" &&
+      effectiveAppEnv === "production" &&
       (input.provider === "PAYHERE" || env.PAYMENT_PROVIDER === "payhere")
     ) {
       throw AppError.badRequest(
@@ -1623,7 +1624,8 @@ export class PaymentsService {
     rawInput: SandboxSimulatePaymentRequest,
     clientInfo?: AuditClientInfo
   ) {
-    if (env.NODE_ENV === "production" || env.PAYMENT_PROVIDER !== "sandbox") {
+    const isProduction = env.APP_ENV === "production" || (!env.APP_ENV && env.NODE_ENV === "production");
+    if (isProduction || env.PAYMENT_PROVIDER !== "sandbox") {
       throw AppError.forbidden("Sandbox payment simulation is disabled in production");
     }
 

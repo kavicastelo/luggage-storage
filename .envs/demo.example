@@ -1,0 +1,88 @@
+# =============================================================================
+# Demo Environment Configuration Template (.envs/demo.example)
+# =============================================================================
+# Tailored for cost-optimized demo deployment:
+# - API running natively on AWS EC2 (Node.js 22 LTS)
+# - Managed PostgreSQL 16 on Supabase with PostGIS
+# - Web clients on Netlify (Web App A: port 5173 / dist, Web App B: port 8081 / dist)
+# - Sandbox Stripe/PayPal payment testing
+# =============================================================================
+
+NODE_ENV=production
+APP_ENV=demo
+PORT=3000
+HOST=0.0.0.0
+LOG_LEVEL=info
+
+# -----------------------------------------------------------------------------
+# 1. Supabase Managed Database (TLS Required)
+# -----------------------------------------------------------------------------
+# Direct connection (Port 5432) is required for migration advisory lock support
+DATABASE_URL=postgresql://postgres.PROJECT_REF:YOUR_SUPABASE_PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
+MIGRATION_DATABASE_URL=postgresql://postgres.PROJECT_REF:YOUR_SUPABASE_PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
+DATABASE_MAX_CONNECTIONS=10
+DATABASE_SSL=true
+DATABASE_SSL_REJECT_UNAUTHORIZED=false
+
+# -----------------------------------------------------------------------------
+# 2. Cryptographic Secrets (Distinct demo secrets, >= 32 characters)
+# -----------------------------------------------------------------------------
+DB_IDENTITY_KEY_ID=demo-key-2026-v1
+DB_IDENTITY_SECRET=demo_db_identity_secret_minimum_32_characters_long_12345
+PAYOUT_ENCRYPTION_KEY=demo_payout_master_encryption_key_32_characters_12345
+JWT_SECRET=demo_jwt_auth_signing_secret_key_minimum_32_chars_12345
+JWT_ACCESS_EXPIRATION=15m
+REFRESH_TOKEN_TTL_DAYS=7
+COOKIE_SECRET=demo_fastify_cookie_session_secret_32_characters_12345
+COOKIE_SECURE=true
+RATE_LIMIT_HASH_SECRET=demo_rate_limit_hash_secret_key_32_characters_long_12345
+CUSTODY_TOKEN_HMAC_SECRET=demo_custody_token_hmac_secret_32_chars_minimum_12345
+PAYMENT_WEBHOOK_SECRET=demo_payment_webhook_hmac_secret_32_chars_minimum_12345
+
+# -----------------------------------------------------------------------------
+# 3. Networking & CORS Configuration (Netlify Frontends + EC2 API)
+# -----------------------------------------------------------------------------
+# Include both Netlify site domains and local test origins
+CORS_ORIGIN=https://demo-web.netlify.app,https://demo-mobile.netlify.app,http://localhost:5173,http://localhost:8081
+APP_PUBLIC_URL=https://demo-web.netlify.app
+API_PREFIX=/api/v1
+
+# -----------------------------------------------------------------------------
+# 4. Storage Provider (Ephemeral Memory or Dedicated Demo R2/S3 Bucket)
+# -----------------------------------------------------------------------------
+STORAGE_PROVIDER=memory
+# If using demo Cloudflare R2 bucket:
+# STORAGE_PROVIDER=r2
+# R2_ACCOUNT_ID=demo_r2_account_id
+# R2_ACCESS_KEY_ID=demo_r2_access_key
+# R2_SECRET_ACCESS_KEY=demo_r2_secret_key
+# R2_BUCKET_NAME=luggage-storage-demo-media
+
+# -----------------------------------------------------------------------------
+# 5. Email Provider (Console, Noop, Resend or Zoho for Demo)
+# -----------------------------------------------------------------------------
+EMAIL_PROVIDER=console
+EMAIL_FROM_ADDRESS=demo@luggagestorage.lk
+EMAIL_FROM_NAME=Luggage Storage Demo
+
+# -----------------------------------------------------------------------------
+# 6. Payment Providers (Sandbox Stripe / PayPal)
+# -----------------------------------------------------------------------------
+PAYMENT_PROVIDER=sandbox
+PAYMENT_DEFAULT_PROVIDER=stripe
+# Stripe Test Mode Credentials:
+STRIPE_SECRET_KEY=sk_test_demo_placeholder_or_real_test_key
+STRIPE_PUBLISHABLE_KEY=pk_test_demo_placeholder_or_real_test_key
+STRIPE_WEBHOOK_SECRET=whsec_demo_test_webhook_secret
+
+# PayPal Sandbox Credentials:
+PAYPAL_CLIENT_ID=demo_paypal_sandbox_client_id
+PAYPAL_CLIENT_SECRET=demo_paypal_sandbox_client_secret
+
+# -----------------------------------------------------------------------------
+# 7. Maps & Routing Provider
+# -----------------------------------------------------------------------------
+MAPS_PROVIDER=sandbox
+# To enable real MapTiler in demo:
+# MAPS_PROVIDER=maptiler
+# MAPTILER_API_KEY=your_maptiler_api_key_here

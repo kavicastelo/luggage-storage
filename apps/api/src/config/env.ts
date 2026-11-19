@@ -28,6 +28,10 @@ const booleanFlagSchema = (defaultValue: boolean) =>
 export const EnvSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    APP_ENV: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim().toLowerCase() : val),
+      z.enum(["development", "test", "demo", "production"]).optional()
+    ),
     PORT: z.coerce.number().int().positive().default(3000),
     HOST: z.string().default("0.0.0.0"),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
@@ -288,7 +292,10 @@ export const EnvSchema = z
       });
     }
 
-    if (data.NODE_ENV === "production") {
+    const effectiveAppEnv =
+      data.APP_ENV ?? (data.NODE_ENV === "production" ? "production" : (data.NODE_ENV as "development" | "test" | "production"));
+
+    if (effectiveAppEnv === "production") {
       if (data.STORAGE_PROVIDER !== "r2") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -500,6 +507,95 @@ export const EnvSchema = z
       }
     }
 
+    if (effectiveAppEnv === "demo") {
+      if (data.PAYOUT_ENCRYPTION_KEY.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "PAYOUT_ENCRYPTION_KEY cannot use default dev secret in demo environment",
+          path: ["PAYOUT_ENCRYPTION_KEY"]
+        });
+      }
+      if (data.JWT_SECRET.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "JWT_SECRET cannot use default dev secret in demo environment",
+          path: ["JWT_SECRET"]
+        });
+      }
+      if (data.COOKIE_SECRET.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "COOKIE_SECRET cannot use default dev secret in demo environment",
+          path: ["COOKIE_SECRET"]
+        });
+      }
+      if (data.RATE_LIMIT_HASH_SECRET.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "RATE_LIMIT_HASH_SECRET cannot use default dev secret in demo environment",
+          path: ["RATE_LIMIT_HASH_SECRET"]
+        });
+      }
+      if (data.DB_IDENTITY_SECRET.startsWith("dev_")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "DB_IDENTITY_SECRET cannot use default dev secret in demo environment",
+          path: ["DB_IDENTITY_SECRET"]
+        });
+      }
+      if (data.PAYMENT_PROVIDER === "stripe") {
+        if (!data.STRIPE_SECRET_KEY || data.STRIPE_SECRET_KEY.startsWith("dev_")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "STRIPE_SECRET_KEY is required in demo when PAYMENT_PROVIDER is 'stripe'",
+            path: ["STRIPE_SECRET_KEY"]
+          });
+        }
+        if (!data.STRIPE_PUBLISHABLE_KEY || data.STRIPE_PUBLISHABLE_KEY.startsWith("dev_")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "STRIPE_PUBLISHABLE_KEY is required in demo when PAYMENT_PROVIDER is 'stripe'",
+            path: ["STRIPE_PUBLISHABLE_KEY"]
+          });
+        }
+      }
+      if (data.PAYMENT_PROVIDER === "paypal") {
+        if (!data.PAYPAL_CLIENT_ID || data.PAYPAL_CLIENT_ID.startsWith("dev_")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "PAYPAL_CLIENT_ID is required in demo when PAYMENT_PROVIDER is 'paypal'",
+            path: ["PAYPAL_CLIENT_ID"]
+          });
+        }
+        if (!data.PAYPAL_CLIENT_SECRET || data.PAYPAL_CLIENT_SECRET.startsWith("dev_")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "PAYPAL_CLIENT_SECRET is required in demo when PAYMENT_PROVIDER is 'paypal'",
+            path: ["PAYPAL_CLIENT_SECRET"]
+          });
+        }
+      }
+      if (data.STORAGE_PROVIDER === "r2") {
+        if (!data.R2_ACCOUNT_ID || !data.R2_ACCESS_KEY_ID || !data.R2_SECRET_ACCESS_KEY || !data.R2_BUCKET_NAME) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "R2 credentials are required when STORAGE_PROVIDER is 'r2' in demo",
+            path: ["STORAGE_PROVIDER"]
+          });
+        }
+      }
+      const rawOrigins = data.CORS_ORIGIN.split(",")
+        .map((o) => o.trim())
+        .filter(Boolean);
+      if (rawOrigins.length === 0 || rawOrigins.includes("*")) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "CORS_ORIGIN cannot be '*' or empty in demo; explicit trusted origins are required",
+          path: ["CORS_ORIGIN"]
+        });
+      }
+    }
+
     if (data.EMAIL_PROVIDER === "zoho") {
       const host = data.ZOHO_SMTP_HOST?.trim() ?? "";
       if (!host || /^https?:\/\//i.test(host) || /\s/.test(host)) {
@@ -655,7 +751,7 @@ export const EnvSchema = z
           path: [key]
         });
       }
-      if (data.NODE_ENV === "production") {
+      if (effectiveAppEnv === "production") {
         if (parsed.protocol !== "https:") {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,

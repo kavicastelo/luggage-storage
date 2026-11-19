@@ -63,6 +63,8 @@ const MAPTILER_MODE_MAP: Record<TravelMode, string> = {
 };
 
 function isProductionMode(): boolean {
+  if (env.APP_ENV === "production" || process.env.APP_ENV === "production") return true;
+  if (env.APP_ENV === "demo" || process.env.APP_ENV === "demo") return false;
   return env.NODE_ENV === "production" || process.env.NODE_ENV === "production";
 }
 
