@@ -1,5 +1,6 @@
 import pg from "pg";
 import { readMigrationFiles } from "drizzle-orm/migrator";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { env, buildDatabaseSslConfig } from "../../config/env.js";
@@ -386,7 +387,13 @@ export async function runMigrations(customConnectionString?: string): Promise<nu
     `);
     const lastMigration = lastRes.rows[0];
 
-    const migrationsFolder = path.resolve(__dirname, "migrations");
+    let migrationsFolder = path.resolve(__dirname, "migrations");
+    if (!fs.existsSync(migrationsFolder)) {
+      const srcFolder = path.resolve(__dirname, "../../../src/infrastructure/database/migrations");
+      if (fs.existsSync(srcFolder)) {
+        migrationsFolder = srcFolder;
+      }
+    }
     logger.info({ folder: migrationsFolder }, "[Migration Engine] Loading migrations");
     const migrations = readMigrationFiles({ migrationsFolder });
 
