@@ -201,6 +201,14 @@ export function WebPaymentConfirmationPage() {
       });
 
       if (
+        intent.checkoutHandoff.mode === "PAYPAL_CHECKOUT" &&
+        intent.checkoutHandoff.approveUrl
+      ) {
+        window.location.href = intent.checkoutHandoff.approveUrl;
+        return;
+      }
+
+      if (
         intent.checkoutChannel === "WEB" &&
         intent.nextAction === "REDIRECT_TO_PROVIDER" &&
         isPayHerePostHandoff(intent.checkoutHandoff)

@@ -19,7 +19,9 @@
     "PAYHERE_NOTIFY_URL",
     "PAYHERE_RETURN_URL",
     "PAYHERE_CANCEL_URL",
-    "PAYMENT_PROVIDER"
+    "PAYMENT_PROVIDER",
+    "EXPO_NO_TELEMETRY",
+    "CI"
   ],
   "tasks": {
     "build": {

@@ -301,16 +301,11 @@ describe("Phase B8 — Mobile Channel-Aware PayHere Checkout & Authoritative Sta
     );
 
     expect(checkoutSrc).toContain('Platform.OS === "web" ? "WEB" : "MOBILE_APP"');
-    expect(checkoutSrc).toContain("submitPayHereWebCheckoutForm");
-    expect(checkoutSrc).toContain("launchPayHereNativeCheckout");
     expect(checkoutSrc).toContain("AppState.addEventListener");
     expect(checkoutSrc).toContain("getCheckoutStatus");
     expect(checkoutSrc).toContain("Check Payment Status");
-    expect(checkoutSrc).toContain("Re-open PayHere Checkout");
-    expect(checkoutSrc).toContain("Retry PayHere Checkout");
     expect(checkoutSrc).toContain("submitInFlightRef");
     expect(checkoutSrc).not.toContain("react-native-webview");
-    expect(checkoutSrc).not.toContain("Linking.openURL");
     expect(checkoutSrc).not.toContain("/payments/handoff/");
 
     expect(confirmSrc).toContain("parseMobileCheckoutReturnQuery");

@@ -4,7 +4,12 @@ import { z } from "zod";
 // Enums & Constants
 // ============================================================================
 
-export const PAYMENT_PROVIDERS = ["SANDBOX_GATEWAY", "PAYHERE"] as const;
+export const PAYMENT_PROVIDERS = [
+  "STRIPE",
+  "PAYPAL",
+  "SANDBOX_GATEWAY",
+  "PAYHERE"
+] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
 export const PaymentProviderSchema = z.enum(PAYMENT_PROVIDERS);
 
@@ -48,7 +53,10 @@ export const PaymentCheckoutChannelSchema = z.enum(PAYMENT_CHECKOUT_CHANNELS);
 export const PAYMENT_NEXT_ACTIONS = [
   "SANDBOX_SIMULATION",
   "REDIRECT_TO_PROVIDER",
-  "LAUNCH_NATIVE_SDK"
+  "LAUNCH_NATIVE_SDK",
+  "STRIPE_ELEMENTS_CONFIRM",
+  "STRIPE_CHECKOUT_REDIRECT",
+  "PAYPAL_CHECKOUT_APPROVE"
 ] as const;
 export type PaymentNextAction = (typeof PAYMENT_NEXT_ACTIONS)[number];
 export const PaymentNextActionSchema = z.enum(PAYMENT_NEXT_ACTIONS);
@@ -103,6 +111,7 @@ export const CreatePaymentIntentRequestSchema = z
   .object({
     bookingId: z.string().uuid(),
     channel: PaymentCheckoutChannelSchema.optional(),
+    provider: PaymentProviderSchema.optional(),
     idempotencyKey: z.string().trim().min(8).max(128).optional(),
     customerDetails: CheckoutCustomerDetailsSchema.optional()
   })
@@ -197,8 +206,39 @@ export const LegacyExpiredCheckoutHandoffSchema = z.object({
 export type LegacyExpiredCheckoutHandoff = z.infer<typeof LegacyExpiredCheckoutHandoffSchema>;
 export type PayHereCheckoutHandoff = z.infer<typeof PayHereCheckoutHandoffSchema>;
 
+export const StripePaymentIntentHandoffSchema = z.object({
+  mode: z.literal("STRIPE_ELEMENTS"),
+  provider: z.literal("STRIPE"),
+  method: z.literal("STRIPE_ELEMENTS"),
+  clientSecret: z.string().min(1),
+  publishableKey: z.string().min(1),
+  paymentIntentId: z.string().min(1)
+});
+export type StripePaymentIntentHandoff = z.infer<typeof StripePaymentIntentHandoffSchema>;
+
+export const StripeCheckoutSessionHandoffSchema = z.object({
+  mode: z.literal("STRIPE_CHECKOUT"),
+  provider: z.literal("STRIPE"),
+  method: z.literal("STRIPE_CHECKOUT"),
+  checkoutSessionUrl: z.string().url(),
+  checkoutSessionId: z.string().min(1)
+});
+export type StripeCheckoutSessionHandoff = z.infer<typeof StripeCheckoutSessionHandoffSchema>;
+
+export const PayPalCheckoutHandoffSchema = z.object({
+  mode: z.literal("PAYPAL_CHECKOUT"),
+  provider: z.literal("PAYPAL"),
+  method: z.literal("PAYPAL_CHECKOUT"),
+  orderId: z.string().min(1),
+  approveUrl: z.string().url()
+});
+export type PayPalCheckoutHandoff = z.infer<typeof PayPalCheckoutHandoffSchema>;
+
 export const PaymentCheckoutHandoffSchema = z.discriminatedUnion("method", [
   SandboxCheckoutHandoffSchema,
+  StripePaymentIntentHandoffSchema,
+  StripeCheckoutSessionHandoffSchema,
+  PayPalCheckoutHandoffSchema,
   PayHereWebCheckoutHandoffSchema,
   PayHereNativeCheckoutHandoffSchema,
   LegacyExpiredCheckoutHandoffSchema

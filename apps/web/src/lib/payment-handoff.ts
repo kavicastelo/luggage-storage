@@ -11,7 +11,7 @@ export interface PendingCheckoutContext {
   bookingId: string;
   intentId: string;
   orderId: string;
-  provider: "PAYHERE" | "SANDBOX_GATEWAY";
+  provider: "STRIPE" | "PAYPAL" | "SANDBOX_GATEWAY" | "PAYHERE";
   channel?: "WEB" | "MOBILE_APP";
   createdAt: string;
 }
@@ -74,7 +74,14 @@ export function loadPendingCheckoutContext(
         bookingId: parsed.bookingId,
         intentId: typeof parsed.intentId === "string" ? parsed.intentId : "",
         orderId: parsed.orderId,
-        provider: parsed.provider === "PAYHERE" ? "PAYHERE" : "SANDBOX_GATEWAY",
+        provider:
+          parsed.provider === "STRIPE"
+            ? "STRIPE"
+            : parsed.provider === "PAYPAL"
+            ? "PAYPAL"
+            : parsed.provider === "PAYHERE"
+            ? "PAYHERE"
+            : "SANDBOX_GATEWAY",
         ...(parsed.channel === "WEB" || parsed.channel === "MOBILE_APP"
           ? { channel: parsed.channel }
           : {}),
@@ -95,6 +102,18 @@ export function clearPendingCheckoutContext(storage?: Pick<Storage, "removeItem"
   } catch {
     // Ignore
   }
+}
+
+export function isStripeElementsHandoff(
+  handoff: PaymentCheckoutHandoff | null | undefined
+): boolean {
+  return Boolean(handoff && handoff.mode === "STRIPE_ELEMENTS" && handoff.provider === "STRIPE");
+}
+
+export function isPayPalCheckoutHandoff(
+  handoff: PaymentCheckoutHandoff | null | undefined
+): boolean {
+  return Boolean(handoff && handoff.mode === "PAYPAL_CHECKOUT" && handoff.provider === "PAYPAL");
 }
 
 export function isPayHerePostHandoff(

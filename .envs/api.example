@@ -103,19 +103,30 @@ EMAIL_FROM_NAME=Luggage Storage Marketplace
 RESEND_API_KEY=
 
 # -----------------------------------------------------------------------------
-# 7. Payment Collection, Signed Webhooks & Custody HMAC Security (Phase B)
+# 7. Payment Collection, Signed Webhooks & Custody HMAC Security
 # -----------------------------------------------------------------------------
-# Options: 'sandbox' (local dev/test only), 'payhere' (production mandatory)
-PAYMENT_PROVIDER=sandbox
+# Options: 'stripe' (primary), 'paypal' (alternative), 'sandbox' (dev/test only)
+PAYMENT_PROVIDER=stripe
+PAYMENT_DEFAULT_PROVIDER=stripe
 PAYMENT_WEBHOOK_SECRET=REPLACE_WITH_UNIQUE_RANDOM_WEBHOOK_HMAC_SECRET_MINIMUM_32_CHARS
-PAYHERE_MERCHANT_ID=
-PAYHERE_WEB_MERCHANT_SECRET=
-PAYHERE_MOBILE_MERCHANT_SECRET=
-PAYHERE_ANDROID_PACKAGE_NAME=com.luggagestorage.app
-PAYHERE_SANDBOX_MODE=true
-PAYHERE_NOTIFY_URL=http://localhost:3000/api/v1/payments/webhooks/payhere
-PAYHERE_RETURN_URL=http://localhost:5173/booking/confirm
-PAYHERE_CANCEL_URL=http://localhost:5173/booking/confirm?cancelled=1
+
+# Stripe Configuration (Primary Provider)
+STRIPE_SECRET_KEY=sk_test_REPLACE_WITH_STRIPE_SECRET_KEY
+STRIPE_PUBLISHABLE_KEY=pk_test_REPLACE_WITH_STRIPE_PUBLISHABLE_KEY
+STRIPE_WEBHOOK_SECRET=whsec_REPLACE_WITH_STRIPE_WEBHOOK_SECRET
+
+# PayPal Configuration (Alternative Provider)
+PAYPAL_CLIENT_ID=REPLACE_WITH_PAYPAL_CLIENT_ID
+PAYPAL_CLIENT_SECRET=REPLACE_WITH_PAYPAL_CLIENT_SECRET
+PAYPAL_WEBHOOK_ID=REPLACE_WITH_PAYPAL_WEBHOOK_ID
+PAYPAL_SANDBOX_MODE=true
+
+# PayHere Configuration (DECOMMISSIONED — Retained solely for historical read-only / legacy test runner compatibility)
+# PAYHERE_MERCHANT_ID=
+# PAYHERE_WEB_MERCHANT_SECRET=
+# PAYHERE_MOBILE_MERCHANT_SECRET=
+# PAYHERE_SANDBOX_MODE=true
+
 # Keyed HMAC-SHA256 secret for single-use custody QR tokens and 6-digit PINs (never stored in DB)
 CUSTODY_TOKEN_HMAC_SECRET=REPLACE_WITH_UNIQUE_RANDOM_CUSTODY_HMAC_SECRET_MINIMUM_32_CHARS
 

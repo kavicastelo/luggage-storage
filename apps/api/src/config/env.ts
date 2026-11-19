@@ -134,8 +134,37 @@ export const EnvSchema = z
     ),
     PAYMENT_PROVIDER: z.preprocess(
       (val) => (val === "" || val === undefined ? undefined : val),
-      z.enum(["sandbox", "payhere"]).default("sandbox")
+      z.enum(["sandbox", "stripe", "paypal", "payhere"]).default("sandbox")
     ),
+    PAYMENT_DEFAULT_PROVIDER: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : val),
+      z.enum(["stripe", "paypal", "sandbox"]).default("stripe")
+    ),
+    STRIPE_SECRET_KEY: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    STRIPE_PUBLISHABLE_KEY: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    STRIPE_WEBHOOK_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    PAYPAL_CLIENT_ID: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    PAYPAL_CLIENT_SECRET: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    PAYPAL_WEBHOOK_ID: z.preprocess(
+      (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
+      z.string().optional()
+    ),
+    PAYPAL_SANDBOX_MODE: booleanFlagSchema(true),
     PAYMENT_WEBHOOK_SECRET: z.preprocess(
       (val) => (val === "" || val === undefined ? undefined : typeof val === "string" ? val.trim() : val),
       z
@@ -335,6 +364,45 @@ export const EnvSchema = z
           message: "PAYMENT_PROVIDER cannot be 'sandbox' in production; simulated payments are prohibited",
           path: ["PAYMENT_PROVIDER"]
         });
+      }
+      if (data.PAYMENT_PROVIDER === "stripe") {
+        if (!data.STRIPE_SECRET_KEY || data.STRIPE_SECRET_KEY.startsWith("dev_") || data.STRIPE_SECRET_KEY.includes("REPLACE_WITH")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "STRIPE_SECRET_KEY is required in production when PAYMENT_PROVIDER is 'stripe'",
+            path: ["STRIPE_SECRET_KEY"]
+          });
+        }
+        if (!data.STRIPE_PUBLISHABLE_KEY || data.STRIPE_PUBLISHABLE_KEY.startsWith("dev_") || data.STRIPE_PUBLISHABLE_KEY.includes("REPLACE_WITH")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "STRIPE_PUBLISHABLE_KEY is required in production when PAYMENT_PROVIDER is 'stripe'",
+            path: ["STRIPE_PUBLISHABLE_KEY"]
+          });
+        }
+        if (!data.STRIPE_WEBHOOK_SECRET || data.STRIPE_WEBHOOK_SECRET.startsWith("dev_") || data.STRIPE_WEBHOOK_SECRET.includes("REPLACE_WITH")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "STRIPE_WEBHOOK_SECRET is required in production when PAYMENT_PROVIDER is 'stripe'",
+            path: ["STRIPE_WEBHOOK_SECRET"]
+          });
+        }
+      }
+      if (data.PAYMENT_PROVIDER === "paypal") {
+        if (!data.PAYPAL_CLIENT_ID || data.PAYPAL_CLIENT_ID.startsWith("dev_") || data.PAYPAL_CLIENT_ID.includes("REPLACE_WITH")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "PAYPAL_CLIENT_ID is required in production when PAYMENT_PROVIDER is 'paypal'",
+            path: ["PAYPAL_CLIENT_ID"]
+          });
+        }
+        if (!data.PAYPAL_CLIENT_SECRET || data.PAYPAL_CLIENT_SECRET.startsWith("dev_") || data.PAYPAL_CLIENT_SECRET.includes("REPLACE_WITH")) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "PAYPAL_CLIENT_SECRET is required in production when PAYMENT_PROVIDER is 'paypal'",
+            path: ["PAYPAL_CLIENT_SECRET"]
+          });
+        }
       }
       if (data.PAYMENT_WEBHOOK_SECRET.startsWith("dev_")) {
         ctx.addIssue({

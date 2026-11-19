@@ -30,4 +30,3 @@ declare module "@payhere/payhere-mobilesdk-reactnative" {
   const PayHere: PayHereMobileSdkModule;
   export default PayHere;
 }
-
