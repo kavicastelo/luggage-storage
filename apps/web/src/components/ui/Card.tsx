@@ -1,7 +1,7 @@
 import React from "react";
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
-  variant?: "default" | "muted" | "elevated" | "accent";
+  variant?: "default" | "muted" | "elevated" | "accent" | "dark" ;
 }
 
 export function Card({
@@ -14,7 +14,8 @@ export function Card({
     default: "bg-white border-sand-200 shadow-sm",
     muted: "bg-sand-50/70 border-sand-200/80 shadow-none",
     elevated: "bg-white border-sand-200 shadow-md",
-    accent: "bg-gradient-to-br from-sand-50 to-white border-terracotta-200 shadow-sm"
+    accent: "bg-gradient-to-br from-sand-50 to-white border-terracotta-200 shadow-sm",
+    dark: "bg-navy-950 text-white"
   };
 
   return (

@@ -4,6 +4,15 @@ import { createSuccessResponse } from "@luggage-storage/contracts";
 
 export async function healthRoutes(fastify: FastifyInstance, _opts: FastifyPluginOptions) {
   // Liveness check: confirms server process is responding
+  const livenessHandler = async (request: any, _reply: any) => {
+    const data = {
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    };
+    return createSuccessResponse(data, request.id);
+  };
+
   fastify.get(
     "/health",
     {
@@ -29,14 +38,35 @@ export async function healthRoutes(fastify: FastifyInstance, _opts: FastifyPlugi
         }
       }
     },
-    async (request, _reply) => {
-      const data = {
-        status: "ok",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-      };
-      return createSuccessResponse(data, request.id);
-    }
+    livenessHandler
+  );
+
+  fastify.get(
+    "/live",
+    {
+      schema: {
+        description: "Kubernetes/container liveness probe alias",
+        tags: ["Health & System"],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+              data: {
+                type: "object",
+                properties: {
+                  status: { type: "string" },
+                  timestamp: { type: "string" },
+                  uptime: { type: "number" }
+                }
+              },
+              meta: { type: "object", additionalProperties: true }
+            }
+          }
+        }
+      }
+    },
+    livenessHandler
   );
 
   // Readiness check: verifies database connectivity and PostGIS

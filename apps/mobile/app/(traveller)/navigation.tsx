@@ -128,6 +128,7 @@ export default function MobileNavigationScreen() {
   const [isVoiceMuted, setIsVoiceMuted] = useState<boolean>(false);
   const [hasArrived, setHasArrived] = useState<boolean>(false);
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [locationNotice, setLocationNotice] = useState<string | null>(null);
 
   const offRouteCountRef = useRef<number>(0);
   const lastSpokenStepRef = useRef<number>(-1);
@@ -191,11 +192,16 @@ export default function MobileNavigationScreen() {
       const res = await getCurrentDeviceLocation(5000);
       if (!isMounted) return;
       if (res.ok) {
+        setLocationNotice(null);
         const origin: GeographicCoordinate = { latitude: res.latitude, longitude: res.longitude };
         setCurrentLocation(origin);
         void fetchRoute(origin, travelMode);
       } else {
-        // Fallback origin: Colombo Fort Station
+        setLocationNotice(
+          res.denied
+            ? "Location permission was denied. Navigation is active using Colombo Central as a demo origin."
+            : "Device GPS signal unavailable. Navigation is active using Colombo Central as a demo origin."
+        );
         const fallback: GeographicCoordinate = { latitude: 6.9344, longitude: 79.8519 };
         setCurrentLocation(fallback);
         void fetchRoute(fallback, travelMode);
@@ -389,6 +395,14 @@ export default function MobileNavigationScreen() {
           )}
         </View>
 
+        {/* Location / Demo Origin Notice */}
+        {locationNotice && (
+          <View style={styles.noticeBanner} testID="navigation-location-notice">
+            <MobileIcon name="alert-circle" size={14} color={mobileColors.amber[600]} />
+            <Text style={styles.noticeText}>{locationNotice}</Text>
+          </View>
+        )}
+
         {/* Full-Screen Interactive Map Canvas */}
         <View style={styles.mapContainer}>
           <InteractiveMobileMap
@@ -563,6 +577,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: mobileColors.terracotta[500]
+  },
+  noticeBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileColors.amber[50],
+    borderWidth: 1,
+    borderColor: mobileColors.amber[100],
+    paddingHorizontal: mobileSpacing[3],
+    paddingVertical: mobileSpacing[2],
+    marginHorizontal: mobileSpacing[3],
+    marginVertical: mobileSpacing[1],
+    borderRadius: mobileRadius.md
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "500",
+    color: mobileColors.amber[700]
   },
   mapContainer: {
     flex: 1,

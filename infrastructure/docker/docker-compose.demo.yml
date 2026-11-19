@@ -1,0 +1,86 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.5-alpine@sha256:47e961a569fd52ff31f0fe205ed91eeab17d9f5fff6722e6d7ea6b588748b293
+    container_name: luggage_storage_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-luggage_storage_dev}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_demo_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./verify-postgis.sql:/docker-entrypoint-initdb.d/02-verify-postgis.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-luggage_storage_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    container_name: luggage_storage_api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://luggage_user:luggage_password@postgres:5432/luggage_storage_dev
+      MIGRATION_DATABASE_URL: postgresql://luggage_migrator:migrator_password@postgres:5432/luggage_storage_dev
+      DATABASE_SSL: "false"
+      CORS_ORIGIN: "http://localhost,http://localhost:5173,http://localhost:8080"
+      APP_PUBLIC_URL: "http://localhost:5173"
+      JWT_SECRET: "demo_jwt_secret_distinct_at_least_32_chars_12345"
+      COOKIE_SECRET: "demo_cookie_secret_distinct_at_least_32_chars_12345"
+      RATE_LIMIT_HASH_SECRET: "demo_ratelimit_secret_distinct_at_least_32_chars_12345"
+      DB_IDENTITY_KEY_ID: "demo-key-v1"
+      DB_IDENTITY_SECRET: "demo_db_identity_secret_distinct_32_chars_12345"
+      PAYMENT_PROVIDER: "sandbox"
+      PAYMENT_DEFAULT_PROVIDER: "stripe"
+      PAYMENT_WEBHOOK_SECRET: "demo_payment_webhook_secret_distinct_32_chars_12345"
+      CUSTODY_TOKEN_HMAC_SECRET: "demo_custody_token_distinct_secret_32_chars_12345"
+      MAPS_PROVIDER: "sandbox"
+      EMAIL_PROVIDER: "ethereal"
+      STORAGE_PROVIDER: "memory"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    container_name: luggage_storage_web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  postgres_demo_data:
+    driver: local
+

@@ -9,14 +9,23 @@
     "scheme": "luggagestorage",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.luggagestorage.app"
+      "bundleIdentifier": "com.luggagestorage.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Luggage Storage requires camera access to scan luggage QR custody passes.",
+        "NSLocationWhenInUseUsageDescription": "Luggage Storage uses your location to discover nearby storage facilities and navigate to luggage drop-off locations."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0A192F"
       },
-      "package": "com.luggagestorage.app"
+      "package": "com.luggagestorage.app",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro"

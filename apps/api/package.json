@@ -13,6 +13,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/infrastructure/database/migrate.ts",
+    "db:seed": "tsx src/infrastructure/database/seeds/demo-seed.ts",
+    "db:reset": "tsx src/infrastructure/database/seeds/demo-seed.ts --reset",
     "clean": "rimraf dist"
   },
   "dependencies": {

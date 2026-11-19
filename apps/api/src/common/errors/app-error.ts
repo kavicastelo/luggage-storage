@@ -50,6 +50,10 @@ export class AppError extends Error {
     return new AppError("INTERNAL_SERVER_ERROR", message, 500);
   }
 
+  static serviceUnavailable(message = "Service unavailable"): AppError {
+    return new AppError("SERVICE_UNAVAILABLE", message, 503);
+  }
+
   static rateLimited(message = "Too many requests", retryAfterSeconds?: number): AppError {
     return new AppError("RATE_LIMITED", message, 429, undefined, retryAfterSeconds);
   }

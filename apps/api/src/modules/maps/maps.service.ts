@@ -15,12 +15,18 @@ export class MapsService {
   private readonly routingAdapter: RoutingPort;
   private readonly geocodingAdapter: GeocodingPort;
 
-  constructor() {
-    if (env.MAPS_PROVIDER === "maptiler" && env.MAPTILER_API_KEY) {
-      const maptiler = new MapTilerRoutingAdapter(env.MAPTILER_API_KEY);
+  constructor(configOverride?: { NODE_ENV?: string; MAPS_PROVIDER?: string; MAPTILER_API_KEY?: string }) {
+    const activeEnv = configOverride ?? env;
+    if (activeEnv.MAPS_PROVIDER === "maptiler" && activeEnv.MAPTILER_API_KEY) {
+      const maptiler = new MapTilerRoutingAdapter(activeEnv.MAPTILER_API_KEY);
       this.routingAdapter = maptiler;
       this.geocodingAdapter = maptiler;
     } else {
+      if (activeEnv.NODE_ENV === "production") {
+        throw new Error(
+          "MAPS_PROVIDER_INVALID: In production, MAPS_PROVIDER must be 'maptiler' with a valid MAPTILER_API_KEY. Synthetic sandbox routing is strictly prohibited."
+        );
+      }
       const sandbox = new SandboxRoutingAdapter();
       this.routingAdapter = sandbox;
       this.geocodingAdapter = sandbox;

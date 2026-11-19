@@ -76,6 +76,7 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
   // Geolocation & Route Preview State
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isLocating, setIsLocating] = useState<boolean>(false);
+  const [locationWarning, setLocationWarning] = useState<string | null>(null);
   const [routePreviewOpen, setRoutePreviewOpen] = useState<boolean>(false);
   const [travelMode, setTravelMode] = useState<TravelMode>("walking");
   const [activeRoute, setActiveRoute] = useState<RouteResult | null>(null);
@@ -139,22 +140,37 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
     [bounds]
   );
 
+  // Explicit demo origin setter when GPS is unavailable
+  const handleUseDemoOrigin = useCallback(() => {
+    setUserLocation({ latitude: 6.9344, longitude: 79.8519 });
+    setLocationWarning(null);
+  }, []);
+
   // Request user GPS
   const handleLocateMe = useCallback(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setLocationWarning("Geolocation is not supported by your browser. You can use Colombo Hub as a demo starting location.");
+      return;
+    }
     setIsLocating(true);
+    setLocationWarning(null);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setUserLocation({
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude
         });
+        setLocationWarning(null);
         setIsLocating(false);
       },
-      () => {
-        // Fallback default: Colombo Fort Station
-        setUserLocation({ latitude: 6.9344, longitude: 79.8519 });
+      (err) => {
         setIsLocating(false);
+        const isDenied = err.code === 1;
+        setLocationWarning(
+          isDenied
+            ? "Location permission was denied. Tap 'Use Colombo Hub' to simulate a starting location, or allow access in your browser settings."
+            : "Location lookup timed out. Tap 'Use Colombo Hub' to simulate a starting location."
+        );
       },
       { timeout: 8000 }
     );
@@ -480,6 +496,23 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
               <ExternalLink className="h-3 w-3" />
             </a>
           </div>
+
+          {/* Location Warning / Permission State */}
+          {locationWarning && (
+            <div
+              className="mt-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-between gap-2"
+              role="alert"
+            >
+              <span className="flex-1">{locationWarning}</span>
+              <button
+                type="button"
+                onClick={handleUseDemoOrigin}
+                className="px-2 py-1 rounded bg-amber-200 hover:bg-amber-300 font-semibold text-amber-900 text-[11px] whitespace-nowrap transition-colors"
+              >
+                Use Colombo Hub
+              </button>
+            </div>
+          )}
 
           {/* Route Preview Panel */}
           {routePreviewOpen && activeRoute && (
