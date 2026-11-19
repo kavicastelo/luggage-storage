@@ -15,6 +15,8 @@ import type {
 } from "@luggage-storage/contracts";
 import type { GeocodingPort, RoutingPort } from "./routing.port.js";
 import { SandboxRoutingAdapter } from "./sandbox-routing.adapter.js";
+import { env } from "../../config/env.js";
+import { AppError } from "../../common/errors/app-error.js";
 
 interface MapTilerManeuverRaw {
   type?: string;
@@ -60,6 +62,10 @@ const MAPTILER_MODE_MAP: Record<TravelMode, string> = {
   cycling: "bicycle"
 };
 
+function isProductionMode(): boolean {
+  return env.NODE_ENV === "production" || process.env.NODE_ENV === "production";
+}
+
 export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
   readonly providerName = "maptiler";
   private readonly sandbox = new SandboxRoutingAdapter();
@@ -68,6 +74,9 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
 
   async calculateRoute(request: RouteRequest): Promise<RouteResult> {
     if (!this.apiKey) {
+      if (isProductionMode()) {
+        throw AppError.serviceUnavailable("EXTERNAL_ROUTING_UNAVAILABLE: MAPTILER_API_KEY is not configured in production");
+      }
       return this.sandbox.calculateRoute(request);
     }
 
@@ -80,11 +89,17 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
 
       const res = await fetch(url, { headers: { Accept: "application/json" } });
       if (!res.ok) {
+        if (isProductionMode()) {
+          throw AppError.serviceUnavailable(`EXTERNAL_ROUTING_SERVICE_FAILED: MapTiler returned HTTP ${res.status}`);
+        }
         return this.sandbox.calculateRoute(request);
       }
 
       const data = (await res.json()) as MapTilerResponseRaw;
       if (!data.routes || data.routes.length === 0) {
+        if (isProductionMode()) {
+          throw AppError.serviceUnavailable("EXTERNAL_ROUTING_NO_ROUTES: No route found between coordinates");
+        }
         return this.sandbox.calculateRoute(request);
       }
 
@@ -150,13 +165,22 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
         provider: "maptiler",
         summary: `MapTiler ${request.travelMode} route (${Math.round((primary.distance || 0) / 100) / 10} km)`
       };
-    } catch {
+    } catch (err: unknown) {
+      if (isProductionMode()) {
+        if (err instanceof AppError) throw err;
+        throw AppError.serviceUnavailable(
+          `EXTERNAL_ROUTING_ERROR: ${err instanceof Error ? err.message : "MapTiler request failed"}`
+        );
+      }
       return this.sandbox.calculateRoute(request);
     }
   }
 
   async searchPlaces(query: GeocodingQuery): Promise<GeocodingResponse> {
     if (!this.apiKey) {
+      if (isProductionMode()) {
+        throw AppError.serviceUnavailable("EXTERNAL_GEOCODING_UNAVAILABLE: MAPTILER_API_KEY is not configured in production");
+      }
       return this.sandbox.searchPlaces(query);
     }
 
@@ -167,6 +191,9 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
 
       const res = await fetch(url, { headers: { Accept: "application/json" } });
       if (!res.ok) {
+        if (isProductionMode()) {
+          throw AppError.serviceUnavailable(`EXTERNAL_GEOCODING_FAILED: MapTiler returned HTTP ${res.status}`);
+        }
         return this.sandbox.searchPlaces(query);
       }
 
@@ -182,6 +209,9 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
       };
 
       if (!data.features || data.features.length === 0) {
+        if (isProductionMode()) {
+          return { results: [] };
+        }
         return this.sandbox.searchPlaces(query);
       }
 
@@ -198,13 +228,22 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
       });
 
       return { results };
-    } catch {
+    } catch (err: unknown) {
+      if (isProductionMode()) {
+        if (err instanceof AppError) throw err;
+        throw AppError.serviceUnavailable(
+          `EXTERNAL_GEOCODING_ERROR: ${err instanceof Error ? err.message : "MapTiler request failed"}`
+        );
+      }
       return this.sandbox.searchPlaces(query);
     }
   }
 
   async reverseGeocode(query: ReverseGeocodingQuery): Promise<GeocodingResult | null> {
     if (!this.apiKey) {
+      if (isProductionMode()) {
+        throw AppError.serviceUnavailable("EXTERNAL_GEOCODING_UNAVAILABLE: MAPTILER_API_KEY is not configured in production");
+      }
       return this.sandbox.reverseGeocode(query);
     }
 
@@ -215,6 +254,9 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
 
       const res = await fetch(url, { headers: { Accept: "application/json" } });
       if (!res.ok) {
+        if (isProductionMode()) {
+          throw AppError.serviceUnavailable(`EXTERNAL_GEOCODING_FAILED: MapTiler returned HTTP ${res.status}`);
+        }
         return this.sandbox.reverseGeocode(query);
       }
 
@@ -230,6 +272,9 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
       };
 
       if (!data.features || data.features.length === 0) {
+        if (isProductionMode()) {
+          return null;
+        }
         return this.sandbox.reverseGeocode(query);
       }
 
@@ -243,7 +288,13 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
         coordinate: { latitude: f.center[1], longitude: f.center[0] },
         relevance: f.relevance
       };
-    } catch {
+    } catch (err: unknown) {
+      if (isProductionMode()) {
+        if (err instanceof AppError) throw err;
+        throw AppError.serviceUnavailable(
+          `EXTERNAL_GEOCODING_ERROR: ${err instanceof Error ? err.message : "MapTiler request failed"}`
+        );
+      }
       return this.sandbox.reverseGeocode(query);
     }
   }
