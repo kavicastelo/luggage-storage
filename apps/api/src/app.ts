@@ -15,6 +15,7 @@ import { authRoutes } from "./modules/auth/auth.routes.js";
 import { adminRoutes } from "./modules/admin/admin.routes.js";
 import { uploadRoutes } from "./modules/uploads/uploads.routes.js";
 import { discoveryRoutes } from "./modules/discovery/discovery.routes.js";
+import { mapsRoutes } from "./modules/maps/maps.routes.js";
 import { hostRoutes } from "./modules/hosts/hosts.routes.js";
 import { hostVerificationRoutes } from "./modules/host-verification/host-verification.routes.js";
 import { locationRoutes } from "./modules/locations/locations.routes.js";
@@ -373,6 +374,8 @@ export function buildApp(): FastifyInstance {
   app.register(uploadRoutes, { prefix: "/uploads" });
   app.register(discoveryRoutes, { prefix: `${env.API_PREFIX}/discovery` });
   app.register(discoveryRoutes, { prefix: "/discovery" });
+  app.register(mapsRoutes, { prefix: `${env.API_PREFIX}/maps` });
+  app.register(mapsRoutes, { prefix: "/maps" });
 
   // Phase B: Availability, Bookings, Payments, Custody & Admin Governance routes
   app.register(availabilityRoutes, { prefix: `${env.API_PREFIX}/availability` });

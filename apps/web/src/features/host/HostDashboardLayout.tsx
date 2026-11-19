@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Briefcase,
   Building2,
@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Lock,
   MapPin,
+  Menu,
   Phone,
   QrCode,
   Settings,
@@ -18,7 +19,8 @@ import {
   Star,
   Tag,
   Users,
-  Wallet
+  Wallet,
+  X
 } from "lucide-react";
 import { MascotIllustration } from "@/components/ui/MascotIllustration";
 import { isDemoPreviewActive } from "@/config/demo-preview";
@@ -98,6 +100,7 @@ const HOST_STAFF_ALLOWED_PATHS = new Set([
 
 export function HostDashboardLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const roleParam = searchParams.get("role")?.toUpperCase();
   const initialDemoRole: "HOST_OWNER" | "HOST_STAFF" =
@@ -144,18 +147,50 @@ export function HostDashboardLayout() {
     return isDemoActive ? DEMO_LOCATIONS : [];
   }, [isAuthenticated, isDemoActive, locationsQuery.data]);
 
+  const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
+  const locationSetupRouteMatch = useMemo(
+    () => normalizedPath.match(/^\/host\/locations\/([^/]+)(\/(?:schedule|capacity|pricing))?$/),
+    [normalizedPath]
+  );
+  const routeLocationId = locationSetupRouteMatch?.[1] ?? "";
+
   const effectiveSelectedLocationId = useMemo(() => {
+    if (routeLocationId && allLocations.some((l) => l.id === routeLocationId)) {
+      return routeLocationId;
+    }
     if (allLocations.some((l) => l.id === storedLocationId)) {
       return storedLocationId;
     }
     return allLocations[0]?.id ?? "";
-  }, [allLocations, storedLocationId]);
+  }, [allLocations, storedLocationId, routeLocationId]);
 
   useEffect(() => {
     if (effectiveSelectedLocationId && effectiveSelectedLocationId !== storedLocationId) {
       setStoredLocationId(effectiveSelectedLocationId);
     }
   }, [effectiveSelectedLocationId, storedLocationId, setStoredLocationId]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mobileMenuOpen]);
+
+  const handleActiveHubChange = useCallback(
+    (nextLocationId: string) => {
+      setStoredLocationId(nextLocationId);
+      if (nextLocationId && locationSetupRouteMatch) {
+        const subRoute = locationSetupRouteMatch[2] ?? "";
+        navigate(`/host/locations/${nextLocationId}${subRoute}${location.search}`);
+      }
+    },
+    [setStoredLocationId, locationSetupRouteMatch, navigate, location.search]
+  );
 
   const effectiveSelectedBusinessId = useMemo(() => {
     const businesses = businessesQuery.data ?? [];
@@ -195,9 +230,10 @@ export function HostDashboardLayout() {
     }
   }, [isAuthenticated, canActAsHostOwner, businessesQuery, locationsQuery]);
 
+  const hasSelectableLocation = allLocations.length > 0;
   const navLocationId =
     effectiveSelectedLocationId ||
-    (!isAuthenticated && isDemoActive ? DEMO_LOCATIONS[0].id : "select");
+    (!isAuthenticated && isDemoActive ? DEMO_LOCATIONS[0].id : "");
 
   const showReviewsNav = (!isAuthenticated && isDemoActive) || isFeatureReviewsEnabled();
   const operationalNavItems = [
@@ -217,10 +253,39 @@ export function HostDashboardLayout() {
   ];
 
   const locationConfigNavItems = [
-    { label: "Location Profile", to: `/host/locations/${navLocationId}`, icon: Building2, ownerOnly: true },
-    { label: "Hours & Calendar", to: `/host/locations/${navLocationId}/schedule`, icon: Calendar, ownerOnly: true },
-    { label: "Capacity & Zones", to: `/host/locations/${navLocationId}/capacity`, icon: Layers, ownerOnly: true },
-    { label: "Pricing Rules", to: `/host/locations/${navLocationId}/pricing`, icon: Tag, ownerOnly: true }
+    {
+      label: "Location Profile",
+      to: hasSelectableLocation && navLocationId ? `/host/locations/${navLocationId}` : "/host/locations",
+      icon: Building2,
+      ownerOnly: true
+    },
+    {
+      label: "Hours & Calendar",
+      to:
+        hasSelectableLocation && navLocationId
+          ? `/host/locations/${navLocationId}/schedule`
+          : "/host/locations",
+      icon: Calendar,
+      ownerOnly: true
+    },
+    {
+      label: "Capacity & Zones",
+      to:
+        hasSelectableLocation && navLocationId
+          ? `/host/locations/${navLocationId}/capacity`
+          : "/host/locations",
+      icon: Layers,
+      ownerOnly: true
+    },
+    {
+      label: "Pricing Rules",
+      to:
+        hasSelectableLocation && navLocationId
+          ? `/host/locations/${navLocationId}/pricing`
+          : "/host/locations",
+      icon: Tag,
+      ownerOnly: true
+    }
   ];
 
   const businessNavItems = [
@@ -230,7 +295,6 @@ export function HostDashboardLayout() {
     { label: "Business Settings", to: "/host/settings", icon: Settings, ownerOnly: true }
   ];
 
-  const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
   const isBlockedByStaffRole =
     effectiveHostRole === "HOST_STAFF" &&
     !HOST_STAFF_ALLOWED_PATHS.has(normalizedPath) &&
@@ -246,7 +310,7 @@ export function HostDashboardLayout() {
     currentLocation,
     selectedBusinessId: effectiveSelectedBusinessId,
     selectedLocationId: effectiveSelectedLocationId,
-    setSelectedLocationId: setStoredLocationId,
+    setSelectedLocationId: handleActiveHubChange,
     allLocations,
     effectiveHostRole,
     setHostRoleMode: setDemoRoleMode,
@@ -262,11 +326,11 @@ export function HostDashboardLayout() {
       <div className="space-y-6">
         {/* Mobile Venue & Navigation Bar */}
         <div className="lg:hidden flex items-center justify-between p-3.5 bg-navy-950 text-white rounded-2xl shadow-md border border-navy-800">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-terracotta-500 flex items-center justify-center font-bold text-white text-sm">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-8 w-8 rounded-lg bg-terracotta-500 flex items-center justify-center font-bold text-white text-sm flex-shrink-0">
               CL
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs font-bold leading-tight truncate max-w-[180px]">
                 {currentLocation?.name || "Host Partner Portal"}
               </p>
@@ -278,20 +342,52 @@ export function HostDashboardLayout() {
           </div>
           <button
             type="button"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="px-3 py-1.5 rounded-lg bg-navy-800 hover:bg-navy-700 text-xs font-semibold text-sand-100 flex items-center gap-1.5"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            className="px-3 py-1.5 rounded-lg bg-navy-800 hover:bg-navy-700 text-xs font-semibold text-sand-100 flex items-center gap-1.5 flex-shrink-0"
             aria-label="Toggle Host Menu"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="host-portal-sidebar"
           >
+            <Menu className="h-3.5 w-3.5" />
             <span>Menu</span>
-            <ChevronDown
-              className={`h-3.5 w-3.5 transition-transform ${mobileMenuOpen ? "rotate-180" : ""}`}
-            />
           </button>
         </div>
 
+        {/* Mobile Drawer Backdrop */}
+        {mobileMenuOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-navy-950/60 backdrop-blur-[2px] lg:hidden"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Host Portal Sidebar */}
-          <aside className={`lg:col-span-3 space-y-4 ${mobileMenuOpen ? "block" : "hidden lg:block"}`}>
+          {/* Host Portal Sidebar (Dismissible Drawer on Mobile, Persistent Rail on Desktop) */}
+          <aside
+            id="host-portal-sidebar"
+            className={
+              mobileMenuOpen
+                ? "fixed inset-y-0 left-0 z-50 w-80 max-w-[85vw] overflow-y-auto bg-sand-50 p-4 shadow-2xl space-y-4 lg:static lg:z-auto lg:w-auto lg:max-w-none lg:overflow-visible lg:bg-transparent lg:p-0 lg:shadow-none lg:col-span-3"
+                : "hidden lg:block lg:col-span-3 space-y-4"
+            }
+          >
+            {mobileMenuOpen && (
+              <div className="flex items-center justify-between lg:hidden pb-2 border-b border-sand-200">
+                <span className="text-xs font-extrabold text-navy-950 uppercase tracking-wider">
+                  Host Navigation
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(false)}
+                  aria-label="Close navigation menu"
+                  className="p-1.5 rounded-lg bg-white border border-sand-200 text-navy-800 hover:bg-sand-100"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
             {/* Host Identity & Venue Switcher */}
             <div className="bg-navy-950 text-white rounded-2xl p-4 sm:p-5 space-y-4 shadow-md border border-navy-800">
               <div className="flex items-center justify-between">
@@ -347,7 +443,7 @@ export function HostDashboardLayout() {
                     aria-label="Active Storage Hub"
                     value={effectiveSelectedLocationId}
                     disabled={allLocations.length === 0}
-                    onChange={(e) => setStoredLocationId(e.target.value)}
+                    onChange={(e) => handleActiveHubChange(e.target.value)}
                     className="w-full appearance-none rounded-xl bg-navy-900 border border-navy-700 px-3 py-2 text-xs text-sand-100 font-medium pr-8 focus:outline-none focus:ring-1 focus:ring-terracotta-500 disabled:opacity-60"
                   >
                     {allLocations.length === 0 ? (
@@ -458,25 +554,34 @@ export function HostDashboardLayout() {
                   <p className="text-[10px] font-bold text-navy-400 uppercase tracking-wider">
                     Location Setup
                   </p>
-                  {effectiveHostRole === "HOST_STAFF" && (
+                  {effectiveHostRole === "HOST_STAFF" ? (
                     <Lock className="h-3 w-3 text-amber-600" />
-                  )}
+                  ) : !hasSelectableLocation ? (
+                    <span className="text-[10px] font-semibold text-sand-600">Select hub</span>
+                  ) : null}
                 </div>
                 <div className="space-y-1">
                   {locationConfigNavItems.map((item) => {
                     const Icon = item.icon;
-                    const isActive = normalizedPath === item.to;
+                    const isActive = hasSelectableLocation && normalizedPath === item.to;
                     const restricted = effectiveHostRole === "HOST_STAFF" && item.ownerOnly;
+                    const guidedDisabled = !hasSelectableLocation && !restricted;
                     return (
                       <Link
                         key={item.label}
                         to={`${item.to}${querySuffix}`}
+                        aria-disabled={guidedDisabled || undefined}
+                        title={
+                          guidedDisabled
+                            ? "Create or select a storage hub first"
+                            : undefined
+                        }
                         onClick={() => setMobileMenuOpen(false)}
                         className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition ${
                           isActive
                             ? "bg-navy-900 text-white shadow-sm"
-                            : restricted
-                              ? "text-navy-300 hover:bg-sand-50/50 cursor-pointer"
+                            : restricted || guidedDisabled
+                              ? "text-navy-400 hover:bg-sand-50/70"
                               : "text-navy-800 hover:bg-sand-50"
                         }`}
                       >
@@ -485,7 +590,7 @@ export function HostDashboardLayout() {
                             className={`h-4 w-4 flex-shrink-0 ${
                               isActive
                                 ? "text-white"
-                                : restricted
+                                : restricted || guidedDisabled
                                   ? "text-navy-300"
                                   : "text-navy-500"
                             }`}

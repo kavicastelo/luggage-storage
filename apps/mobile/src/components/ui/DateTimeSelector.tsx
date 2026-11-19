@@ -52,17 +52,21 @@ export function DateTimeSelector({
   testID
 }: DateTimeSelectorProps) {
   const [nativeMode, setNativeMode] = useState<"date" | "time" | null>(null);
+  const [iosDraftDate, setIosDraftDate] = useState<Date>(value);
   const [webModalVisible, setWebModalVisible] = useState(false);
 
-  const applyClampedDate = (candidate: Date) => {
+  const clampDate = (candidate: Date): Date => {
     if (minimumDate && candidate.getTime() < minimumDate.getTime()) {
-      onChange(new Date(minimumDate.getTime()));
-      return;
+      return new Date(minimumDate.getTime());
     }
-    onChange(candidate);
+    return candidate;
   };
 
-  const handleNativeChange = (event: DateTimePickerEvent, selected?: Date) => {
+  const applyClampedDate = (candidate: Date) => {
+    onChange(clampDate(candidate));
+  };
+
+  const handleAndroidNativeChange = (event: DateTimePickerEvent, selected?: Date) => {
     const activeMode = nativeMode;
     setNativeMode(null);
     if (event.type === "dismissed" || !selected) {
@@ -75,6 +79,28 @@ export function DateTimeSelector({
       merged.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
     }
     applyClampedDate(merged);
+  };
+
+  const handleIosDraftChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (!selected) return;
+    const merged = new Date(iosDraftDate.getTime());
+    if (nativeMode === "date") {
+      merged.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+    } else if (nativeMode === "time") {
+      merged.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+    }
+    setIosDraftDate(clampDate(merged));
+  };
+
+  const openPicker = (mode: "date" | "time") => {
+    if (Platform.OS === "web") {
+      setWebModalVisible(true);
+      return;
+    }
+    if (Platform.OS === "ios") {
+      setIosDraftDate(value);
+    }
+    setNativeMode(mode);
   };
 
   const shiftMinutes = (deltaMinutes: number) => {
@@ -97,13 +123,7 @@ export function DateTimeSelector({
             style={styles.chipButton}
             accessibilityRole="button"
             accessibilityLabel={`${label} change date`}
-            onPress={() => {
-              if (Platform.OS === "web") {
-                setWebModalVisible(true);
-              } else {
-                setNativeMode("date");
-              }
-            }}
+            onPress={() => openPicker("date")}
             testID={testID ? `${testID}-date-btn` : undefined}
           >
             <MobileIcon name="calendar" size="xs" color={mobileColors.navy[900]} />
@@ -114,13 +134,7 @@ export function DateTimeSelector({
             style={styles.chipButton}
             accessibilityRole="button"
             accessibilityLabel={`${label} change time`}
-            onPress={() => {
-              if (Platform.OS === "web") {
-                setWebModalVisible(true);
-              } else {
-                setNativeMode("time");
-              }
-            }}
+            onPress={() => openPicker("time")}
             testID={testID ? `${testID}-time-btn` : undefined}
           >
             <MobileIcon name="clock" size="xs" color={mobileColors.navy[900]} />
@@ -153,14 +167,44 @@ export function DateTimeSelector({
         </Text>
       ) : null}
 
-      {Platform.OS !== "web" && nativeMode ? (
+      {Platform.OS === "android" && nativeMode ? (
         <DateTimePicker
           value={value}
           mode={nativeMode}
           minimumDate={minimumDate}
-          onChange={handleNativeChange}
+          onChange={handleAndroidNativeChange}
           testID={testID ? `${testID}-native-picker` : undefined}
         />
+      ) : null}
+
+      {Platform.OS === "ios" ? (
+        <BottomSheet
+          visible={nativeMode !== null}
+          title={nativeMode === "date" ? `${label} — Date` : `${label} — Time`}
+          subtitle={`Sri Lanka time (${timezone})`}
+          onClose={() => setNativeMode(null)}
+        >
+          {nativeMode ? (
+            <View style={styles.sheetGrid}>
+              <DateTimePicker
+                value={iosDraftDate}
+                mode={nativeMode}
+                display="spinner"
+                minimumDate={minimumDate}
+                onChange={handleIosDraftChange}
+                testID={testID ? `${testID}-native-picker` : undefined}
+              />
+              <Button
+                title="Confirm"
+                onPress={() => {
+                  applyClampedDate(iosDraftDate);
+                  setNativeMode(null);
+                }}
+                fullWidth
+              />
+            </View>
+          ) : null}
+        </BottomSheet>
       ) : null}
 
       <BottomSheet
@@ -293,4 +337,3 @@ const styles = StyleSheet.create({
     gap: mobileSpacing[2]
   }
 });
-

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Switch, StyleSheet } from "react-native";
+import { View, Text, Switch, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import {
@@ -17,12 +17,12 @@ import {
 import {
   Badge,
   Button,
-  Card,
   ConfirmDialog,
   EmptyState,
   ErrorState,
   FormSection,
   ImageGallery,
+  InteractiveMobileMap,
   LoadingSkeleton,
   MobileIcon,
   SafeHeader,
@@ -61,6 +61,14 @@ import {
 } from "../../src/lib/theme";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+type EditorSectionTab = "PROFILE" | "PHOTOS" | "HOURS" | "ZONES" | "PRICING";
+const EDITOR_TABS: ReadonlyArray<{ key: EditorSectionTab; label: string }> = [
+  { key: "PROFILE", label: "Profile" },
+  { key: "PHOTOS", label: "Photos" },
+  { key: "HOURS", label: "Hours" },
+  { key: "ZONES", label: "Zones & Pools" },
+  { key: "PRICING", label: "Pricing & Publish" }
+];
 const DAY_LABELS: Record<number, string> = {
   1: "Monday",
   2: "Tuesday",
@@ -89,6 +97,7 @@ export default function HostLocationEditorScreen() {
     typeof params.id === "string" && UUID_REGEX.test(params.id) ? params.id : undefined;
 
   const [locationId, setLocationId] = useState<string | undefined>(initialId);
+  const [activeTab, setActiveTab] = useState<EditorSectionTab>("PROFILE");
 
   const businessesQuery = useOwnedBusinessesQuery(true);
   const locationQuery = useHostLocationDetailQuery(locationId);
@@ -529,12 +538,54 @@ export default function HostLocationEditorScreen() {
         <LoadingSkeleton count={3} />
       ) : (
         <View style={styles.stack}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sectionTabsRow}
+            accessibilityRole="tablist"
+          >
+            {EDITOR_TABS.map((tab) => {
+              const selected = activeTab === tab.key;
+              const disabled = !locationId && tab.key !== "PROFILE";
+              return (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={[
+                    styles.sectionTabBtn,
+                    selected ? styles.sectionTabBtnActive : null,
+                    disabled ? styles.sectionTabBtnDisabled : null
+                  ]}
+                  disabled={disabled}
+                  onPress={() => setActiveTab(tab.key)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected, disabled }}
+                >
+                  <Text
+                    style={[
+                      styles.sectionTabText,
+                      selected ? styles.sectionTabTextActive : null
+                    ]}
+                  >
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
           {errorMessage ? <ErrorState title="Configuration Notice" message={errorMessage} /> : null}
           {statusMessage ? (
-            <Badge label={statusMessage} variant="success" icon="check-circle" />
+            <View style={styles.successBanner} accessibilityRole="alert">
+              <MobileIcon
+                name="check-circle"
+                size={16}
+                color={mobileStatusTokens.successIcon}
+              />
+              <Text style={styles.successBannerText}>{statusMessage}</Text>
+            </View>
           ) : null}
 
-          <Card variant="elevated" style={styles.cardGap}>
+          {activeTab === "PROFILE" ? (
             <FormSection
               title="1. Hub Profile & Coordinates"
               subtitle="Exact street address and coordinates stay hidden from travellers until booking confirmation."
@@ -595,6 +646,26 @@ export default function HostLocationEditorScreen() {
                 }}
               />
 
+              {Number.isFinite(Number(latitudeText)) && Number.isFinite(Number(longitudeText)) && (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={[styles.fieldLabel, { marginBottom: 6 }]}>Pin Location Preview</Text>
+                  <InteractiveMobileMap
+                    locations={[
+                      {
+                        id: "host-facility-preview",
+                        name: name.trim() || "Storage Facility",
+                        city: city.trim() || "Sri Lanka",
+                        latitude: Number(latitudeText),
+                        longitude: Number(longitudeText)
+                      }
+                    ]}
+                    selectedLocationId="host-facility-preview"
+                    height={160}
+                    showControls={false}
+                  />
+                </View>
+              )}
+
               <Text style={styles.fieldLabel}>Booking Acceptance Mode</Text>
               <SelectionCard
                 title="Instant Confirmation"
@@ -615,15 +686,29 @@ export default function HostLocationEditorScreen() {
               </View>
 
               <Text style={styles.fieldLabel}>Facility Amenities</Text>
-              {LOCATION_AMENITIES.map((amenity) => (
-                <SelectionCard
-                  key={amenity}
-                  title={amenity.replace(/_/g, " ")}
-                  selected={selectedAmenities.includes(amenity)}
-                  role="checkbox"
-                  onPress={() => toggleAmenity(amenity)}
-                />
-              ))}
+              <View style={styles.chipsWrap}>
+                {LOCATION_AMENITIES.map((amenity) => {
+                  const selected = selectedAmenities.includes(amenity);
+                  return (
+                    <TouchableOpacity
+                      key={amenity}
+                      style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                      onPress={() => toggleAmenity(amenity)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected }}
+                    >
+                      <Text
+                        style={[
+                          styles.pillChipText,
+                          selected ? styles.pillChipTextActive : null
+                        ]}
+                      >
+                        {amenity.replace(/_/g, " ")}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
               <Button
                 title={locationId ? "Save Hub Profile" : "Create Storage Hub"}
@@ -633,290 +718,365 @@ export default function HostLocationEditorScreen() {
                 }}
               />
             </FormSection>
-          </Card>
+          ) : null}
 
-          {locationId ? (
-            <>
-              <Card variant="default" style={styles.cardGap}>
-                <FormSection
-                  title="2. Facility Photos"
-                  subtitle="Upload entrance and counter photos (minimum 1 photo required for review)."
-                >
-                  <ImageGallery
-                    images={(existing?.images ?? []).map((img) => ({
-                      id: img.id,
-                      url: img.url,
-                      caption: img.caption,
-                      isPrimary: img.isPrimary
-                    }))}
-                  />
-                  <Button
-                    title="Add Facility Photo"
-                    variant="outline"
-                    leftIcon={<MobileIcon name="camera" size={16} color={mobileColors.navy[900]} />}
-                    isLoading={isUploadingPhoto}
-                    onPress={() => {
-                      void handleUploadLocationPhoto();
-                    }}
-                  />
-                </FormSection>
-              </Card>
+          {locationId && activeTab === "PHOTOS" ? (
+            <FormSection
+              title="2. Facility Photos"
+              subtitle="Upload entrance and counter photos (minimum 1 photo required for review)."
+            >
+              <ImageGallery
+                images={(existing?.images ?? []).map((img) => ({
+                  id: img.id,
+                  url: img.url,
+                  caption: img.caption,
+                  isPrimary: img.isPrimary
+                }))}
+              />
+              <Button
+                title="Add Facility Photo"
+                variant="outline"
+                leftIcon={<MobileIcon name="camera" size={16} color={mobileColors.navy[900]} />}
+                isLoading={isUploadingPhoto}
+                onPress={() => {
+                  void handleUploadLocationPhoto();
+                }}
+              />
+            </FormSection>
+          ) : null}
 
-              <Card variant="default" style={styles.cardGap}>
-                <FormSection
-                  title="3. Weekly Operating Hours & Closures"
-                  subtitle="Configure standard Monday–Sunday counter hours in Asia/Colombo time."
-                >
-                  {weeklyHours.map((day, idx) => (
-                    <View key={day.dayOfWeek} style={styles.dayRow}>
-                      <View style={styles.dayHeader}>
-                        <Text style={styles.dayTitle}>{DAY_LABELS[day.dayOfWeek]}</Text>
-                        <Switch
-                          value={!day.isClosed}
-                          onValueChange={(open) => {
-                            setWeeklyHours((prev) =>
-                              prev.map((item, i) =>
-                                i === idx ? { ...item, isClosed: !open } : item
-                              )
-                            );
-                          }}
-                        />
-                      </View>
-                      {!day.isClosed ? (
-                        <View style={styles.rowTwo}>
-                          <TextInput
-                            label="Open (HH:MM)"
-                            value={day.openTime}
-                            onChangeText={(val) =>
-                              setWeeklyHours((prev) =>
-                                prev.map((item, i) =>
-                                  i === idx ? { ...item, openTime: val } : item
-                                )
-                              )
-                            }
-                            containerStyle={styles.flexField}
-                          />
-                          <TextInput
-                            label="Close (HH:MM)"
-                            value={day.closeTime}
-                            onChangeText={(val) =>
-                              setWeeklyHours((prev) =>
-                                prev.map((item, i) =>
-                                  i === idx ? { ...item, closeTime: val } : item
-                                )
-                              )
-                            }
-                            containerStyle={styles.flexField}
-                          />
-                        </View>
-                      ) : (
-                        <Text style={styles.mutedNote}>Closed all day</Text>
-                      )}
-                    </View>
-                  ))}
-
-                  <Button
-                    title="Save Weekly Schedule"
-                    isLoading={setHoursMutation.isPending}
-                    onPress={() => {
-                      void handleSaveHours();
-                    }}
-                  />
-
-                  <Text style={styles.fieldLabel}>Add Holiday / Special Exception</Text>
-                  <TextInput
-                    label="Date (YYYY-MM-DD)"
-                    value={exceptionDate}
-                    onChangeText={setExceptionDate}
-                    placeholder="2026-05-01"
-                  />
-                  <SelectionCard
-                    title="Full-Day Closure"
-                    selected={exceptionType === "CLOSURE"}
-                    onPress={() => setExceptionType("CLOSURE")}
-                  />
-                  <SelectionCard
-                    title="Special Hours (09:00 - 17:00)"
-                    selected={exceptionType === "SPECIAL_HOURS"}
-                    onPress={() => setExceptionType("SPECIAL_HOURS")}
-                  />
-                  <TextInput
-                    label="Reason"
-                    value={exceptionReason}
-                    onChangeText={setExceptionReason}
-                    placeholder="Poya Day holiday"
-                  />
-                  <Button
-                    title="Add Date Exception"
-                    variant="outline"
-                    isLoading={addExceptionMutation.isPending}
-                    onPress={() => {
-                      void handleAddException();
-                    }}
-                  />
-                  {(existing?.exceptions?.length ?? 0) > 0 ? (
-                    <View style={styles.choicesWrap}>
-                      {(existing?.exceptions ?? []).map((ex) => (
-                        <View
-                          key={ex.id}
-                          style={{
-                            width: "100%",
-                            flexDirection: "row",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            paddingVertical: 6
-                          }}
-                        >
-                          <Text style={styles.mutedNote}>
-                            {ex.exceptionDate} • {ex.exceptionType}
-                            {ex.reason ? ` (${ex.reason})` : ""}
-                          </Text>
-                          <Button
-                            title="Remove"
-                            size="sm"
-                            variant="outline"
-                            isLoading={deleteExceptionMutation.isPending}
-                            onPress={() => {
-                              if (!existing?.id) return;
-                              void deleteExceptionMutation.mutateAsync({
-                                locationId: existing.id,
-                                exceptionId: ex.id
-                              });
-                            }}
-                          />
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                </FormSection>
-              </Card>
-
-              <Card variant="default" style={styles.cardGap}>
-                <FormSection
-                  title="4. Storage Zones & Capacity Pools"
-                  subtitle="Define physical vault zones and total active bag units."
-                >
-                  {zones.map((z) => (
-                    <Badge
-                      key={z.id}
-                      label={`${z.name} (${z.zoneType})`}
-                      variant="navy"
-                      size="sm"
+          {locationId && activeTab === "HOURS" ? (
+            <FormSection
+              title="3. Weekly Operating Hours & Closures"
+              subtitle="Configure standard Monday–Sunday counter hours in Asia/Colombo time."
+            >
+              {weeklyHours.map((day, idx) => (
+                <View key={day.dayOfWeek} style={styles.dayRow}>
+                  <View style={styles.dayHeader}>
+                    <Text style={styles.dayTitle}>{DAY_LABELS[day.dayOfWeek]}</Text>
+                    <Switch
+                      value={!day.isClosed}
+                      onValueChange={(open) => {
+                        setWeeklyHours((prev) =>
+                          prev.map((item, i) =>
+                            i === idx ? { ...item, isClosed: !open } : item
+                          )
+                        );
+                      }}
                     />
-                  ))}
-                  <TextInput
-                    label="New Zone Name"
-                    value={newZoneName}
-                    onChangeText={setNewZoneName}
-                    placeholder="Locker Bank A"
-                  />
-                  <View style={styles.choicesWrap}>
-                    {STORAGE_ZONE_TYPES.map((zt) => (
-                      <SelectionCard
-                        key={zt}
-                        title={zt.replace(/_/g, " ")}
-                        selected={newZoneType === zt}
-                        onPress={() => setNewZoneType(zt)}
-                      />
-                    ))}
                   </View>
-                  <Button
-                    title="Add Storage Zone"
-                    variant="outline"
-                    isLoading={createZoneMutation.isPending}
-                    onPress={() => {
-                      void handleCreateZone();
-                    }}
-                  />
+                  {!day.isClosed ? (
+                    <View style={styles.rowTwo}>
+                      <TextInput
+                        label="Open (HH:MM)"
+                        value={day.openTime}
+                        onChangeText={(val) =>
+                          setWeeklyHours((prev) =>
+                            prev.map((item, i) =>
+                              i === idx ? { ...item, openTime: val } : item
+                            )
+                          )
+                        }
+                        containerStyle={styles.flexField}
+                      />
+                      <TextInput
+                        label="Close (HH:MM)"
+                        value={day.closeTime}
+                        onChangeText={(val) =>
+                          setWeeklyHours((prev) =>
+                            prev.map((item, i) =>
+                              i === idx ? { ...item, closeTime: val } : item
+                            )
+                          )
+                        }
+                        containerStyle={styles.flexField}
+                      />
+                    </View>
+                  ) : (
+                    <Text style={styles.mutedNote}>Closed all day</Text>
+                  )}
+                </View>
+              ))}
 
-                  <Text style={styles.fieldLabel}>Capacity Pools</Text>
-                  {pools.map((pool) => (
-                    <View key={pool.id} style={styles.poolRow}>
-                      <View style={styles.flexField}>
-                        <Text style={styles.dayTitle}>
-                          {pool.poolType} • {pool.totalUnits} units
-                        </Text>
-                        <Text style={styles.mutedNote}>
-                          {pool.isActive ? "Active" : "Paused"}
-                        </Text>
-                      </View>
+              <Button
+                title="Save Weekly Schedule"
+                isLoading={setHoursMutation.isPending}
+                onPress={() => {
+                  void handleSaveHours();
+                }}
+              />
+
+              <Text style={styles.fieldLabel}>Add Holiday / Special Exception</Text>
+              <TextInput
+                label="Date (YYYY-MM-DD)"
+                value={exceptionDate}
+                onChangeText={setExceptionDate}
+                placeholder="2026-05-01"
+              />
+              <View style={styles.chipsWrap}>
+                <TouchableOpacity
+                  style={[
+                    styles.pillChip,
+                    exceptionType === "CLOSURE" ? styles.pillChipActive : null
+                  ]}
+                  onPress={() => setExceptionType("CLOSURE")}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: exceptionType === "CLOSURE" }}
+                >
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      exceptionType === "CLOSURE" ? styles.pillChipTextActive : null
+                    ]}
+                  >
+                    Full-Day Closure
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.pillChip,
+                    exceptionType === "SPECIAL_HOURS" ? styles.pillChipActive : null
+                  ]}
+                  onPress={() => setExceptionType("SPECIAL_HOURS")}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: exceptionType === "SPECIAL_HOURS" }}
+                >
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      exceptionType === "SPECIAL_HOURS" ? styles.pillChipTextActive : null
+                    ]}
+                  >
+                    Special Hours (09:00 - 17:00)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                label="Reason"
+                value={exceptionReason}
+                onChangeText={setExceptionReason}
+                placeholder="Poya Day holiday"
+              />
+              <Button
+                title="Add Date Exception"
+                variant="outline"
+                isLoading={addExceptionMutation.isPending}
+                onPress={() => {
+                  void handleAddException();
+                }}
+              />
+              {(existing?.exceptions?.length ?? 0) > 0 ? (
+                <View style={styles.choicesWrap}>
+                  {(existing?.exceptions ?? []).map((ex) => (
+                    <View key={ex.id} style={styles.exceptionRow}>
+                      <Text style={styles.mutedNote}>
+                        {ex.exceptionDate} • {ex.exceptionType}
+                        {ex.reason ? ` (${ex.reason})` : ""}
+                      </Text>
                       <Button
-                        title={pool.isActive ? "Pause" : "Activate"}
+                        title="Remove"
                         size="sm"
                         variant="outline"
+                        isLoading={deleteExceptionMutation.isPending}
                         onPress={() => {
-                          void updatePoolMutation.mutateAsync({
-                            poolId: pool.id,
-                            locationId,
-                            data: { isActive: !pool.isActive }
+                          if (!existing?.id) return;
+                          void deleteExceptionMutation.mutateAsync({
+                            locationId: existing.id,
+                            exceptionId: ex.id
                           });
                         }}
                       />
                     </View>
                   ))}
+                </View>
+              ) : null}
+            </FormSection>
+          ) : null}
 
-                  <SelectionCard
-                    title="Shared Capacity Pool"
-                    selected={newPoolType === "SHARED"}
-                    onPress={() => setNewPoolType("SHARED")}
+          {locationId && activeTab === "ZONES" ? (
+            <FormSection
+              title="4. Storage Zones & Capacity Pools"
+              subtitle="Define physical vault zones and total active bag units."
+            >
+              <View style={styles.chipsWrap}>
+                {zones.map((z) => (
+                  <Badge
+                    key={z.id}
+                    label={`${z.name} (${z.zoneType})`}
+                    variant="navy"
+                    size="sm"
                   />
-                  <SelectionCard
-                    title="Dedicated Bag Category Pool"
-                    selected={newPoolType === "DEDICATED"}
-                    onPress={() => setNewPoolType("DEDICATED")}
-                  />
-                  <TextInput
-                    label="Total Bag Capacity Units"
-                    keyboardType="numeric"
-                    value={newPoolUnits}
-                    onChangeText={setNewPoolUnits}
-                  />
+                ))}
+              </View>
+              <TextInput
+                label="New Zone Name"
+                value={newZoneName}
+                onChangeText={setNewZoneName}
+                placeholder="Locker Bank A"
+              />
+              <View style={styles.chipsWrap}>
+                {STORAGE_ZONE_TYPES.map((zt) => {
+                  const selected = newZoneType === zt;
+                  return (
+                    <TouchableOpacity
+                      key={zt}
+                      style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                      onPress={() => setNewZoneType(zt)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                    >
+                      <Text
+                        style={[
+                          styles.pillChipText,
+                          selected ? styles.pillChipTextActive : null
+                        ]}
+                      >
+                        {zt.replace(/_/g, " ")}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Button
+                title="Add Storage Zone"
+                variant="outline"
+                isLoading={createZoneMutation.isPending}
+                onPress={() => {
+                  void handleCreateZone();
+                }}
+              />
+
+              <Text style={styles.fieldLabel}>Capacity Pools</Text>
+              {pools.map((pool) => (
+                <View key={pool.id} style={styles.poolRow}>
+                  <View style={styles.flexField}>
+                    <Text style={styles.dayTitle}>
+                      {pool.poolType} • {pool.totalUnits} units
+                    </Text>
+                    <Text style={styles.mutedNote}>
+                      {pool.isActive ? "Active" : "Paused"}
+                    </Text>
+                  </View>
                   <Button
-                    title="Create Capacity Pool"
+                    title={pool.isActive ? "Pause" : "Activate"}
+                    size="sm"
                     variant="outline"
-                    isLoading={createPoolMutation.isPending}
                     onPress={() => {
-                      void handleCreatePool();
+                      void updatePoolMutation.mutateAsync({
+                        poolId: pool.id,
+                        locationId,
+                        data: { isActive: !pool.isActive }
+                      });
                     }}
                   />
-                </FormSection>
-              </Card>
+                </View>
+              ))}
 
-              <Card variant="default" style={styles.cardGap}>
-                <FormSection
-                  title="5. LKR Pricing Policy"
-                  subtitle="Configure Sri Lankan Rupee base pricing; stored in minor cents with standard bag category tiers."
+              <View style={styles.chipsWrap}>
+                <TouchableOpacity
+                  style={[
+                    styles.pillChip,
+                    newPoolType === "SHARED" ? styles.pillChipActive : null
+                  ]}
+                  onPress={() => setNewPoolType("SHARED")}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: newPoolType === "SHARED" }}
                 >
-                  {PRICING_UNITS.map((unit) => (
-                    <SelectionCard
-                      key={unit}
-                      title={unit.replace(/_/g, " ")}
-                      selected={pricingUnit === unit}
-                      onPress={() => setPricingUnit(unit)}
-                    />
-                  ))}
-                  <TextInput
-                    label="Base Rate (LKR)"
-                    keyboardType="numeric"
-                    value={baseRateRupees}
-                    onChangeText={setBaseRateRupees}
-                    helperText="Medium bag base rate in rupees (converted to minor units on save)."
-                  />
-                  <Button
-                    title="Save LKR Pricing Policy"
-                    isLoading={configurePricingMutation.isPending}
-                    onPress={() => {
-                      void handleSavePricing();
-                    }}
-                  />
-                </FormSection>
-              </Card>
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      newPoolType === "SHARED" ? styles.pillChipTextActive : null
+                    ]}
+                  >
+                    Shared Capacity Pool
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.pillChip,
+                    newPoolType === "DEDICATED" ? styles.pillChipActive : null
+                  ]}
+                  onPress={() => setNewPoolType("DEDICATED")}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: newPoolType === "DEDICATED" }}
+                >
+                  <Text
+                    style={[
+                      styles.pillChipText,
+                      newPoolType === "DEDICATED" ? styles.pillChipTextActive : null
+                    ]}
+                  >
+                    Dedicated Bag Pool
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                label="Total Bag Capacity Units"
+                keyboardType="numeric"
+                value={newPoolUnits}
+                onChangeText={setNewPoolUnits}
+              />
+              <Button
+                title="Create Capacity Pool"
+                variant="outline"
+                isLoading={createPoolMutation.isPending}
+                onPress={() => {
+                  void handleCreatePool();
+                }}
+              />
+            </FormSection>
+          ) : null}
 
-              <Card variant="elevated" style={styles.cardGap}>
-                <FormSection
-                  title="6. Readiness & Publication"
-                  subtitle="Complete all checklist items before submitting your hub for marketplace review."
-                >
+          {locationId && activeTab === "PRICING" ? (
+            <View style={styles.stack}>
+              <FormSection
+                title="5. LKR Pricing Policy"
+                subtitle="Configure Sri Lankan Rupee base pricing; stored in minor cents with standard bag category tiers."
+              >
+                <View style={styles.chipsWrap}>
+                  {PRICING_UNITS.map((unit) => {
+                    const selected = pricingUnit === unit;
+                    return (
+                      <TouchableOpacity
+                        key={unit}
+                        style={[styles.pillChip, selected ? styles.pillChipActive : null]}
+                        onPress={() => setPricingUnit(unit)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                      >
+                        <Text
+                          style={[
+                            styles.pillChipText,
+                            selected ? styles.pillChipTextActive : null
+                          ]}
+                        >
+                          {unit.replace(/_/g, " ")}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <TextInput
+                  label="Base Rate (LKR)"
+                  keyboardType="numeric"
+                  value={baseRateRupees}
+                  onChangeText={setBaseRateRupees}
+                  helperText="Medium bag base rate in rupees (converted to minor units on save)."
+                />
+                <Button
+                  title="Save LKR Pricing Policy"
+                  isLoading={configurePricingMutation.isPending}
+                  onPress={() => {
+                    void handleSavePricing();
+                  }}
+                />
+              </FormSection>
+
+              <FormSection
+                title="6. Readiness & Publication"
+                subtitle="Complete all checklist items before submitting your hub for marketplace review."
+              >
+                <View style={styles.chipsWrap}>
                   <Badge
                     label={`Photos: ${existing?.images?.length ?? 0}`}
                     variant={(existing?.images?.length ?? 0) > 0 ? "success" : "warning"}
@@ -932,23 +1092,23 @@ export default function HostLocationEditorScreen() {
                     variant={pricingQuery.data ? "success" : "warning"}
                     size="sm"
                   />
+                </View>
 
-                  <Button
-                    title="Submit Hub for Admin Review"
-                    isLoading={submitReviewMutation.isPending}
-                    onPress={() => {
-                      void handleSubmitReview();
-                    }}
-                  />
-                  <Button
-                    title="Disable Storage Hub"
-                    variant="danger"
-                    isLoading={disableMutation.isPending}
-                    onPress={() => setConfirmDisableOpen(true)}
-                  />
-                </FormSection>
-              </Card>
-            </>
+                <Button
+                  title="Submit Hub for Admin Review"
+                  isLoading={submitReviewMutation.isPending}
+                  onPress={() => {
+                    void handleSubmitReview();
+                  }}
+                />
+                <Button
+                  title="Disable Storage Hub"
+                  variant="danger"
+                  isLoading={disableMutation.isPending}
+                  onPress={() => setConfirmDisableOpen(true)}
+                />
+              </FormSection>
+            </View>
           ) : null}
         </View>
       )}
@@ -1027,5 +1187,85 @@ const styles = StyleSheet.create({
     padding: mobileSpacing[3],
     backgroundColor: mobileStatusTokens.infoBg,
     borderRadius: mobileRadius.md
+  },
+  sectionTabsRow: {
+    flexDirection: "row",
+    gap: mobileSpacing[2],
+    paddingVertical: 2
+  },
+  sectionTabBtn: {
+    minHeight: 42,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.white,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  sectionTabBtnActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  sectionTabBtnDisabled: {
+    opacity: 0.45
+  },
+  sectionTabText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileTextColors.secondary
+  },
+  sectionTabTextActive: {
+    color: mobileColors.white
+  },
+  chipsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: mobileSpacing[2]
+  },
+  pillChip: {
+    minHeight: 40,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  pillChipActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  pillChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileTextColors.primary
+  },
+  pillChipTextActive: {
+    color: mobileColors.white
+  },
+  exceptionRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  successBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.success,
+    fontWeight: "600",
+    flex: 1
   }
 });

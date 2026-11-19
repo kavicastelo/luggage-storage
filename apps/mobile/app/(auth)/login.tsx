@@ -1,12 +1,12 @@
-import React, { useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useRef, useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, TextInput as RNTextInput } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { LoginRequestSchema } from "@luggage-storage/contracts";
 import {
   Button,
   Card,
   ErrorState,
-  MobileIcon,
+  MascotIllustration,
   SafeHeader,
   ScreenContainer,
   TextInput
@@ -22,12 +22,15 @@ import {
 
 export default function MobileLoginScreen() {
   const router = useRouter();
-  const { redirectTo } = useLocalSearchParams<{ redirectTo?: string }>();
+  const { redirectTo } = useLocalSearchParams<{ redirectTo?: string | string[] }>();
   const { login, isLoading, error, setError } = useAuthStore();
+  const passwordInputRef = useRef<React.ComponentRef<typeof RNTextInput>>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const resolvedRedirectTo = Array.isArray(redirectTo) ? redirectTo[0] : redirectTo;
 
   const handleLogin = async () => {
     setError(null);
@@ -47,8 +50,8 @@ export default function MobileLoginScreen() {
         email: validation.data.email,
         password: validation.data.password
       });
-      if (redirectTo && redirectTo.startsWith("/")) {
-        router.replace(redirectTo as "/(traveller)");
+      if (resolvedRedirectTo && resolvedRedirectTo.startsWith("/")) {
+        router.replace(resolvedRedirectTo as "/(traveller)");
       } else {
         router.replace("/");
       }
@@ -71,10 +74,10 @@ export default function MobileLoginScreen() {
     >
       <Card variant="elevated" style={styles.card}>
         <View style={styles.intro}>
-          <MobileIcon name="shield-check" size="xl" variant="primary" />
+          <MascotIllustration mascot="key" size="sm" variant="bare" decorative />
           <Text style={styles.heading}>Welcome Back</Text>
           <Text style={styles.subtext}>
-            Sign in with your verified Luggage Storage email and password.
+            Sign in with your verified LuggageStorage email and password.
           </Text>
         </View>
 
@@ -88,6 +91,8 @@ export default function MobileLoginScreen() {
           autoCapitalize="none"
           keyboardType="email-address"
           autoComplete="email"
+          returnKeyType="next"
+          onSubmitEditing={() => passwordInputRef.current?.focus()}
           value={email}
           onChangeText={(val) => {
             setEmail(val);
@@ -98,6 +103,7 @@ export default function MobileLoginScreen() {
         />
 
         <TextInput
+          ref={passwordInputRef}
           label="Password"
           required
           leftIcon="lock"
@@ -105,6 +111,10 @@ export default function MobileLoginScreen() {
           secureTextEntry
           enablePasswordToggle
           autoComplete="password"
+          returnKeyType="done"
+          onSubmitEditing={() => {
+            void handleLogin();
+          }}
           value={password}
           onChangeText={(val) => {
             setPassword(val);

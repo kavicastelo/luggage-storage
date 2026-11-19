@@ -1,12 +1,12 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useRef, useState } from "react";
+import { View, Text, StyleSheet, TextInput as RNTextInput } from "react-native";
 import { useRouter } from "expo-router";
 import { RegisterRequestSchema } from "@luggage-storage/contracts";
 import {
   Button,
   Card,
   ErrorState,
-  MobileIcon,
+  MascotIllustration,
   SafeHeader,
   ScreenContainer,
   TextInput
@@ -18,6 +18,9 @@ import { mobileColors, mobileSpacing, mobileTextColors, mobileTypography } from 
 
 export default function MobileRegisterScreen() {
   const router = useRouter();
+  const emailRef = useRef<React.ComponentRef<typeof RNTextInput>>(null);
+  const phoneRef = useRef<React.ComponentRef<typeof RNTextInput>>(null);
+  const passwordRef = useRef<React.ComponentRef<typeof RNTextInput>>(null);
 
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
@@ -75,7 +78,7 @@ export default function MobileRegisterScreen() {
     >
       <Card variant="elevated" style={styles.card}>
         <View style={styles.intro}>
-          <MobileIcon name="user" size="xl" variant="primary" />
+          <MascotIllustration mascot="jump" size="sm" variant="bare" decorative />
           <Text style={styles.heading}>Traveller Sign Up</Text>
           <Text style={styles.subtext}>
             Create your account first. You can also upgrade to a verified Host Partner later.
@@ -89,40 +92,53 @@ export default function MobileRegisterScreen() {
           required
           leftIcon="user"
           placeholder="Kasun Perera"
+          returnKeyType="next"
+          onSubmitEditing={() => emailRef.current?.focus()}
           value={displayName}
           onChangeText={setDisplayName}
           errorText={fieldErrors.displayName}
         />
 
         <TextInput
+          ref={emailRef}
           label="Email Address"
           required
           leftIcon="mail"
           placeholder="you@example.com"
           autoCapitalize="none"
           keyboardType="email-address"
+          returnKeyType="next"
+          onSubmitEditing={() => phoneRef.current?.focus()}
           value={email}
           onChangeText={setEmail}
           errorText={fieldErrors.email}
         />
 
         <TextInput
+          ref={phoneRef}
           label="Mobile Phone (Optional)"
           leftIcon="phone"
           placeholder="+94 77 123 4567"
           keyboardType="phone-pad"
+          returnKeyType="next"
+          onSubmitEditing={() => passwordRef.current?.focus()}
           value={phoneNumber}
           onChangeText={setPhoneNumber}
           errorText={fieldErrors.phoneNumber}
         />
 
         <TextInput
+          ref={passwordRef}
           label="Password"
           required
           leftIcon="lock"
           placeholder="Minimum 8 characters"
           secureTextEntry
           enablePasswordToggle
+          returnKeyType="done"
+          onSubmitEditing={() => {
+            void handleRegister();
+          }}
           value={password}
           onChangeText={setPassword}
           errorText={fieldErrors.password}

@@ -15,7 +15,10 @@ import {
   Building2,
   Calculator,
   MessageSquare,
-  Send
+  Send,
+  ChevronDown,
+  ChevronUp,
+  ArrowRight
 } from "lucide-react";
 import {
   SUPPORT_TICKET_CATEGORIES,
@@ -26,7 +29,12 @@ import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
+import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
+import { Select } from "@/components/ui/Select";
+import { Textarea } from "@/components/ui/Textarea";
 import { formatLkr } from "@/data/mock-marketplace";
 import {
   useCreateSupportTicketMutation,
@@ -36,6 +44,15 @@ import {
 } from "@/hooks/queries/use-support-tickets";
 import { formatDateTimeDisplay } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
+
+const SUPPORT_CATEGORY_LABELS: Record<SupportTicketCategory, string> = {
+  BOOKING_ISSUE: "Booking Issue",
+  CUSTODY_INCIDENT: "Custody or Baggage Incident",
+  PAYMENT_REFUND: "Payment & Refund",
+  HOST_ONBOARDING: "Host Onboarding",
+  ACCOUNT_ACCESS: "Account & Sign-In",
+  GENERAL_INQUIRY: "General Inquiry"
+};
 
 export function BecomeAHostLandingPage() {
   const { isAuthenticated, user } = useAuthStore();
@@ -66,37 +83,49 @@ export function BecomeAHostLandingPage() {
     <div className="space-y-12 pb-12">
       <section className="rounded-3xl bg-navy-950 text-white p-8 sm:p-12 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
         <div className="lg:col-span-7 space-y-5">
-          <Badge variant="brand" size="md">
-            Sri Lanka Partner Network
-          </Badge>
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge variant="brand" size="md">
+              Sri Lanka Partner Network
+            </Badge>
+          </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold leading-tight">
             Monetize Unused Space Into Predictable Partner Revenue
           </h1>
-          <p className="text-sand-200 text-base">
+          <p className="text-sand-200 text-base leading-relaxed">
             Hotels, transit cafes, and retail counters keep 85% net revenue on every completed
             storage booking with digital custody logs and transparent bi-monthly settlement ledgers.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link
               to={hostCtaTo}
-              className="px-5 py-3 rounded-xl bg-terracotta-500 text-white text-sm font-bold hover:bg-terracotta-600"
+              className="min-h-[44px] inline-flex items-center px-5 py-3 rounded-xl bg-terracotta-500 text-white text-sm font-bold hover:bg-terracotta-600 transition-colors"
             >
               {hostCtaLabel}
             </Link>
             {!isAuthenticated && (
               <Link
                 to="/register"
-                className="px-5 py-3 rounded-xl bg-white/10 border border-white/25 text-white text-sm font-bold hover:bg-white/20"
+                className="min-h-[44px] inline-flex items-center px-5 py-3 rounded-xl bg-white/10 border border-white/25 text-white text-sm font-bold hover:bg-white/20 transition-colors"
               >
                 Create Partner Account
               </Link>
             )}
             <Link
               to="/how-it-works"
-              className="px-5 py-3 rounded-xl border border-white/25 text-white text-sm font-bold hover:bg-white/10"
+              className="min-h-[44px] inline-flex items-center px-5 py-3 rounded-xl border border-white/25 text-white text-sm font-bold hover:bg-white/10 transition-colors"
             >
               Review Counter Workflow
             </Link>
+          </div>
+
+          <div className="pt-2">
+            <MascotIllustration
+              mascot="high-five"
+              size="sm"
+              variant="inline"
+              className="bg-white/10 border border-white/15 rounded-2xl px-4 py-2.5 [&_p]:text-sand-100"
+              caption="Join verified Sri Lankan hospitality partners welcoming travellers every day."
+            />
           </div>
         </div>
 
@@ -106,40 +135,44 @@ export function BecomeAHostLandingPage() {
             Partner Estimator
           </div>
           <h2 className="text-xl font-extrabold">Estimate Your Monthly Partner Earnings</h2>
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div>
-              <div className="flex justify-between text-xs font-bold mb-1">
-                <span>Average Bags Stored / Day</span>
-                <span>{dailyBags} bags</span>
+              <div className="flex justify-between text-xs font-bold mb-1.5">
+                <label htmlFor="host-daily-bags-range">Average Bags Stored / Day</label>
+                <span className="tabular-nums">{dailyBags} bags</span>
               </div>
               <input
+                id="host-daily-bags-range"
                 type="range"
                 min={5}
                 max={60}
                 value={dailyBags}
+                aria-label="Average Bags Stored Per Day"
                 onChange={(e) => setDailyBags(Number(e.target.value))}
-                className="w-full accent-terracotta-500"
+                className="w-full h-2 accent-terracotta-500 cursor-pointer"
               />
             </div>
             <div>
-              <div className="flex justify-between text-xs font-bold mb-1">
-                <span>Average Rate / Bag</span>
-                <span>{formatLkr(avgFeeLkr)}</span>
+              <div className="flex justify-between text-xs font-bold mb-1.5">
+                <label htmlFor="host-avg-fee-range">Average Rate / Bag</label>
+                <span className="tabular-nums">{formatLkr(avgFeeLkr)}</span>
               </div>
               <input
+                id="host-avg-fee-range"
                 type="range"
                 min={800}
                 max={2500}
                 step={100}
                 value={avgFeeLkr}
+                aria-label="Average Rate Per Bag in LKR"
                 onChange={(e) => setAvgFeeLkr(Number(e.target.value))}
-                className="w-full accent-terracotta-500"
+                className="w-full h-2 accent-terracotta-500 cursor-pointer"
               />
             </div>
           </div>
           <div className="rounded-xl bg-sand-50 border border-sand-200 p-4 space-y-1">
             <p className="text-xs text-sand-700">Estimated Monthly Host Share (85%)</p>
-            <p className="text-2xl font-black text-navy-950">{formatLkr(hostNetLkr)}</p>
+            <p className="text-2xl font-black text-navy-950 tabular-nums">{formatLkr(hostNetLkr)}</p>
           </div>
         </Card>
       </section>
@@ -212,32 +245,46 @@ export function HowItWorksPage() {
 
   return (
     <div className="space-y-10 pb-12">
-      <div className="space-y-2 max-w-3xl">
-        <Badge variant="brand" size="md">
-          Custody Protocol
-        </Badge>
-        <h1 className="text-3xl font-extrabold text-navy-950">
-          How Our Custody &amp; Protection Protocol Works
-        </h1>
-        <p className="text-sm text-sand-700">
-          Four deterministic verification stages connect online reservations with physical baggage
-          custody.
-        </p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-2 max-w-2xl">
+          <Badge variant="brand" size="md">
+            Custody Protocol
+          </Badge>
+          <h1 className="text-3xl font-extrabold text-navy-950">
+            How Our Custody &amp; Protection Protocol Works
+          </h1>
+          <p className="text-sm text-sand-700 leading-relaxed">
+            Four deterministic verification stages connect online reservations with physical baggage
+            custody.
+          </p>
+        </div>
+        <MascotIllustration
+          mascot="suitcase-walk"
+          size="md"
+          variant="bare"
+          decorative
+          className="shrink-0"
+        />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {steps.map((item) => {
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+        {steps.map((item, idx) => {
           const Icon = item.icon;
           return (
-            <Card key={item.step} className="p-6 bg-white space-y-3">
+            <Card key={item.step} className="p-6 bg-white space-y-3 relative">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-extrabold tracking-widest text-terracotta-600">
-                  {item.step}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-full bg-terracotta-100 text-terracotta-800 text-xs font-extrabold inline-flex items-center justify-center">
+                    {idx + 1}
+                  </span>
+                  <span className="text-xs font-extrabold tracking-widest text-terracotta-600">
+                    {item.step}
+                  </span>
+                </div>
                 <Icon className="h-5 w-5 text-navy-800" />
               </div>
               <h2 className="text-lg font-extrabold text-navy-950">{item.title}</h2>
-              <p className="text-sm text-sand-700">{item.body}</p>
+              <p className="text-sm text-sand-700 leading-relaxed">{item.body}</p>
             </Card>
           );
         })}
@@ -249,11 +296,20 @@ export function HowItWorksPage() {
           Mandatory Protection Policy
         </div>
         <h2 className="text-xl font-extrabold">Decoupled Luggage Return &amp; Overdue Resolution</h2>
-        <p className="text-sm text-sand-200 max-w-3xl">
+        <p className="text-sm text-sand-200 max-w-3xl leading-relaxed">
           Hosts cannot arbitrarily retain personal travel documents or refuse baggage inspection due
           to minor schedule delays. Overdue time beyond the partner&apos;s grace period is logged
           transparently and resolved cleanly through platform custody records.
         </p>
+        <div className="pt-2">
+          <Link
+            to="/search"
+            className="min-h-[44px] inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-sm font-bold transition-colors"
+          >
+            <span>Find Storage</span>
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       </Card>
     </div>
   );
@@ -261,18 +317,22 @@ export function HowItWorksPage() {
 
 const FAQ_ITEMS = [
   {
+    id: "faq-qr-pin",
     q: "What happens if counter QR scanning is unavailable or I lose signal?",
     a: "Every Digital Custody Pass pairs its encrypted single-use QR code with an offline 6-digit numeric fallback PIN. Read that 6-digit PIN directly to host staff to verify drop-off or collection."
   },
   {
+    id: "faq-address-masking",
     q: "When is the exact street address revealed?",
     a: "To protect host counter privacy, discovery results display an approximate ~200–400m corridor until your booking is confirmed. Exact street address and entry directions unlock immediately on confirmation."
   },
   {
+    id: "faq-refunds",
     q: "What is the cancellation and refund policy?",
     a: "Traveller cancellations more than 2 hours before drop-off qualify for a 100% refund. Cancellations within 2 hours before drop-off qualify for a 50% refund. Host or platform cancellations always receive 100%."
   },
   {
+    id: "faq-oversized",
     q: "Are oversize surfboards, strollers, or cycling boxes accepted?",
     a: "Filter for 'Accepts Oversized' during discovery or inspect the location's capacity details. Only hubs flagged as oversized-capable allow oversized items at checkout."
   }
@@ -280,6 +340,9 @@ const FAQ_ITEMS = [
 
 export function HelpCentreFaqPage() {
   const [filterText, setFilterText] = useState("");
+  const [openIds, setOpenIds] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(FAQ_ITEMS.map((item) => [item.id, true]))
+  );
 
   useEffect(() => {
     if (typeof document !== "undefined") {
@@ -294,6 +357,10 @@ export function HelpCentreFaqPage() {
       item.a.toLowerCase().includes(filterText.toLowerCase())
   );
 
+  const toggleFaq = (id: string) => {
+    setOpenIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   return (
     <div className="space-y-8 pb-12 max-w-4xl mx-auto">
       <div className="space-y-3">
@@ -305,6 +372,7 @@ export function HelpCentreFaqPage() {
           Help Centre &amp; Frequently Asked Questions
         </h1>
         <Input
+          id="faq-search-input"
           label="Search help topics"
           placeholder="Search PINs, refunds, privacy masking..."
           value={filterText}
@@ -312,14 +380,53 @@ export function HelpCentreFaqPage() {
         />
       </div>
 
-      <div className="space-y-4">
-        {filteredFaqs.map((faq) => (
-          <Card key={faq.q} className="p-6 bg-white space-y-2">
-            <h2 className="text-base font-extrabold text-navy-950">{faq.q}</h2>
-            <p className="text-sm text-sand-700">{faq.a}</p>
-          </Card>
-        ))}
-      </div>
+      {filteredFaqs.length === 0 ? (
+        <EmptyState
+          mascot="thinking"
+          title="No matching FAQ topics found"
+          description="Try another search term or contact our Colombo Operations Desk directly."
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              onClick={() => setFilterText("")}
+            >
+              Clear Search
+            </Button>
+          }
+        />
+      ) : (
+        <div className="space-y-3">
+          {filteredFaqs.map((faq) => {
+            const isOpen = Boolean(openIds[faq.id]);
+            const panelId = `${faq.id}-panel`;
+            return (
+              <Card key={faq.id} className="bg-white overflow-hidden">
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  aria-controls={panelId}
+                  onClick={() => toggleFaq(faq.id)}
+                  className="w-full min-h-[56px] px-6 py-4 text-left flex items-center justify-between gap-4 hover:bg-sand-50/70 transition-colors"
+                >
+                  <h2 className="text-base font-extrabold text-navy-950">{faq.q}</h2>
+                  {isOpen ? (
+                    <ChevronUp className="h-4 w-4 text-sand-700 shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-sand-700 shrink-0" />
+                  )}
+                </button>
+                {isOpen && (
+                  <div id={panelId} className="px-6 pb-5 pt-1 text-sm text-sand-700 leading-relaxed border-t border-sand-100">
+                    {faq.a}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <Card className="p-6 bg-sand-100 border border-sand-200 flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -330,7 +437,7 @@ export function HelpCentreFaqPage() {
         </div>
         <Link
           to="/contact"
-          className="px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800"
+          className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800 transition-colors"
         >
           Contact Support
         </Link>
@@ -451,7 +558,11 @@ export function ContactUsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <Card className="lg:col-span-5 p-6 bg-white space-y-5">
-          <h2 className="text-lg font-extrabold text-navy-950">Colombo Operations Desk</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-extrabold text-navy-950">Colombo Operations Desk</h2>
+            <MascotIllustration mascot="phone" size="sm" variant="bare" decorative />
+          </div>
+
           <div className="space-y-3 text-sm text-sand-800">
             <div className="flex items-start gap-3">
               <Phone className="h-4 w-4 text-terracotta-600 mt-1" />
@@ -498,8 +609,8 @@ export function ContactUsPage() {
                 <span className="font-mono font-bold text-navy-950">
                   {createdTicket.referenceCode}
                 </span>{" "}
-                ({createdTicket.category} • Priority {createdTicket.priority}). For urgent live
-                handover help call{" "}
+                ({SUPPORT_CATEGORY_LABELS[createdTicket.category] ?? createdTicket.category} • Priority{" "}
+                {createdTicket.priority}). For urgent live handover help call{" "}
                 <span className="font-mono font-semibold">+94 11 234 5678</span>.
               </p>
               <div className="flex flex-wrap gap-2">
@@ -517,6 +628,7 @@ export function ContactUsPage() {
             <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
+                  id="contact-name"
                   label="Full Name"
                   required
                   value={name}
@@ -524,6 +636,7 @@ export function ContactUsPage() {
                   placeholder="Your name"
                 />
                 <Input
+                  id="contact-email"
                   label="Reply Email"
                   type="email"
                   required
@@ -533,23 +646,20 @@ export function ContactUsPage() {
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-navy-900 mb-1.5">
-                    Inquiry Category
-                  </label>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value as SupportTicketCategory)}
-                    className="w-full rounded-xl border border-sand-300 bg-white px-3.5 py-2.5 text-sm text-navy-950 focus:outline-none focus:ring-2 focus:ring-terracotta-500"
-                  >
-                    {SUPPORT_TICKET_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  id="contact-category"
+                  label="Inquiry Category"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as SupportTicketCategory)}
+                >
+                  {SUPPORT_TICKET_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {SUPPORT_CATEGORY_LABELS[cat] ?? cat}
+                    </option>
+                  ))}
+                </Select>
                 <Input
+                  id="contact-booking-ref"
                   label="Booking Reference (Optional)"
                   value={bookingRef}
                   onChange={(e) => setBookingRef(e.target.value)}
@@ -557,25 +667,22 @@ export function ContactUsPage() {
                 />
               </div>
               <Input
+                id="contact-subject"
                 label="Subject"
                 required
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
                 placeholder="Brief summary of your inquiry"
               />
-              <div>
-                <label className="block text-sm font-semibold text-navy-900 mb-1.5">
-                  How can we help?
-                </label>
-                <textarea
-                  rows={4}
-                  required
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Share hub city, scheduled drop-off time, or question..."
-                  className="w-full rounded-xl border border-sand-300 bg-white px-3.5 py-2.5 text-sm text-navy-950 focus:outline-none focus:ring-2 focus:ring-terracotta-500"
-                />
-              </div>
+              <Textarea
+                id="contact-message"
+                label="How can we help?"
+                rows={4}
+                required
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Share hub city, scheduled drop-off time, or question..."
+              />
               <Button
                 type="submit"
                 variant="primary"
@@ -601,7 +708,30 @@ export function ContactUsPage() {
             <span className="text-xs text-sand-700 font-semibold">{myTickets.length} ticket(s)</span>
           </div>
 
-          {myTickets.length === 0 ? (
+          {myTicketsQuery.isLoading ? (
+            <div className="space-y-3">
+              <LoadingSkeleton className="h-16 w-full" />
+              <LoadingSkeleton className="h-16 w-full" />
+            </div>
+          ) : myTicketsQuery.isError ? (
+            <Alert variant="danger" title="Unable to Load Support Tickets">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span>
+                  {myTicketsQuery.error instanceof Error
+                    ? myTicketsQuery.error.message
+                    : "Could not load your support ticket history."}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void myTicketsQuery.refetch()}
+                >
+                  Retry
+                </Button>
+              </div>
+            </Alert>
+          ) : myTickets.length === 0 ? (
             <p className="text-xs text-sand-700">
               Tickets you submit while signed in appear here with live agent replies and status
               updates.
@@ -614,7 +744,7 @@ export function ContactUsPage() {
                     key={t.id}
                     type="button"
                     onClick={() => setSelectedTicketId(t.id)}
-                    className={`w-full text-left p-3.5 rounded-xl border transition ${
+                    className={`w-full text-left p-3.5 rounded-xl border transition min-h-[44px] ${
                       selectedTicketId === t.id
                         ? "border-terracotta-500 bg-terracotta-50/40"
                         : "border-sand-200 hover:bg-sand-50"
@@ -628,14 +758,40 @@ export function ContactUsPage() {
                     </div>
                     <p className="font-bold text-navy-900 mt-1 truncate">{t.subject}</p>
                     <p className="text-[11px] text-sand-700 mt-0.5">
-                      {t.category} • Updated {formatDateTimeDisplay(t.lastMessageAt)}
+                      {SUPPORT_CATEGORY_LABELS[t.category] ?? t.category} • Updated{" "}
+                      {formatDateTimeDisplay(t.lastMessageAt)}
                     </p>
                   </button>
                 ))}
               </div>
 
               <div className="lg:col-span-7">
-                {!activeDetail ? (
+                {!selectedTicketId ? (
+                  <p className="text-sand-700">Select a ticket to inspect agent updates.</p>
+                ) : myTicketDetailQuery.isLoading ? (
+                  <div className="space-y-3 rounded-xl border border-sand-200 p-4">
+                    <LoadingSkeleton variant="text" className="w-1/2" />
+                    <LoadingSkeleton className="h-24 w-full" />
+                  </div>
+                ) : myTicketDetailQuery.isError ? (
+                  <Alert variant="danger" title="Unable to Load Ticket Conversation">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <span>
+                        {myTicketDetailQuery.error instanceof Error
+                          ? myTicketDetailQuery.error.message
+                          : "Could not load conversation messages."}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void myTicketDetailQuery.refetch()}
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  </Alert>
+                ) : !activeDetail ? (
                   <p className="text-sand-700">Select a ticket to inspect agent updates.</p>
                 ) : (
                   <div className="rounded-xl border border-sand-200 p-4 space-y-3">
@@ -669,17 +825,21 @@ export function ContactUsPage() {
 
                     {activeDetail.status !== "CLOSED" && (
                       <form onSubmit={(e) => void handleReplySubmit(e)} className="flex gap-2">
+                        <label htmlFor="support-followup-input" className="sr-only">
+                          Add a follow-up message
+                        </label>
                         <input
+                          id="support-followup-input"
                           type="text"
                           value={followUpMessage}
                           onChange={(e) => setFollowUpMessage(e.target.value)}
                           placeholder="Add a follow-up message..."
-                          className="flex-1 rounded-xl border border-sand-300 px-3 py-2 text-xs"
+                          className="flex-1 min-h-[44px] rounded-xl border border-sand-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-terracotta-500"
                         />
                         <Button
                           type="submit"
                           variant="secondary"
-                          size="sm"
+                          size="md"
                           isLoading={replyTicketMutation.isPending}
                         >
                           <Send className="h-3.5 w-3.5" />
@@ -707,7 +867,7 @@ export function TermsPrivacyLegalPage() {
 
   return (
     <div className="space-y-8 pb-12 max-w-4xl mx-auto">
-      <div className="space-y-2">
+      <div className="space-y-3">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-terracotta-600">
           <FileText className="h-4 w-4" />
           Legal Governance
@@ -715,35 +875,85 @@ export function TermsPrivacyLegalPage() {
         <h1 className="text-3xl font-extrabold text-navy-950">
           Terms of Service, Privacy &amp; Legal Charter
         </h1>
+        <p className="text-sm text-sand-700">
+          Transparent marketplace governance, Sri Lanka PDPA privacy protections, and luggage
+          custody standards.
+        </p>
+
+        {/* Quick Anchor Navigation */}
+        <nav aria-label="Legal sections" className="flex flex-wrap gap-2 pt-1">
+          <a
+            href="#terms"
+            className="min-h-[40px] inline-flex items-center px-3.5 py-1.5 rounded-full bg-white border border-sand-200 text-xs font-bold text-navy-900 hover:bg-sand-100 transition-colors"
+          >
+            Marketplace Terms
+          </a>
+          <a
+            href="#privacy"
+            className="min-h-[40px] inline-flex items-center px-3.5 py-1.5 rounded-full bg-white border border-sand-200 text-xs font-bold text-navy-900 hover:bg-sand-100 transition-colors"
+          >
+            Privacy &amp; PDPA
+          </a>
+          <a
+            href="#custody"
+            className="min-h-[40px] inline-flex items-center px-3.5 py-1.5 rounded-full bg-white border border-sand-200 text-xs font-bold text-navy-900 hover:bg-sand-100 transition-colors"
+          >
+            Custody Charter
+          </a>
+        </nav>
       </div>
 
-      <Card className="p-6 bg-white space-y-3">
+      <Card id="terms" className="p-6 bg-white space-y-3 scroll-mt-24">
         <h2 className="text-lg font-extrabold text-navy-950">Marketplace Terms of Service</h2>
-        <p className="text-sm text-sand-700">
+        <p className="text-sm text-sand-700 leading-relaxed">
           LuggageStorage acts as an independent digital booking and ledger-backed marketplace
           settlement facilitator between travellers and verified hospitality storage hosts in Sri
-          Lanka.
+          Lanka. All booking totals, cancellation tiers, and LKR receipts are calculated
+          authoritatively on the platform.
         </p>
       </Card>
 
-      <Card className="p-6 bg-white space-y-3">
+      <Card id="privacy" className="p-6 bg-white space-y-3 scroll-mt-24">
         <h2 className="text-lg font-extrabold text-navy-950">Privacy &amp; PDPA Policy</h2>
-        <p className="text-sm text-sand-700">
+        <p className="text-sm text-sand-700 leading-relaxed">
           Location addresses remain masked to approximate transit zones prior to confirmed payment.
           Custody pass tokens are cryptographically hashed and expire cleanly after 15 minutes or
           single counter verification.
         </p>
       </Card>
 
-      <Card className="p-6 bg-white space-y-3">
+      <Card id="custody" className="p-6 bg-white space-y-3 scroll-mt-24">
         <h2 className="text-lg font-extrabold text-navy-950">
           Custody &amp; Mandatory Release Charter
         </h2>
-        <p className="text-sm text-sand-700">
+        <p className="text-sm text-sand-700 leading-relaxed">
           Verified partner hosts acknowledge decoupled luggage return rules: travellers present
           single-use release credentials at collection, and any overdue duration outside grace
           windows is recorded transparently within booking exception logs.
         </p>
+      </Card>
+
+      <Card className="p-6 bg-sand-100 border border-sand-200 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h3 className="font-bold text-navy-950">Questions about custody or privacy rules?</h3>
+          <p className="text-xs text-sand-700">
+            Browse our traveller FAQ or open a tracked inquiry with our Colombo desk.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to="/help"
+            className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl border border-sand-300 bg-white text-navy-900 text-xs font-bold hover:bg-sand-50 transition-colors"
+          >
+            Help Centre
+          </Link>
+          <Link
+            to="/contact"
+            className="min-h-[44px] inline-flex items-center px-4 py-2 rounded-xl bg-navy-900 text-white text-xs font-bold hover:bg-navy-800 transition-colors"
+          >
+            Contact Support
+          </Link>
+        </div>
       </Card>
     </div>
   );

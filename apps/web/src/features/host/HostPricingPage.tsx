@@ -7,9 +7,9 @@ import {
   type BagCategory,
   type PricingUnit
 } from "@luggage-storage/contracts";
-import { CheckCircle2, Info } from "lucide-react";
-import { Alert } from "@/components/ui/Alert";
-import { DEMO_LOCATIONS } from "@/data/mock-marketplace";
+import { Calculator, CheckCircle2, Info } from "lucide-react";
+import { Alert, Button, Card, LoadingSkeleton, MascotIllustration } from "@/components/ui";
+import { DEMO_LOCATIONS, formatLkr } from "@/data/mock-marketplace";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
@@ -17,7 +17,12 @@ import {
   useHostLocationDetailQuery,
   usePricingPolicyQuery
 } from "@/hooks/queries/use-host-portal";
-import { HostQueryErrorAlert, isUuid, NoLocationSelectedCard } from "./host-helpers";
+import {
+  HostLocationSetupTabs,
+  HostQueryErrorAlert,
+  isUuid,
+  NoLocationSelectedCard
+} from "./host-helpers";
 import { useHostVenue } from "./HostDashboardLayout";
 
 const CATEGORY_DISPLAY: Record<BagCategory, string> = {
@@ -115,9 +120,15 @@ export function HostPricingRulesMultipliersPage() {
 
   if (isAuthenticated && pricingQuery.isLoading) {
     return (
-      <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs font-semibold text-navy-600">
-        Loading LKR pricing policy...
-      </div>
+      <Card className="p-6 space-y-4">
+        <LoadingSkeleton variant="text" className="w-60 h-7" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <LoadingSkeleton className="h-28 w-full" />
+          <LoadingSkeleton className="h-28 w-full" />
+          <LoadingSkeleton className="h-28 w-full" />
+          <LoadingSkeleton className="h-28 w-full" />
+        </div>
+      </Card>
     );
   }
 
@@ -133,6 +144,17 @@ export function HostPricingRulesMultipliersPage() {
       />
     );
   }
+
+  const handleCalculateFromBaseline = () => {
+    const safeBase = Math.max(100, Number(baseRateLkr) || 0);
+    const nextRates = { ...tierRatesLkr };
+    for (const category of BAG_CATEGORIES) {
+      const raw = (safeBase * tierMultipliers[category]) / 10000;
+      nextRates[category] = Math.max(50, Math.round(raw / 50) * 50);
+    }
+    setTierRatesLkr(nextRates);
+    setSavedNotice("Calculated tier rates from baseline medium rate. Click Save Pricing Rules to apply.");
+  };
 
   const handleSavePricing = async () => {
     setErrorMsg(null);
@@ -166,11 +188,14 @@ export function HostPricingRulesMultipliersPage() {
   };
 
   const locationTitle = detailQuery.data?.name ?? demoLoc?.name ?? "Storage Hub";
+  const sampleQuoteGross =
+    (tierRatesLkr.BAG_MEDIUM || 0) + (tierRatesLkr.BAG_LARGE || 0);
+  const sampleQuoteHostShare = Math.round(sampleQuoteGross * 0.85);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -190,16 +215,18 @@ export function HostPricingRulesMultipliersPage() {
               Configure authoritative LKR storage rates per bag size tier for checkout quotations.
             </p>
           </div>
-          <button
+          <Button
             type="button"
-            disabled={savePricingMutation.isPending}
+            size="sm"
+            isLoading={savePricingMutation.isPending}
             onClick={() => void handleSavePricing()}
-            className="px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
           >
             {savePricingMutation.isPending ? "Saving..." : "Save Pricing Rules"}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
+
+      <HostLocationSetupTabs locationId={targetLocationId} querySuffix={querySuffix} />
 
       {errorMsg && (
         <Alert variant="danger" title="Pricing Save Failed">
@@ -217,21 +244,31 @@ export function HostPricingRulesMultipliersPage() {
       {isAuthenticated ? (
         <>
           {pricingQuery.data === null && (
-            <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-center gap-2">
-              <Info className="h-4 w-4 text-amber-700 flex-shrink-0" />
-              <span>
-                No active pricing policy configured yet. Set LKR tier rates below and save before submitting this location for moderation.
-              </span>
-            </div>
+            <Alert variant="warning">
+              No active pricing policy configured yet. Set LKR tier rates below and save before
+              submitting this location for moderation.
+            </Alert>
           )}
 
           {/* Live Billing Unit & Baseline Rate */}
-          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm text-xs">
-            <h2 className="text-sm font-bold text-navy-950">Base Tariff &amp; Billing Unit</h2>
+          <Card className="p-6 space-y-4 text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h2 className="text-sm font-bold text-navy-950">Base Tariff &amp; Billing Unit</h2>
+              <MascotIllustration
+                mascot="blank-tag"
+                size="xs"
+                variant="inline"
+                caption="Transparent per-bag LKR rates boost traveller conversion."
+                decorative
+              />
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block font-bold text-navy-900 mb-1">Billing Unit</label>
+                <label htmlFor="pricing-unit-select" className="block font-bold text-navy-900 mb-1">
+                  Billing Unit
+                </label>
                 <select
+                  id="pricing-unit-select"
                   aria-label="Billing Unit"
                   value={pricingUnit}
                   onChange={(e) => setPricingUnit(e.target.value as PricingUnit)}
@@ -245,10 +282,11 @@ export function HostPricingRulesMultipliersPage() {
                 </select>
               </div>
               <div>
-                <label className="block font-bold text-navy-900 mb-1">
+                <label htmlFor="base-rate-lkr-input" className="block font-bold text-navy-900 mb-1">
                   Baseline Medium Rate (LKR)
                 </label>
                 <input
+                  id="base-rate-lkr-input"
                   type="number"
                   min={1}
                   step={50}
@@ -261,53 +299,97 @@ export function HostPricingRulesMultipliersPage() {
                 </p>
               </div>
             </div>
-          </div>
+          </Card>
 
           {/* Live 4-Tier LKR Rates */}
-          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
-            <h2 className="text-sm font-bold text-navy-950">Standard Tiered Storage Rates (LKR)</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {BAG_CATEGORIES.map((category) => (
-                <div
-                  key={category}
-                  className="p-4 rounded-xl bg-sand-50/70 border border-sand-200 space-y-3 text-xs"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-navy-900">
-                      {category.replace("BAG_", "")} BAG
-                    </span>
-                    <span className="text-[10px] font-mono text-navy-500">
-                      {(tierMultipliers[category] / 10000).toFixed(2)}x
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-navy-600">{CATEGORY_DISPLAY[category]}</p>
-                  <div className="space-y-1">
-                    <label className="block text-[11px] text-navy-700 font-medium">
-                      Unit Rate (LKR)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      step={50}
-                      value={tierRatesLkr[category]}
-                      onChange={(e) =>
-                        setTierRatesLkr((prev) => ({
-                          ...prev,
-                          [category]: Number(e.target.value)
-                        }))
-                      }
-                      className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 font-mono font-bold"
-                    />
-                  </div>
-                </div>
-              ))}
+          <Card className="p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-bold text-navy-950">Standard Tiered Storage Rates (LKR)</h2>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCalculateFromBaseline}
+                leftIcon={<Calculator className="h-3.5 w-3.5" />}
+              >
+                Calculate from Baseline
+              </Button>
             </div>
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {BAG_CATEGORIES.map((category) => {
+                const inputId = `tier-rate-${category}`;
+                return (
+                  <div
+                    key={category}
+                    className="p-4 rounded-xl bg-sand-50/70 border border-sand-200 space-y-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-navy-900">
+                        {category.replace("BAG_", "")} BAG
+                      </span>
+                      <span className="text-[10px] font-mono text-navy-500">
+                        {(tierMultipliers[category] / 10000).toFixed(2)}x
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-navy-600">{CATEGORY_DISPLAY[category]}</p>
+                    <div className="space-y-1">
+                      <label htmlFor={inputId} className="block text-[11px] text-navy-700 font-medium">
+                        Unit Rate (LKR)
+                      </label>
+                      <input
+                        id={inputId}
+                        type="number"
+                        min={0}
+                        step={50}
+                        value={tierRatesLkr[category]}
+                        onChange={(e) =>
+                          setTierRatesLkr((prev) => ({
+                            ...prev,
+                            [category]: Number(e.target.value)
+                          }))
+                        }
+                        className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 font-mono font-bold bg-white"
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          {/* Sample Booking Quote Preview */}
+          <Card variant="muted" className="p-5 text-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="font-bold text-navy-950">
+                  Sample Quote Preview (1× Cabin Trolley + 1× Large Suitcase, 1{" "}
+                  {pricingUnit === "CALENDAR_DAY" ? "Calendar Day" : "24h Block"})
+                </p>
+                <p className="text-navy-600 mt-0.5">
+                  Traveller checkout total based on your configured tier rates above.
+                </p>
+              </div>
+              <div className="flex items-center gap-5">
+                <div>
+                  <span className="text-[11px] text-navy-500">Traveller Total</span>
+                  <p className="text-base font-extrabold text-navy-950">
+                    {formatLkr(sampleQuoteGross)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[11px] text-navy-500">Est. Host Share (85%)</span>
+                  <p className="text-base font-extrabold text-emerald-700">
+                    {formatLkr(sampleQuoteHostShare)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </Card>
         </>
       ) : (
         /* Demo Mode Pricing + Prototype Policy */
         <>
-          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+          <Card className="p-6 space-y-4">
             <h2 className="text-sm font-bold text-navy-950">Standard Tiered Storage Rates (LKR)</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {(["SMALL", "MEDIUM", "LARGE", "OVERSIZED"] as const).map((tier) => (
@@ -320,31 +402,39 @@ export function HostPricingRulesMultipliersPage() {
                     <span className="text-[10px] text-navy-500">Tier Rates</span>
                   </div>
                   <div className="space-y-1 text-xs">
-                    <label className="block text-[11px] text-navy-600 font-medium">
+                    <label
+                      htmlFor={`demo-hourly-${tier}`}
+                      className="block text-[11px] text-navy-600 font-medium"
+                    >
                       Hourly Rate (LKR)
                     </label>
                     <input
+                      id={`demo-hourly-${tier}`}
                       type="number"
                       defaultValue={demoLoc?.hourlyRateLkr[tier]}
-                      className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 font-mono text-xs font-bold"
+                      className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 font-mono text-xs font-bold bg-white"
                     />
                   </div>
                   <div className="space-y-1 text-xs">
-                    <label className="block text-[11px] text-navy-600 font-medium">
+                    <label
+                      htmlFor={`demo-daily-${tier}`}
+                      className="block text-[11px] text-navy-600 font-medium"
+                    >
                       Daily Max Cap (LKR)
                     </label>
                     <input
+                      id={`demo-daily-${tier}`}
                       type="number"
                       defaultValue={demoLoc?.dailyCapLkr[tier]}
-                      className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 font-mono text-xs font-bold"
+                      className="w-full rounded-lg border border-sand-300 px-2.5 py-1.5 font-mono text-xs font-bold bg-white"
                     />
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
 
-          <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+          <Card className="p-6 space-y-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-bold text-navy-950">
@@ -361,10 +451,11 @@ export function HostPricingRulesMultipliersPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
-                <label className="block font-bold text-navy-900 mb-1">
+                <label htmlFor="grace-period-input" className="block font-bold text-navy-900 mb-1">
                   Configurable Grace Period (Minutes)
                 </label>
                 <input
+                  id="grace-period-input"
                   type="number"
                   min={0}
                   max={120}
@@ -377,10 +468,11 @@ export function HostPricingRulesMultipliersPage() {
                 </p>
               </div>
               <div>
-                <label className="block font-bold text-navy-900 mb-1">
+                <label htmlFor="late-fee-select" className="block font-bold text-navy-900 mb-1">
                   Late Collection Surcharge Policy
                 </label>
                 <select
+                  id="late-fee-select"
                   aria-label="Late Collection Surcharge Policy"
                   value={lateFeeRule}
                   onChange={(e) => setLateFeeRule(e.target.value)}
@@ -407,7 +499,7 @@ export function HostPricingRulesMultipliersPage() {
                 Exact late collection overdue surcharge amounts are sample figures pending Product Owner pricing policy sign-off. All payments are settled safely online.
               </div>
             </div>
-          </div>
+          </Card>
         </>
       )}
     </div>

@@ -19,7 +19,6 @@
   "dependencies": {
     "@babel/runtime": "^7.25.0",
     "@luggage-storage/contracts": "workspace:*",
-    "@payhere/payhere-mobilesdk-reactnative": "4.1.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.2.1",
     "@tanstack/react-query": "^5.32.0",

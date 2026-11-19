@@ -37,7 +37,7 @@ export interface PaymentStatusPanelProps {
 export function PaymentStatusPanel({
   bookingStatus,
   paymentStatus,
-  providerLabel = "PayHere Hosted Checkout",
+  providerLabel = "Payment Gateway",
   amountMinor,
   currency = "LKR",
   expiresAt,

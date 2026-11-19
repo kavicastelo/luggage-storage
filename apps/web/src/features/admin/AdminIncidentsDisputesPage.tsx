@@ -4,7 +4,7 @@ import {
   SYSTEM_PERMISSIONS,
   type DisputeResolutionOutcome
 } from "@luggage-storage/contracts";
-import { AlertOctagon, CheckCircle2, Eye, Gavel, PackageCheck } from "lucide-react";
+import { AlertOctagon, CheckCircle2, ExternalLink, Eye, Gavel, PackageCheck, ZoomIn } from "lucide-react";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
@@ -16,7 +16,9 @@ import {
 import { formatBagCategoryLabel, formatDateTimeDisplay, formatLkrMinor } from "@/lib/formatters";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
+  AdminImageLightboxModal,
   AdminPageHeader,
   AdminPaginationBar,
   AdminQueryErrorAlert,
@@ -51,6 +53,11 @@ export function AdminIncidentDisputeInvestigationPage() {
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [lightboxImage, setLightboxImage] = useState<{
+    url: string;
+    title?: string;
+    caption?: string | null;
+  } | null>(null);
 
   const disputedQuery = useAdminBookingsQuery(
     { page, limit, status: "DISPUTED" },
@@ -127,7 +134,7 @@ export function AdminIncidentDisputeInvestigationPage() {
           !showDemoPreview ? (
             <Link
               to="/admin/bookings?status=DISPUTED"
-              className="px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 hover:bg-slate-50"
+              className="px-3.5 py-2 rounded-xl border border-sand-200 bg-white text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
             >
               Open Full Bookings Ledger
             </Link>
@@ -136,9 +143,9 @@ export function AdminIncidentDisputeInvestigationPage() {
       />
 
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
-          <p className="font-bold text-slate-900">Sample Custody Exception Dossier (Demo Preview)</p>
-          <p className="text-slate-600 mt-0.5">
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs shadow-sm">
+          <p className="font-bold text-navy-950">Sample Custody Exception Dossier (Demo Preview)</p>
+          <p className="text-sand-700 mt-0.5">
             Inspect tamper-evident photo seals and overstay ledger adjustments.
           </p>
         </div>
@@ -174,7 +181,11 @@ export function AdminIncidentDisputeInvestigationPage() {
             </div>
           )}
 
-          {disputedBookings.length === 0 && !inspectedBooking ? (
+          {disputedQuery.isLoading && !activeBookingId ? (
+            <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm">
+              <AdminCardListSkeleton count={4} />
+            </div>
+          ) : !disputedQuery.isLoading && disputedBookings.length === 0 && !activeBookingId ? (
             <AdminEmptyStateCard
               title="No Active Custody Disputes Pending"
               description="All bookings are operating cleanly without unresolved custody exceptions or holds."
@@ -183,76 +194,101 @@ export function AdminIncidentDisputeInvestigationPage() {
             />
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-xs">
-              {/* Queue Table */}
-              <div className="lg:col-span-6 bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                <div className="p-4 border-b border-slate-200 flex items-center justify-between">
-                  <h2 className="text-sm font-bold text-slate-950 flex items-center gap-2">
+              {/* Queue Table (5 columns) */}
+              <div className="lg:col-span-5 bg-white rounded-2xl border border-sand-200 overflow-hidden shadow-sm">
+                <div className="p-4 border-b border-sand-200 flex items-center justify-between">
+                  <h2 className="text-sm font-bold text-navy-950 flex items-center gap-2">
                     <AlertOctagon className="h-4 w-4 text-rose-600" />
                     <span>Flagged Disputed Bookings ({total})</span>
                   </h2>
                 </div>
-                <div className="divide-y divide-slate-100">
-                  {disputedBookings.map((booking) => (
-                    <div
-                      key={booking.id}
-                      className={`p-4 flex items-center justify-between gap-3 ${
-                        activeBookingId === booking.id ? "bg-purple-50/70" : "hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-slate-900">
-                            {booking.referenceCode}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadgeToneClasses(
-                              booking.status
-                            )}`}
-                          >
-                            {booking.status}
-                          </span>
-                        </div>
-                        <p className="text-slate-700 font-semibold truncate">
-                          {booking.location.name} • {booking.businessName}
-                        </p>
-                        <p className="text-rose-800 truncate">
-                          {booking.exceptionReason || "Exception flag awaiting review"}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => selectDisputedBooking(booking.id)}
-                        className="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold"
+                {disputedQuery.isLoading ? (
+                  <div className="p-4">
+                    <AdminCardListSkeleton count={3} />
+                  </div>
+                ) : disputedBookings.length === 0 ? (
+                  <div className="p-6 text-center text-sand-700">
+                    No active disputed bookings in queue.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-sand-100">
+                    {disputedBookings.map((booking) => (
+                      <div
+                        key={booking.id}
+                        className={`p-4 flex items-center justify-between gap-3 transition ${
+                          activeBookingId === booking.id ? "bg-terracotta-50/70" : "hover:bg-sand-50"
+                        }`}
                       >
-                        <Eye className="h-3.5 w-3.5" />
-                        <span>Investigate</span>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <div className="p-4">
-                  <AdminPaginationBar
-                    page={page}
-                    totalPages={Math.max(1, Math.ceil(total / limit))}
-                    total={total}
-                    onPageChange={setPage}
-                  />
-                </div>
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-navy-950">
+                              {booking.referenceCode}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadgeToneClasses(
+                                booking.status
+                              )}`}
+                            >
+                              {booking.status}
+                            </span>
+                          </div>
+                          <p className="text-navy-900 font-semibold truncate">
+                            {booking.location.name} • {booking.businessName}
+                          </p>
+                          <p className="text-rose-800 truncate">
+                            {booking.exceptionReason || "Exception flag awaiting review"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => selectDisputedBooking(booking.id)}
+                          className="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white font-bold transition"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          <span>Investigate</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {disputedBookings.length > 0 && (
+                  <div className="p-4">
+                    <AdminPaginationBar
+                      page={page}
+                      totalPages={Math.max(1, Math.ceil(total / limit))}
+                      total={total}
+                      onPageChange={setPage}
+                    />
+                  </div>
+                )}
               </div>
 
-              {/* Dossier & Adjudication Panel */}
-              <div className="lg:col-span-6 space-y-5">
-                {!inspectedBooking ? (
+              {/* Dossier & Adjudication Panel (7 columns) */}
+              <div className="lg:col-span-7 space-y-5">
+                {!activeBookingId ? (
                   <AdminEmptyStateCard
                     title="Select a Disputed Booking to Investigate"
                     description="Choose any flagged booking on the left to inspect chain-of-custody seals, evidence photos, and issue a binding adjudication."
                   />
+                ) : bookingDetailQuery.isError ? (
+                  <AdminQueryErrorAlert
+                    message={
+                      bookingDetailQuery.error instanceof Error
+                        ? bookingDetailQuery.error.message
+                        : "Unable to load disputed booking details."
+                    }
+                    onRetry={() => void bookingDetailQuery.refetch()}
+                  />
+                ) : bookingDetailQuery.isLoading || !inspectedBooking ? (
+                  <div className="bg-white rounded-2xl border border-sand-200 p-6 shadow-sm">
+                    <AdminCardListSkeleton count={3} />
+                  </div>
                 ) : (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-5 shadow-sm">
-                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
+                  <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-5 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-sand-100 pb-4">
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="text-base font-extrabold font-mono text-slate-950">
+                          <h3 className="text-base font-extrabold font-mono text-navy-950">
                             {inspectedBooking.referenceCode}
                           </h3>
                           <span
@@ -263,7 +299,7 @@ export function AdminIncidentDisputeInvestigationPage() {
                             {inspectedBooking.status}
                           </span>
                         </div>
-                        <p className="text-slate-600 mt-0.5">
+                        <p className="text-sand-700 mt-0.5 tabular-nums">
                           {inspectedBooking.location.name} •{" "}
                           {formatLkrMinor(
                             inspectedBooking.totalAmountMinor,
@@ -273,7 +309,7 @@ export function AdminIncidentDisputeInvestigationPage() {
                       </div>
                       <Link
                         to={`/admin/bookings/${inspectedBooking.id}`}
-                        className="px-3 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-800 hover:bg-slate-50"
+                        className="px-3 py-1.5 rounded-lg border border-sand-200 font-bold text-navy-900 hover:bg-sand-100 transition"
                       >
                         Full Booking View
                       </Link>
@@ -288,61 +324,100 @@ export function AdminIncidentDisputeInvestigationPage() {
 
                     {/* Custody Evidence Dossier */}
                     <div className="space-y-3">
-                      <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
-                        <PackageCheck className="h-4 w-4 text-purple-700" />
+                      <h4 className="font-bold text-navy-950 flex items-center gap-1.5">
+                        <PackageCheck className="h-4 w-4 text-terracotta-600" />
                         <span>Chain-of-Custody Evidence &amp; Bag Seals</span>
                       </h4>
-                      {inspectedCustody ? (
+                      {custodyQuery.isError ? (
+                        <AdminQueryErrorAlert
+                          message={
+                            custodyQuery.error instanceof Error
+                              ? custodyQuery.error.message
+                              : "Unable to load chain-of-custody evidence."
+                          }
+                          onRetry={() => void custodyQuery.refetch()}
+                        />
+                      ) : custodyQuery.isLoading ? (
+                        <AdminCardListSkeleton count={2} />
+                      ) : inspectedCustody ? (
                         <div className="space-y-2.5">
-                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap gap-3 justify-between">
+                          <div className="p-3 rounded-xl bg-sand-50 border border-sand-200 flex flex-wrap gap-3 justify-between">
                             <span>
                               Custody Status: <strong>{inspectedCustody.status}</strong>
                             </span>
                             <span>
                               Condition: <strong>{inspectedCustody.handoverCondition}</strong>
                             </span>
-                            <span>
+                            <span className="tabular-nums">
                               Overdue: <strong>{inspectedCustody.overdueMinutes} min</strong>
                             </span>
                           </div>
                           {inspectedCustody.bags.map((bag) => (
                             <div
                               key={bag.id}
-                              className="p-3 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-2"
+                              className="p-3 rounded-xl border border-sand-200 bg-sand-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                             >
-                              <div>
-                                <p className="font-mono font-bold text-slate-900">
-                                  Tag {bag.bagTagCode}
-                                  {bag.securitySealNumber
-                                    ? ` • Seal ${bag.securitySealNumber}`
-                                    : ""}
-                                </p>
-                                <p className="text-slate-600">
-                                  {formatBagCategoryLabel(bag.bagCategory)}
-                                  {bag.conditionNotes ? ` • ${bag.conditionNotes}` : ""}
-                                </p>
+                              <div className="flex items-start gap-3">
+                                {bag.photoDownloadUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLightboxImage({
+                                        url: bag.photoDownloadUrl!,
+                                        title: `Bag ${bag.bagTagCode}`,
+                                        caption: bag.securitySealNumber
+                                          ? `Seal ${bag.securitySealNumber}`
+                                          : bag.conditionNotes
+                                      })
+                                    }
+                                    className="group relative w-16 h-16 rounded-lg overflow-hidden border border-sand-200 bg-sand-100 flex-shrink-0"
+                                    aria-label={`Zoom evidence photo for ${bag.bagTagCode}`}
+                                  >
+                                    <img
+                                      src={bag.photoDownloadUrl}
+                                      alt={`Evidence for ${bag.bagTagCode}`}
+                                      className="h-full w-full object-cover group-hover:scale-105 transition-transform"
+                                    />
+                                    <span className="absolute inset-0 bg-navy-950/0 group-hover:bg-navy-950/30 flex items-center justify-center transition">
+                                      <ZoomIn className="h-3.5 w-3.5 text-white opacity-0 group-hover:opacity-100" />
+                                    </span>
+                                  </button>
+                                )}
+                                <div>
+                                  <p className="font-mono font-bold text-navy-950">
+                                    Tag {bag.bagTagCode}
+                                    {bag.securitySealNumber
+                                      ? ` • Seal ${bag.securitySealNumber}`
+                                      : ""}
+                                  </p>
+                                  <p className="text-sand-700">
+                                    {formatBagCategoryLabel(bag.bagCategory)}
+                                    {bag.conditionNotes ? ` • ${bag.conditionNotes}` : ""}
+                                  </p>
+                                </div>
                               </div>
                               {bag.photoDownloadUrl && (
                                 <a
                                   href={bag.photoDownloadUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-800 border border-purple-200 font-bold"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-terracotta-50 text-terracotta-700 border border-terracotta-200 font-bold flex-shrink-0 hover:bg-terracotta-100 transition"
                                 >
-                                  View Evidence Photo
+                                  <span>View Evidence Photo</span>
+                                  <ExternalLink className="h-3 w-3" />
                                 </a>
                               )}
                             </div>
                           ))}
                           {inspectedCustody.events.length > 0 && (
-                            <p className="text-[11px] text-slate-500">
+                            <p className="text-[11px] text-sand-700 tabular-nums">
                               Latest custody event: {inspectedCustody.events[0].eventType} (
                               {formatDateTimeDisplay(inspectedCustody.events[0].createdAt)})
                             </p>
                           )}
                         </div>
                       ) : (
-                        <p className="text-slate-500">
+                        <p className="text-sand-700">
                           No counter check-in custody record created for this reservation yet.
                         </p>
                       )}
@@ -361,16 +436,16 @@ export function AdminIncidentDisputeInvestigationPage() {
                       >
                         <form
                           onSubmit={(e) => void handleResolveSubmit(e)}
-                          className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3"
+                          className="rounded-xl bg-sand-50 border border-sand-200 p-4 space-y-3"
                         >
-                          <div className="flex items-center gap-2 font-bold text-slate-950">
-                            <Gavel className="h-4 w-4 text-purple-700" />
+                          <div className="flex items-center gap-2 font-bold text-navy-950">
+                            <Gavel className="h-4 w-4 text-terracotta-600" />
                             <span>Adjudicate Booking Dispute</span>
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                              <label className="block font-bold text-slate-700 mb-1">
+                              <label className="block font-bold text-navy-900 mb-1">
                                 Binding Outcome
                               </label>
                               <select
@@ -378,7 +453,7 @@ export function AdminIncidentDisputeInvestigationPage() {
                                 onChange={(e) =>
                                   setOutcome(e.target.value as DisputeResolutionOutcome)
                                 }
-                                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-semibold"
+                                className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 font-semibold text-navy-950"
                               >
                                 <option value="UPHOLD_HOST">
                                   Uphold Host &amp; Release Settlement
@@ -390,7 +465,7 @@ export function AdminIncidentDisputeInvestigationPage() {
                             </div>
                             {outcome === "REFUND_TRAVELLER" && (
                               <div>
-                                <label className="block font-bold text-slate-700 mb-1">
+                                <label className="block font-bold text-navy-900 mb-1">
                                   Refund Percentage (1–100%)
                                 </label>
                                 <input
@@ -399,14 +474,14 @@ export function AdminIncidentDisputeInvestigationPage() {
                                   max={100}
                                   value={refundPercentage}
                                   onChange={(e) => setRefundPercentage(e.target.value)}
-                                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-mono"
+                                  className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 font-mono text-navy-950"
                                 />
                               </div>
                             )}
                           </div>
 
                           <div>
-                            <label className="block font-bold text-slate-700 mb-1">
+                            <label className="block font-bold text-navy-900 mb-1">
                               Adjudication Rationale
                             </label>
                             <textarea
@@ -415,7 +490,7 @@ export function AdminIncidentDisputeInvestigationPage() {
                               value={resolutionNotes}
                               onChange={(e) => setResolutionNotes(e.target.value)}
                               placeholder="Document seal evidence review and binding settlement outcome..."
-                              className="w-full rounded-xl border border-slate-300 bg-white p-2.5"
+                              className="w-full rounded-xl border border-sand-200 bg-white p-2.5 text-navy-950"
                             />
                           </div>
 
@@ -423,7 +498,7 @@ export function AdminIncidentDisputeInvestigationPage() {
                             <button
                               type="submit"
                               disabled={resolveMutation.isPending}
-                              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold"
+                              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 disabled:opacity-50 text-white font-bold transition shadow-sm"
                             >
                               <Gavel className="h-3.5 w-3.5" />
                               <span>
@@ -443,6 +518,11 @@ export function AdminIncidentDisputeInvestigationPage() {
           )}
         </>
       )}
+
+      <AdminImageLightboxModal
+        image={lightboxImage}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 }

@@ -6,9 +6,9 @@ import {
   type HostVerificationQueueQuery,
   type ReviewHostVerificationRequest
 } from "@luggage-storage/contracts";
-import { ExternalLink, Eye, X } from "lucide-react";
+import { ExternalLink, Eye } from "lucide-react";
 import { PermissionGate } from "@/components/auth/PermissionGate";
-import { MascotIllustration } from "@/components/ui";
+import { SlideOverDrawer } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import {
   useAdminHostDetailQuery,
@@ -20,6 +20,7 @@ import { formatDateTimeDisplay } from "@/lib/formatters";
 import { marketplaceApi } from "@/services/marketplace-api";
 import { useAuthStore } from "@/store/useAuthStore";
 import {
+  AdminCardListSkeleton,
   AdminEmptyStateCard,
   AdminPageHeader,
   AdminPaginationBar,
@@ -103,9 +104,11 @@ export function AdminHostVerificationPage() {
     setLocalInspectId(null);
     setDecisionMode(null);
     setActionError(null);
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete("inspect");
-    setSearchParams(nextParams);
+    if (searchParams.has("inspect")) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("inspect");
+      setSearchParams(nextParams);
+    }
   };
 
   const handleOpenDocument = async (documentId: string) => {
@@ -166,13 +169,11 @@ export function AdminHostVerificationPage() {
       <AdminPageHeader
         title="Host Business KYC & Verification Queue"
         subtitle="Inspect submitted BRN, TIN, ID proofs, and corporate ownership metadata via signed download links before approving partner accounts."
-        rightSlot={
-          <MascotIllustration mascot="salute" size="sm" caption="KYC Compliance Gate" />
-        }
+        badge={showDemoPreview ? "Demo Preview" : "KYC Compliance Gate"}
       />
 
       {effectiveAdminRole === "SUPPORT" && (
-        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold">
+        <div className="inline-flex items-center px-3 py-1.5 rounded-lg bg-sand-100 border border-sand-200 text-navy-900 text-xs font-bold">
           Read-Only Support View (Moderation Decisions Restricted to Superadmin)
         </div>
       )}
@@ -217,8 +218,8 @@ export function AdminHostVerificationPage() {
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                 statusFilter === opt.value
-                  ? "bg-purple-700 text-white"
-                  : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+                  ? "bg-navy-900 text-white shadow-sm"
+                  : "bg-white border border-sand-200 text-navy-900 hover:bg-sand-100"
               }`}
             >
               {opt.label}
@@ -228,17 +229,19 @@ export function AdminHostVerificationPage() {
       )}
 
       {/* Queue List */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
         {showDemoPreview ? (
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+          <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 flex items-center justify-between text-xs">
             <div>
-              <p className="font-bold text-slate-900">Kandy Hills Hospitality Group (Demo)</p>
-              <p className="text-slate-600 mt-0.5">BRN: PV-2026-88412 • Status: PENDING_REVIEW</p>
+              <p className="font-bold text-navy-950">Kandy Hills Hospitality Group (Demo)</p>
+              <p className="text-sand-700 mt-0.5">BRN: PV-2026-88412 • Status: PENDING_REVIEW</p>
             </div>
             <span className="px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-900 font-bold">
               Demo Preview Item
             </span>
           </div>
+        ) : queueQuery.isLoading ? (
+          <AdminCardListSkeleton count={4} />
         ) : liveQueue.length === 0 ? (
           <AdminEmptyStateCard
             title="No KYC verification applications match this filter"
@@ -249,12 +252,12 @@ export function AdminHostVerificationPage() {
             {liveQueue.map((item) => (
               <div
                 key={item.verificationId}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-sand-50/70 border border-sand-200 hover:border-sand-300 transition"
               >
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold text-slate-950 text-sm">{item.legalBusinessName}</span>
-                    <span className="text-slate-600">({item.tradeName})</span>
+                    <span className="font-bold text-navy-950 text-sm">{item.legalBusinessName}</span>
+                    <span className="text-sand-700">({item.tradeName})</span>
                     <span
                       className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(
                         item.status
@@ -263,19 +266,19 @@ export function AdminHostVerificationPage() {
                       {item.status}
                     </span>
                   </div>
-                  <p className="text-slate-600">
-                    Owner: <strong className="text-slate-800">{item.ownerDisplayName}</strong> (
+                  <p className="text-sand-700">
+                    Owner: <strong className="text-navy-900">{item.ownerDisplayName}</strong> (
                     {item.ownerEmail}) • BRN: {item.businessRegistrationNumber || "Not provided"} •{" "}
                     {item.documentCount} Document(s)
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-sand-700 tabular-nums">
                     Submitted: {formatDateTimeDisplay(item.submittedAt)}
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => openInspector(item.verificationId)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex-shrink-0"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 text-white font-bold text-xs flex-shrink-0 transition"
                 >
                   <Eye className="h-3.5 w-3.5" />
                   <span>Inspect KYC Dossier</span>
@@ -285,7 +288,7 @@ export function AdminHostVerificationPage() {
           </div>
         )}
 
-        {!showDemoPreview && (
+        {!showDemoPreview && liveQueue.length > 0 && (
           <AdminPaginationBar
             page={page}
             total={total}
@@ -295,32 +298,31 @@ export function AdminHostVerificationPage() {
         )}
       </div>
 
-      {/* Inspection Drawer */}
-      {!showDemoPreview && inspectedVerificationId && (
-        <section
-          aria-label="KYC Verification Inspection Drawer"
-          className="bg-white rounded-2xl border-2 border-purple-300 p-6 space-y-5 shadow-lg text-xs"
-        >
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div>
-              <h2 className="text-base font-extrabold text-slate-950">
-                KYC Verification Inspection Drawer
-              </h2>
-              <p className="text-slate-500">
-                Verification ID: <span className="font-mono">{inspectedVerificationId}</span>
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={closeInspector}
-              aria-label="Close KYC drawer"
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
+      {/* Inspection Slide-Over Drawer */}
+      <SlideOverDrawer
+        open={!showDemoPreview && Boolean(inspectedVerificationId)}
+        onClose={closeInspector}
+        ariaLabel="KYC Verification Inspection Drawer"
+        closeLabel="Close KYC drawer"
+        size="xl"
+        title={hostDetailQuery.data?.legalBusinessName || "KYC Verification Inspection Drawer"}
+        subtitle={
+          inspectedVerificationId ? `Verification ID: ${inspectedVerificationId}` : undefined
+        }
+        badge={
+          detailQuery.data && (
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${statusBadgeToneClasses(
+                detailQuery.data.status
+              )}`}
             >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          {detailQuery.isError && (
+              {detailQuery.data.status}
+            </span>
+          )
+        }
+      >
+        <div className="space-y-5 text-xs">
+          {detailQuery.isError ? (
             <AdminQueryErrorAlert
               message={
                 detailQuery.error instanceof Error
@@ -329,33 +331,33 @@ export function AdminHostVerificationPage() {
               }
               onRetry={() => void detailQuery.refetch()}
             />
-          )}
-
-          {detailQuery.data && (
+          ) : detailQuery.isLoading || !detailQuery.data ? (
+            <AdminCardListSkeleton count={3} />
+          ) : (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <p className="font-bold text-slate-900">Business &amp; Registration Metadata</p>
-                  <p className="text-slate-700">
+                <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-1">
+                  <p className="font-bold text-navy-950">Business &amp; Registration Metadata</p>
+                  <p className="text-navy-900">
                     Legal Name:{" "}
                     <strong>{hostDetailQuery.data?.legalBusinessName || "Loading..."}</strong>
                   </p>
-                  <p className="text-slate-700">
+                  <p className="text-navy-900">
                     Trade Name: <strong>{hostDetailQuery.data?.tradeName || "—"}</strong>
                   </p>
-                  <p className="text-slate-700">
+                  <p className="text-sand-700">
                     BRN: {hostDetailQuery.data?.businessRegistrationNumber || "Not provided"} • TIN:{" "}
                     {hostDetailQuery.data?.taxIdentifier || "Not provided"}
                   </p>
-                  <p className="text-slate-700">
+                  <p className="text-sand-700">
                     Contact: {hostDetailQuery.data?.contactEmail || "—"} •{" "}
                     {hostDetailQuery.data?.contactPhone || "—"}
                   </p>
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <p className="font-bold text-slate-900">Review State</p>
-                  <p className="text-slate-700">
+                <div className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-1">
+                  <p className="font-bold text-navy-950">Review State</p>
+                  <p className="text-navy-900">
                     Current Status:{" "}
                     <span
                       className={`px-2 py-0.5 rounded-full font-bold ${statusBadgeToneClasses(
@@ -365,7 +367,7 @@ export function AdminHostVerificationPage() {
                       {detailQuery.data.status}
                     </span>
                   </p>
-                  <p className="text-slate-700">
+                  <p className="text-sand-700 tabular-nums">
                     Submitted: {formatDateTimeDisplay(detailQuery.data.submittedAt)}
                   </p>
                   {detailQuery.data.rejectionReason && (
@@ -374,30 +376,30 @@ export function AdminHostVerificationPage() {
                     </p>
                   )}
                   {detailQuery.data.adminNotes && (
-                    <p className="text-slate-600">Operator Notes: {detailQuery.data.adminNotes}</p>
+                    <p className="text-sand-700">Operator Notes: {detailQuery.data.adminNotes}</p>
                   )}
                 </div>
               </div>
 
               {/* Uploaded KYC Documents */}
               <div className="space-y-2">
-                <p className="font-bold text-slate-900 uppercase text-[10px] tracking-wider">
+                <p className="font-bold text-navy-950 uppercase text-[10px] tracking-wider">
                   Submitted Verification Documents ({detailQuery.data.documents.length})
                 </p>
                 {detailQuery.data.documents.length === 0 ? (
-                  <p className="text-slate-500">No verification documents attached.</p>
+                  <p className="text-sand-700">No verification documents attached.</p>
                 ) : (
                   <div className="space-y-2">
                     {detailQuery.data.documents.map((doc) => (
                       <div
                         key={doc.id}
-                        className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200"
+                        className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-sand-50 border border-sand-200"
                       >
                         <div>
-                          <p className="font-bold text-slate-900">
+                          <p className="font-bold text-navy-950">
                             {doc.documentType} — {doc.fileName}
                           </p>
-                          <p className="text-[11px] text-slate-500">
+                          <p className="text-[11px] text-sand-700 tabular-nums">
                             {doc.mimeType} • {Math.round(doc.fileSize / 1024)} KB • Status:{" "}
                             {doc.status}
                           </p>
@@ -406,7 +408,7 @@ export function AdminHostVerificationPage() {
                           type="button"
                           disabled={documentDownloadBusyId === doc.id}
                           onClick={() => void handleOpenDocument(doc.id)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold text-xs"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-terracotta-500 hover:bg-terracotta-600 disabled:opacity-50 text-white font-bold text-xs transition"
                         >
                           <ExternalLink className="h-3.5 w-3.5" />
                           <span>
@@ -426,31 +428,31 @@ export function AdminHostVerificationPage() {
                 <PermissionGate
                   permission={SYSTEM_PERMISSIONS.ADMIN_HOST_VERIFY}
                   fallback={
-                    <p className="text-slate-500 italic">
+                    <p className="text-sand-700 italic border-t border-sand-200 pt-3">
                       Support oversight accounts cannot execute verification decisions.
                     </p>
                   }
                 >
-                  <div className="pt-3 border-t border-slate-200 space-y-3">
+                  <div className="pt-3 border-t border-sand-200 space-y-3">
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => setDecisionMode("APPROVE")}
-                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition"
                       >
                         Approve Partner KYC
                       </button>
                       <button
                         type="button"
                         onClick={() => setDecisionMode("REQUEST_INFO")}
-                        className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                        className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold transition"
                       >
                         Request More Info
                       </button>
                       <button
                         type="button"
                         onClick={() => setDecisionMode("REJECT")}
-                        className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold"
+                        className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition"
                       >
                         Reject Application
                       </button>
@@ -459,14 +461,14 @@ export function AdminHostVerificationPage() {
                     {decisionMode && (
                       <form
                         onSubmit={(e) => void handleSubmitReview(e)}
-                        className="p-4 rounded-xl bg-slate-50 border border-slate-300 space-y-3"
+                        className="p-4 rounded-xl bg-sand-50 border border-sand-200 space-y-3"
                       >
-                        <p className="font-bold text-slate-900">
+                        <p className="font-bold text-navy-950">
                           Confirm KYC Decision: {decisionMode}
                         </p>
                         {(decisionMode === "REJECT" || decisionMode === "REQUEST_INFO") && (
                           <div>
-                            <label className="block font-bold text-slate-800 mb-1">
+                            <label className="block font-bold text-navy-900 mb-1">
                               Rejection / Information Request Reason (Required)
                             </label>
                             <textarea
@@ -474,12 +476,12 @@ export function AdminHostVerificationPage() {
                               value={rejectionReason}
                               onChange={(e) => setRejectionReason(e.target.value)}
                               placeholder="Specify exact missing or illegible document details..."
-                              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                              className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 text-xs text-navy-950"
                             />
                           </div>
                         )}
                         <div>
-                          <label className="block font-bold text-slate-800 mb-1">
+                          <label className="block font-bold text-navy-900 mb-1">
                             Internal Moderator Notes (Optional)
                           </label>
                           <input
@@ -487,21 +489,21 @@ export function AdminHostVerificationPage() {
                             value={adminNotes}
                             onChange={(e) => setAdminNotes(e.target.value)}
                             placeholder="Compliance review notes..."
-                            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs"
+                            className="w-full rounded-xl border border-sand-200 bg-white px-3 py-2 text-xs text-navy-950"
                           />
                         </div>
                         <div className="flex gap-2">
                           <button
                             type="submit"
                             disabled={reviewMutation.isPending}
-                            className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white font-bold"
+                            className="px-4 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 disabled:opacity-50 text-white font-bold transition"
                           >
                             {reviewMutation.isPending ? "Submitting..." : `Submit ${decisionMode}`}
                           </button>
                           <button
                             type="button"
                             onClick={() => setDecisionMode(null)}
-                            className="px-3.5 py-2 rounded-xl border border-slate-300 text-slate-700 font-semibold"
+                            className="px-3.5 py-2 rounded-xl border border-sand-200 bg-white text-navy-900 font-semibold hover:bg-sand-100 transition"
                           >
                             Cancel
                           </button>
@@ -513,8 +515,8 @@ export function AdminHostVerificationPage() {
               )}
             </div>
           )}
-        </section>
-      )}
+        </div>
+      </SlideOverDrawer>
     </div>
   );
 }

@@ -6,10 +6,10 @@ import {
   VerifyEmailRequestSchema
 } from "@luggage-storage/contracts";
 import {
-  Badge,
   Button,
   Card,
   ErrorState,
+  MascotIllustration,
   MobileIcon,
   SafeHeader,
   ScreenContainer,
@@ -19,7 +19,13 @@ import { validateWithZod } from "../../src/lib/validation";
 import { authApi } from "../../src/services/auth-api";
 import { ApiClientError } from "../../src/services/api-client";
 import { useAuthStore } from "../../src/store/useAuthStore";
-import { mobileSpacing, mobileTextColors, mobileTypography } from "../../src/lib/theme";
+import {
+  mobileRadius,
+  mobileSpacing,
+  mobileStatusTokens,
+  mobileTextColors,
+  mobileTypography
+} from "../../src/lib/theme";
 
 export default function MobileVerifyEmailScreen() {
   const router = useRouter();
@@ -119,7 +125,11 @@ export default function MobileVerifyEmailScreen() {
     >
       {verifiedMessage ? (
         <Card variant="elevated" style={styles.card}>
-          <Badge label="Verified Account" variant="success" icon="shield-check" />
+          <View style={styles.successBanner}>
+            <MobileIcon name="shield-check" size="sm" color={mobileStatusTokens.successIcon} />
+            <Text style={styles.successBannerText}>Verified Account</Text>
+          </View>
+          <MascotIllustration mascot="jump" size="sm" variant="bare" decorative />
           <Text style={styles.heading}>Email Verified</Text>
           <Text style={styles.subtext}>{verifiedMessage}</Text>
           <Button
@@ -132,7 +142,7 @@ export default function MobileVerifyEmailScreen() {
         <>
           <Card variant="elevated" style={styles.card}>
             <View style={styles.intro}>
-              <MobileIcon name="mail" size="xl" variant="primary" />
+              <MascotIllustration mascot="phone" size="sm" variant="bare" decorative />
               <Text style={styles.heading}>Confirm Your Email Address</Text>
               <Text style={styles.subtext}>
                 Bookings, password changes, and host registration require a verified email.
@@ -142,7 +152,10 @@ export default function MobileVerifyEmailScreen() {
             {serverError ? <ErrorState message={serverError} /> : null}
 
             {resendMessage ? (
-              <Badge label={resendMessage} variant="info" icon="info" />
+              <View style={styles.infoBanner}>
+                <MobileIcon name="info" size="sm" color={mobileStatusTokens.infoIcon} />
+                <Text style={styles.infoBannerText}>{resendMessage}</Text>
+              </View>
             ) : null}
 
             <TextInput
@@ -151,6 +164,10 @@ export default function MobileVerifyEmailScreen() {
               leftIcon="key"
               placeholder="Paste verification token from inbox"
               autoCapitalize="none"
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                void handleVerify();
+              }}
               value={token}
               onChangeText={setToken}
               errorText={fieldErrors.token}
@@ -214,6 +231,36 @@ const styles = StyleSheet.create({
   },
   resendHeading: {
     ...mobileTypography.headingSm
+  },
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.successBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.successBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  successBannerText: {
+    ...mobileTypography.label,
+    color: mobileStatusTokens.success
+  },
+  infoBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.infoBg,
+    borderWidth: 1,
+    borderColor: mobileStatusTokens.infoBorder,
+    borderRadius: mobileRadius.lg,
+    padding: mobileSpacing[3]
+  },
+  infoBannerText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.info,
+    fontWeight: "600",
+    flex: 1
   }
 });
 

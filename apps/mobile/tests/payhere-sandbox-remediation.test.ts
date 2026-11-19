@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { describe, it, expect, vi } from "vitest";
 import type { PayHereNativeSdkPayload } from "@luggage-storage/contracts";
 import { launchPayHereNativeCheckout } from "../src/lib/payhere-native";
@@ -11,16 +10,6 @@ import {
   saveMobilePendingCheckoutContext
 } from "../src/lib/payment-handoff";
 
-const require = createRequire(import.meta.url);
-const withPayHereSdk = require("../plugins/withPayHereSdk.js") as {
-  addJitPackRepository: (contents: string) => string;
-  applyPayHereManifestTools: (manifest: {
-    manifest?: {
-      $?: Record<string, string>;
-      application?: Array<{ $?: Record<string, string> }>;
-    };
-  }) => unknown;
-};
 
 const VALID_SDK_PAYLOAD: PayHereNativeSdkPayload = {
   sandbox: true,
@@ -45,7 +34,7 @@ describe("PayHere Sandbox Remediation — Mobile Web Checkout & Android Native S
   const mobileRoot = path.resolve(__dirname, "..");
   const repoRoot = path.resolve(mobileRoot, "../..");
 
-  it("1. enforces package com.luggagestorage.app, expo-dev-client, withPayHereSdk plugin, and AGP 9.2 pnpm patch", () => {
+  it("1. enforces removal of PayHere native SDK, plugin, and patches from mobile configuration", () => {
     const appJson = JSON.parse(fs.readFileSync(path.join(mobileRoot, "app.json"), "utf8")) as {
       expo: {
         android?: { package?: string };
@@ -54,70 +43,27 @@ describe("PayHere Sandbox Remediation — Mobile Web Checkout & Android Native S
     };
     expect(appJson.expo.android?.package).toBe("com.luggagestorage.app");
     expect(appJson.expo.plugins).toContain("expo-dev-client");
-    expect(appJson.expo.plugins).toContain("./plugins/withPayHereSdk");
+    expect(appJson.expo.plugins).not.toContain("./plugins/withPayHereSdk");
 
     const mobilePkg = JSON.parse(fs.readFileSync(path.join(mobileRoot, "package.json"), "utf8")) as {
       dependencies: Record<string, string>;
     };
-    expect(mobilePkg.dependencies["@payhere/payhere-mobilesdk-reactnative"]).toBe("4.1.0");
+    expect(mobilePkg.dependencies["@payhere/payhere-mobilesdk-reactnative"]).toBeUndefined();
     expect(mobilePkg.dependencies["expo-dev-client"]).toBeDefined();
 
     const patchPath = path.join(
       repoRoot,
       "patches/@payhere__payhere-mobilesdk-reactnative@4.1.0.patch"
     );
-    expect(fs.existsSync(patchPath)).toBe(true);
-    const patchSrc = fs.readFileSync(patchPath, "utf8");
-    expect(patchSrc).toContain('namespace "lk.payhere"');
-    expect(patchSrc).toContain('-apply plugin: \'maven-publish\'');
-    expect(patchSrc).toContain('-          package="lk.payhere"');
+    expect(fs.existsSync(patchPath)).toBe(false);
 
     const workspaceYaml = fs.readFileSync(path.join(repoRoot, "pnpm-workspace.yaml"), "utf8");
-    expect(workspaceYaml).toContain("@payhere/payhere-mobilesdk-reactnative@4.1.0");
-
-    const installedGradlePath = path.join(
-      mobileRoot,
-      "node_modules/@payhere/payhere-mobilesdk-reactnative/android/build.gradle"
-    );
-    const installedManifestPath = path.join(
-      mobileRoot,
-      "node_modules/@payhere/payhere-mobilesdk-reactnative/android/src/main/AndroidManifest.xml"
-    );
-    expect(fs.existsSync(installedGradlePath)).toBe(true);
-    const gradleSrc = fs.readFileSync(installedGradlePath, "utf8");
-    expect(gradleSrc).toContain('namespace "lk.payhere"');
-    expect(gradleSrc).not.toContain("jcenter()");
-    expect(fs.readFileSync(installedManifestPath, "utf8")).not.toContain('package="lk.payhere"');
+    expect(workspaceYaml).not.toContain("@payhere/payhere-mobilesdk-reactnative@4.1.0");
   });
 
-  it("2. withPayHereSdk config plugin idempotently configures JitPack and AndroidManifest tools:replace", () => {
-    const baseGradle = `allprojects {\n    repositories {\n        google()\n        mavenCentral()\n    }\n}\n`;
-    const onceGradle = withPayHereSdk.addJitPackRepository(baseGradle);
-    expect(onceGradle).toContain("https://www.jitpack.io");
-    const twiceGradle = withPayHereSdk.addJitPackRepository(onceGradle);
-    expect(twiceGradle).toBe(onceGradle);
-
-    const manifest: {
-      manifest: {
-        $: Record<string, string>;
-        application: Array<{ $: Record<string, string> }>;
-      };
-    } = {
-      manifest: {
-        $: { "xmlns:android": "http://schemas.android.com/apk/res/android" },
-        application: [{ $: { "android:allowBackup": "false", "tools:replace": "android:label" } }]
-      }
-    };
-    withPayHereSdk.applyPayHereManifestTools(manifest);
-    expect(manifest.manifest.$["xmlns:tools"]).toBe("http://schemas.android.com/tools");
-    expect(manifest.manifest.application[0].$["tools:replace"]).toBe(
-      "android:label,android:allowBackup"
-    );
-    // Idempotent repeat call
-    withPayHereSdk.applyPayHereManifestTools(manifest);
-    expect(manifest.manifest.application[0].$["tools:replace"]).toBe(
-      "android:label,android:allowBackup"
-    );
+  it("2. confirms decommission of withPayHereSdk config plugin file", () => {
+    const pluginPath = path.join(mobileRoot, "plugins/withPayHereSdk.js");
+    expect(fs.existsSync(pluginPath)).toBe(false);
   });
 
   it("3. launchPayHereNativeCheckout refuses web, handles Expo Go cleanly, validates strict payload, and returns untrusted SDK callbacks", async () => {

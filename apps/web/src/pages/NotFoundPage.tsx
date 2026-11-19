@@ -1,10 +1,11 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { Card } from "@/components/ui/Card";
 import { MascotIllustration } from "@/components/ui/MascotIllustration";
 
 export function NotFoundPage() {
   return (
-    <div className="max-w-lg mx-auto text-center py-12 space-y-6">
+    <Card className="max-w-lg mx-auto my-8 bg-white p-8 text-center space-y-6">
       <MascotIllustration
         mascot="shrug"
         size="lg"
@@ -12,20 +13,21 @@ export function NotFoundPage() {
         badgeText="404 — Route Not Found"
         caption="Kiri checked every luggage rack, but the requested URL does not match an active marketplace screen."
       />
+      <h1 className="text-2xl font-extrabold text-navy-950 tracking-tight">Page Not Found</h1>
       <div className="flex flex-wrap justify-center gap-3">
         <Link
           to="/"
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition"
+          className="min-h-[44px] inline-flex items-center px-5 py-2.5 bg-terracotta-500 hover:bg-terracotta-600 text-white rounded-xl text-sm font-bold transition-colors shadow-sm"
         >
           Return to Home
         </Link>
         <Link
           to="/search"
-          className="px-4 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl text-xs font-bold transition"
+          className="min-h-[44px] inline-flex items-center px-5 py-2.5 bg-white border border-sand-300 hover:bg-sand-100 text-navy-900 rounded-xl text-sm font-bold transition-colors"
         >
           Search Storage
         </Link>
       </div>
-    </div>
+    </Card>
   );
 }

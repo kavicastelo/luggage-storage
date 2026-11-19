@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
-import { CheckCircle2, Info, MessageSquare } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
+import { Alert, Button, Card, MascotIllustration } from "@/components/ui";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useHostVenue } from "./HostDashboardLayout";
@@ -19,7 +20,8 @@ export function HostReviewManagementPage() {
         isAuthenticated
       }));
 
-  const [replyText, setReplyText] = useState("");
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  const [submittedDemoReplies, setSubmittedDemoReplies] = useState<Record<string, string>>({});
   const [replyPublished, setReplyPublished] = useState(false);
 
   const demoReviews = showDemo
@@ -64,7 +66,7 @@ export function HostReviewManagementPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-extrabold text-navy-950 tracking-tight">
@@ -81,17 +83,14 @@ export function HostReviewManagementPage() {
             </div>
           )}
         </div>
-      </div>
+      </Card>
 
       {showDemo ? (
         <>
-          <div className="rounded-xl bg-sand-100/90 border border-sand-300 p-4 text-xs text-navy-800 flex items-start gap-3">
-            <Info className="h-4 w-4 text-terracotta-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <strong className="text-navy-950">Customer Reviews (Demo Data):</strong> Sample
-              feedback ratings and reviews shown for demo preview.
-            </div>
-          </div>
+          <Alert variant="info">
+            <strong className="text-navy-950">Customer Reviews (Demo Data):</strong> Sample
+            feedback ratings and reviews shown for demo preview.
+          </Alert>
 
           {replyPublished && (
             <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold flex items-center gap-2">
@@ -104,78 +103,83 @@ export function HostReviewManagementPage() {
           )}
 
           <div className="space-y-4">
-            {demoReviews.map((r) => (
-              <div
-                key={r.id}
-                className="bg-white rounded-2xl border border-sand-200 p-5 sm:p-6 shadow-sm space-y-3"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-9 w-9 rounded-full bg-navy-900 text-white flex items-center justify-center font-bold text-xs">
-                      {r.author.charAt(0)}
+            {demoReviews.map((r) => {
+              const activeReply = r.reply ?? submittedDemoReplies[r.id] ?? null;
+              const draft = replyDrafts[r.id] ?? "";
+              return (
+                <Card key={r.id} className="p-5 sm:p-6 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-9 w-9 rounded-full bg-navy-900 text-white flex items-center justify-center font-bold text-xs">
+                        {r.author.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-navy-950">
+                          {r.author} ({r.country})
+                        </p>
+                        <p className="text-[10px] text-navy-500 font-mono">
+                          Booking #{r.bookingRef} • {r.date}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs font-bold text-navy-950">
-                        {r.author} ({r.country})
-                      </p>
-                      <p className="text-[10px] text-navy-500 font-mono">
-                        Booking #{r.bookingRef} • {r.date}
-                      </p>
+                    <div className="text-amber-500 text-xs font-bold">
+                      {"★".repeat(r.rating)}
+                      {"☆".repeat(5 - r.rating)} ({r.rating}.0)
                     </div>
                   </div>
-                  <div className="text-amber-500 text-xs font-bold">
-                    {"★".repeat(r.rating)}
-                    {"☆".repeat(5 - r.rating)} ({r.rating}.0)
-                  </div>
-                </div>
 
-                <p className="text-xs text-navy-800 leading-relaxed">{r.content}</p>
+                  <p className="text-xs text-navy-800 leading-relaxed">{r.content}</p>
 
-                {r.reply ? (
-                  <div className="p-3.5 rounded-xl bg-sand-50 border-l-4 border-terracotta-500 text-xs space-y-1">
-                    <span className="font-bold text-navy-900 text-[11px]">
-                      Official Host Response:
-                    </span>
-                    <p className="text-navy-700 text-xs">{r.reply}</p>
-                  </div>
-                ) : (
-                  <div className="pt-2 border-t border-sand-100 space-y-2">
-                    <label className="block text-[11px] font-bold text-navy-700">
-                      Reply to {r.author}
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Type official reply..."
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        className="flex-1 rounded-xl border border-sand-300 px-3 py-1.5 text-xs text-navy-900"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (replyText.trim()) {
-                            setReplyPublished(true);
-                            setReplyText("");
-                            setTimeout(() => setReplyPublished(false), 3000);
+                  {activeReply ? (
+                    <div className="p-3.5 rounded-xl bg-sand-50 border-l-4 border-terracotta-500 text-xs space-y-1">
+                      <span className="font-bold text-navy-900 text-[11px]">
+                        Official Host Response:
+                      </span>
+                      <p className="text-navy-700 text-xs">{activeReply}</p>
+                    </div>
+                  ) : (
+                    <div className="pt-2 border-t border-sand-100 space-y-2">
+                      <label htmlFor={`reply-input-${r.id}`} className="block text-[11px] font-bold text-navy-700">
+                        Reply to {r.author}
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          id={`reply-input-${r.id}`}
+                          type="text"
+                          placeholder="Type official reply..."
+                          value={draft}
+                          onChange={(e) =>
+                            setReplyDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))
                           }
-                        }}
-                        className="px-4 py-1.5 rounded-xl bg-navy-900 hover:bg-navy-800 text-white text-xs font-bold transition"
-                      >
-                        Reply
-                      </button>
+                          className="flex-1 rounded-xl border border-sand-300 px-3 py-1.5 text-xs text-navy-900"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            const trimmed = draft.trim();
+                            if (trimmed) {
+                              setSubmittedDemoReplies((prev) => ({ ...prev, [r.id]: trimmed }));
+                              setReplyDrafts((prev) => ({ ...prev, [r.id]: "" }));
+                              setReplyPublished(true);
+                              setTimeout(() => setReplyPublished(false), 3000);
+                            }
+                          }}
+                        >
+                          Reply
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </Card>
+              );
+            })}
           </div>
         </>
       ) : (
-        <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-3 shadow-sm">
-          <div className="mx-auto h-11 w-11 rounded-2xl bg-sand-100 text-navy-700 flex items-center justify-center">
-            <MessageSquare className="h-5 w-5" />
-          </div>
+        <Card className="p-8 text-center flex flex-col items-center space-y-3">
+          <MascotIllustration mascot="high-five" size="lg" variant="bare" decorative />
           <h2 className="text-base font-bold text-navy-950">
             Verified Traveller Reviews Coming Post-MVP
           </h2>
@@ -184,7 +188,7 @@ export function HostReviewManagementPage() {
             upcoming platform release once custody completion feedback pipelines are enabled. No
             placeholder ratings are displayed for live accounts.
           </p>
-        </div>
+        </Card>
       )}
     </div>
   );

@@ -43,9 +43,9 @@ export function AdminReviewModerationQueuePage() {
         badge={showDemoPreview ? "Demo Preview" : reviewsEnabled ? "Enabled" : "Post-MVP Module"}
       />
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
-          <p className="font-bold text-slate-900">Flagged Review Preview (Demo)</p>
-          <p className="text-slate-600 mt-0.5">Awaiting moderator visibility decision.</p>
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs shadow-sm">
+          <p className="font-bold text-navy-950">Flagged Review Preview (Demo)</p>
+          <p className="text-sand-700 mt-0.5">Awaiting moderator visibility decision.</p>
         </div>
       ) : (
         <AdminEmptyStateCard
@@ -73,9 +73,9 @@ export function AdminPromotionMarketingEnginePage() {
         }
       />
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
-          <p className="font-bold text-slate-900">Promotional Voucher Campaign (Demo Preview)</p>
-          <p className="text-slate-600 mt-0.5">Server-authoritative pricing discount rules.</p>
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs shadow-sm">
+          <p className="font-bold text-navy-950">Promotional Voucher Campaign (Demo Preview)</p>
+          <p className="text-sand-700 mt-0.5">Server-authoritative pricing discount rules.</p>
         </div>
       ) : (
         <AdminEmptyStateCard
@@ -105,7 +105,7 @@ export function AdminPlatformSystemConfigurationPage() {
           !showDemoPreview ? (
             <Link
               to={`/admin/staff${querySuffix}`}
-              className="px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 hover:bg-slate-50"
+              className="px-3.5 py-2 rounded-xl border border-sand-200 bg-white text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
             >
               Manage Users &amp; RBAC
             </Link>
@@ -113,14 +113,14 @@ export function AdminPlatformSystemConfigurationPage() {
         }
       />
       {showDemoPreview ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 text-xs">
-          <p className="font-bold text-slate-900">15% Standard Marketplace Commission (Demo)</p>
-          <p className="text-slate-600 mt-0.5">2-hour full refund boundary active.</p>
+        <div className="bg-white rounded-2xl border border-sand-200 p-6 text-xs shadow-sm">
+          <p className="font-bold text-navy-950">15% Standard Marketplace Commission (Demo)</p>
+          <p className="text-sand-700 mt-0.5">2-hour full refund boundary active.</p>
         </div>
       ) : (
         <div className="space-y-5 text-xs">
-          <div className="p-4 rounded-xl bg-slate-900 text-white flex items-center gap-3">
-            <ShieldCheck className="h-5 w-5 text-purple-300 flex-shrink-0" />
+          <div className="p-4 rounded-xl bg-navy-900 border border-navy-800 text-sand-100 flex items-center gap-3 shadow-sm">
+            <ShieldCheck className="h-5 w-5 text-terracotta-400 flex-shrink-0" />
             <p className="leading-relaxed">
               These commercial and custody rules are compiled and enforced server-side across
               quotation snapshots, payment verification, and double-entry ledger settlement to
@@ -129,72 +129,72 @@ export function AdminPlatformSystemConfigurationPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-sm">
-              <span className="text-[11px] font-bold uppercase text-slate-500">
+            <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-2 shadow-sm">
+              <span className="text-[11px] font-bold uppercase text-sand-700">
                 Commercial Fee Split
               </span>
-              <p className="text-lg font-extrabold text-slate-950">
+              <p className="text-lg font-extrabold text-navy-950 tabular-nums">
                 {`${commissionPercent}% Commission / ${hostSharePercent}% Host Share`}
               </p>
-              <p className="text-slate-600">
-                Standard platform fee rate: <strong>{`${DEFAULT_COMMISSION_RATE_BPS} bps`}</strong>{" "}
+              <p className="text-sand-700">
+                Standard platform fee rate: <strong className="text-navy-950">{`${DEFAULT_COMMISSION_RATE_BPS} bps`}</strong>{" "}
                 applied to storage subtotal in integer minor units (LKR).
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-sm">
-              <span className="text-[11px] font-bold uppercase text-slate-500">
+            <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-2 shadow-sm">
+              <span className="text-[11px] font-bold uppercase text-sand-700">
                 Cancellation Policy Engine
               </span>
-              <p className="text-lg font-extrabold text-slate-950 font-mono">
+              <p className="text-lg font-extrabold text-navy-950 font-mono">
                 {CANCELLATION_POLICY_CODES[0]}
               </p>
-              <p className="text-slate-600">
-                &gt; 2 hours before drop-off: <strong>100% refund</strong> • &le; 2 hours before
-                drop-off: <strong>50% refund</strong> • Host/Platform cancel: <strong>100%</strong>.
+              <p className="text-sand-700">
+                &gt; 2 hours before drop-off: <strong className="text-navy-950">100% refund</strong> • &le; 2 hours before
+                drop-off: <strong className="text-navy-950">50% refund</strong> • Host/Platform cancel: <strong className="text-navy-950">100%</strong>.
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-sm">
-              <span className="text-[11px] font-bold uppercase text-slate-500">
+            <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-2 shadow-sm">
+              <span className="text-[11px] font-bold uppercase text-sand-700">
                 Hold &amp; Token Expiration Windows
               </span>
-              <p className="text-sm font-extrabold text-slate-950">
+              <p className="text-sm font-extrabold text-navy-950 tabular-nums">
                 Host Approval: {DEFAULT_HOST_APPROVAL_HOLD_MINUTES}m • Payment Hold:{" "}
                 {DEFAULT_PAYMENT_HOLD_MINUTES}m
               </p>
-              <p className="text-slate-600">
+              <p className="text-sand-700">
                 Single-use QR/PIN Custody Pass TTL:{" "}
-                <strong>{DEFAULT_CUSTODY_PASS_TTL_MINUTES} minutes</strong> (rate-limited).
+                <strong className="text-navy-950">{DEFAULT_CUSTODY_PASS_TTL_MINUTES} minutes</strong> (rate-limited).
               </p>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2 shadow-sm">
-              <span className="text-[11px] font-bold uppercase text-slate-500">
+            <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-2 shadow-sm">
+              <span className="text-[11px] font-bold uppercase text-sand-700">
                 Custody Release &amp; Grace Policy
               </span>
-              <p className="text-sm font-extrabold text-slate-950">
+              <p className="text-sm font-extrabold text-navy-950">
                 {`${DEFAULT_OVERDUE_GRACE_MINUTES}-Minute Grace • Zero Possessory Lien`}
               </p>
-              <p className="text-slate-600">
+              <p className="text-sand-700">
                 Valid COLLECTION credentials always release stored luggage; overdue durations past
                 grace are recorded without holding belongings hostage.
               </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 shadow-sm">
-            <h2 className="text-sm font-bold text-slate-950">
+          <div className="bg-white rounded-2xl border border-sand-200 p-5 space-y-3 shadow-sm">
+            <h2 className="text-sm font-bold text-navy-950">
               Non-Escrow Double-Entry Chart of Accounts
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {Object.values(LEDGER_ACCOUNTS).map((account) => (
                 <div
                   key={account.code}
-                  className="p-3 rounded-xl bg-slate-50 border border-slate-200"
+                  className="p-3 rounded-xl bg-sand-50 border border-sand-200"
                 >
-                  <p className="font-mono font-bold text-purple-800">{account.code}</p>
-                  <p className="font-semibold text-slate-800 mt-0.5">{account.name}</p>
+                  <p className="font-mono font-bold text-terracotta-700">{account.code}</p>
+                  <p className="font-semibold text-navy-900 mt-0.5">{account.name}</p>
                 </div>
               ))}
             </div>

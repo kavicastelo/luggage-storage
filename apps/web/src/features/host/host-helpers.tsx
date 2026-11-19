@@ -1,12 +1,27 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { Building2, Calendar, Layers, Tag } from "lucide-react";
 import type { StorageLocation } from "@luggage-storage/contracts";
 import type { StorageLocationItem } from "@/data/mock-marketplace";
+import { Alert, Button, EmptyState } from "@/components/ui";
 
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isUuid(value: string | null | undefined): value is string {
   return Boolean(value && UUID_REGEX.test(value));
 }
+
+export interface SriLankaCityPreset {
+  city: string;
+  latitude: number;
+  longitude: number;
+}
+
+export const SRI_LANKA_HUB_PRESETS: SriLankaCityPreset[] = [
+  { city: "Colombo", latitude: 6.9344, longitude: 79.8428 },
+  { city: "Kandy", latitude: 7.2906, longitude: 80.6337 },
+  { city: "Galle", latitude: 6.0267, longitude: 80.217 },
+  { city: "Ella", latitude: 6.8667, longitude: 81.0466 }
+];
 
 /**
  * Normalizes a backend StorageLocation entity into the shape expected by shared
@@ -56,6 +71,56 @@ export function mapApiLocationToItem(loc: StorageLocation): StorageLocationItem 
   };
 }
 
+export function HostLocationSetupTabs({
+  locationId,
+  querySuffix = ""
+}: {
+  locationId: string;
+  querySuffix?: string;
+}) {
+  const location = useLocation();
+  const normalizedPath = location.pathname.replace(/\/+$/, "") || "/";
+
+  if (!locationId || locationId === "select") {
+    return null;
+  }
+
+  const basePath = `/host/locations/${locationId}`;
+  const tabs = [
+    { label: "Profile", path: basePath, icon: Building2 },
+    { label: "Hours & Calendar", path: `${basePath}/schedule`, icon: Calendar },
+    { label: "Capacity & Zones", path: `${basePath}/capacity`, icon: Layers },
+    { label: "Pricing Rules", path: `${basePath}/pricing`, icon: Tag }
+  ];
+
+  return (
+    <nav
+      aria-label="Location setup sections"
+      className="bg-white rounded-2xl border border-sand-200 p-2 shadow-sm flex flex-wrap gap-1.5"
+    >
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const isActive = normalizedPath === tab.path;
+        return (
+          <Link
+            key={tab.path}
+            to={`${tab.path}${querySuffix}`}
+            aria-current={isActive ? "page" : undefined}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+              isActive
+                ? "bg-navy-900 text-white shadow-sm"
+                : "text-navy-800 hover:bg-sand-100"
+            }`}
+          >
+            <Icon className={`h-3.5 w-3.5 ${isActive ? "text-amber-300" : "text-navy-500"}`} />
+            <span>{tab.label}</span>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function NoLocationSelectedCard({
   description,
   querySuffix
@@ -64,16 +129,19 @@ export function NoLocationSelectedCard({
   querySuffix: string;
 }) {
   return (
-    <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center space-y-3 shadow-sm">
-      <p className="text-sm font-bold text-navy-950">No storage location selected or available</p>
-      <p className="text-xs text-navy-600">{description}</p>
-      <Link
-        to={`/host/locations${querySuffix}`}
-        className="inline-flex items-center px-4 py-2 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition"
-      >
-        Return to Storage Locations
-      </Link>
-    </div>
+    <EmptyState
+      mascot="suitcase-peek"
+      title="No storage location selected or available"
+      description={description}
+      action={
+        <Link
+          to={`/host/locations${querySuffix}`}
+          className="inline-flex items-center px-4 py-2.5 rounded-xl bg-terracotta-500 text-white text-xs font-bold hover:bg-terracotta-600 transition shadow-sm"
+        >
+          Return to Storage Locations
+        </Link>
+      }
+    />
   );
 }
 
@@ -85,18 +153,13 @@ export function HostQueryErrorAlert({
   onRetry: () => void;
 }) {
   return (
-    <div
-      role="alert"
-      className="p-3.5 bg-red-50 border border-red-200 text-red-800 text-xs font-semibold rounded-xl flex flex-wrap items-center justify-between gap-3"
-    >
-      <span>{message}</span>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="px-3 py-1 rounded-lg bg-white border border-red-300 text-red-900 font-bold hover:bg-red-100 transition"
-      >
-        Retry
-      </button>
-    </div>
+    <Alert variant="danger" title="Unable to sync host workspace data">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span>{message}</span>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry} className="bg-white">
+          Retry
+        </Button>
+      </div>
+    </Alert>
   );
 }

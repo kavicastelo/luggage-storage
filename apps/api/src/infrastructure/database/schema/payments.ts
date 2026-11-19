@@ -58,7 +58,7 @@ export const paymentIntents = pgTable(
     index("payment_intents_traveller_id_idx").on(table.travellerUserId),
     check(
       "payment_intents_provider_check",
-      sql`${table.provider} IN ('SANDBOX_GATEWAY', 'PAYHERE')`
+      sql`${table.provider} IN ('SANDBOX_GATEWAY', 'PAYHERE', 'STRIPE', 'PAYPAL')`
     ),
     check(
       "payment_intents_status_check",

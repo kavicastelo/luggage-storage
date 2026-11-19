@@ -9,6 +9,8 @@ import { BAG_CATEGORIES } from "@luggage-storage/contracts";
 import {
   ArrowLeft,
   CalendarClock,
+  ChevronDown,
+  ChevronUp,
   CreditCard,
   Luggage,
   ShieldCheck,
@@ -40,6 +42,8 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
+import { Textarea } from "@/components/ui/Textarea";
 import {
   clearCheckoutDraft,
   countTotalBags,
@@ -96,6 +100,8 @@ export function WebCheckoutSchedulePage() {
   const [bags, setBags] = useState<TravellerBagCounts>(parsedInitial.bags);
   const [travellerNotes, setTravellerNotes] = useState("");
   const [billing, setBilling] = useState<CheckoutBillingState>(EMPTY_BILLING_STATE);
+  const [billingExpanded, setBillingExpanded] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<"STRIPE" | "PAYPAL" | "SANDBOX_GATEWAY">("STRIPE");
 
   const [liveQuote, setLiveQuote] = useState<BookingQuoteResponse | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -161,6 +167,8 @@ export function WebCheckoutSchedulePage() {
   const totalBags = countTotalBags(bags);
 
   const oversizedBlocked = Boolean(liveLocation && !liveLocation.acceptsOversized);
+  const isHostApprovalMode = liveLocation?.bookingMode === "HOST_APPROVAL";
+  const showBillingFields = !isHostApprovalMode || billingExpanded;
 
   // Clear oversized count cleanly if location explicitly rejects oversized bags
   useEffect(() => {
@@ -324,6 +332,7 @@ export function WebCheckoutSchedulePage() {
       const currentIntent = await paymentIntentMutation.mutateAsync({
         bookingId: createdBooking.id,
         channel: "WEB",
+        provider: selectedProvider,
         idempotencyKey: generateClientIdempotencyKey("web-pay"),
         ...(Object.keys(trimmedBilling).length > 0
           ? { customerDetails: trimmedBilling }
@@ -338,6 +347,25 @@ export function WebCheckoutSchedulePage() {
         channel: currentIntent.checkoutChannel,
         createdAt: currentIntent.createdAt
       });
+
+      if (currentIntent.nextAction === "STRIPE_ELEMENTS_CONFIRM") {
+        navigate(
+          `/booking/confirm?bookingId=${encodeURIComponent(
+            createdBooking.id
+          )}&intentId=${encodeURIComponent(currentIntent.id)}&provider=STRIPE`
+        );
+        return;
+      }
+
+      if (currentIntent.nextAction === "PAYPAL_CHECKOUT_APPROVE") {
+        if (
+          currentIntent.checkoutHandoff.mode === "PAYPAL_CHECKOUT" &&
+          currentIntent.checkoutHandoff.approveUrl
+        ) {
+          window.location.href = currentIntent.checkoutHandoff.approveUrl;
+          return;
+        }
+      }
 
       if (
         currentIntent.checkoutChannel === "WEB" &&
@@ -367,6 +395,20 @@ export function WebCheckoutSchedulePage() {
     }
   };
 
+  const submitCtaContent = !isAuthenticated ? (
+    <>
+      <UserCheck className="h-4 w-4" />
+      <span>Sign In &amp; Continue</span>
+    </>
+  ) : liveLocation?.bookingMode === "HOST_APPROVAL" ? (
+    <>
+      <Sparkles className="h-4 w-4" />
+      <span>Submit Approval Request</span>
+    </>
+  ) : (
+    <span>Proceed to Payment</span>
+  );
+
   // Strict Demo Preview Mode
   if (isDemoMode) {
     const demoLoc =
@@ -378,14 +420,14 @@ export function WebCheckoutSchedulePage() {
       bags.BAG_OVERSIZED * demoLoc.dailyCapLkr.OVERSIZED;
 
     return (
-      <div className="space-y-8 pb-12 max-w-5xl mx-auto">
+      <div className="space-y-8 pb-24 lg:pb-12 max-w-5xl mx-auto">
         <Alert variant="info" title="Demo & Prototype Mode">
           Viewing illustrative pricing and confirmation handoff preview for{" "}
           <span className="font-bold">{demoLoc.name}</span>. Switch out of demo preview to execute
           live bookings.
         </Alert>
 
-        <form onSubmit={handleDemoSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <form id="demo-checkout-form" onSubmit={handleDemoSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-7 space-y-6">
             <h1 className="text-3xl font-extrabold text-navy-950">Checkout &amp; Custody Schedule</h1>
 
@@ -430,15 +472,21 @@ export function WebCheckoutSchedulePage() {
                         type="button"
                         variant="outline"
                         size="sm"
+                        aria-label={`Decrease ${CHECKOUT_BAG_LABELS[cat].title}`}
+                        className="min-h-[44px] min-w-[44px]"
                         onClick={() => adjustBagCount(cat, -1)}
                       >
                         -
                       </Button>
-                      <span className="w-6 text-center font-mono font-bold">{bags[cat]}</span>
+                      <span className="w-7 text-center font-mono font-bold tabular-nums">
+                        {bags[cat]}
+                      </span>
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
+                        aria-label={`Increase ${CHECKOUT_BAG_LABELS[cat].title}`}
+                        className="min-h-[44px] min-w-[44px]"
                         onClick={() => adjustBagCount(cat, 1)}
                       >
                         +
@@ -455,7 +503,7 @@ export function WebCheckoutSchedulePage() {
               <h2 className="text-lg font-extrabold text-navy-950">Price Breakdown</h2>
               <div className="flex justify-between text-sm pt-2 border-t border-sand-200">
                 <span className="font-bold text-navy-950">Total Payable</span>
-                <span className="font-black text-navy-950">{formatLkr(demoTotalLkr)}</span>
+                <span className="font-black text-navy-950 tabular-nums">{formatLkr(demoTotalLkr)}</span>
               </div>
               <Button type="submit" variant="primary" className="w-full">
                 Proceed to Payment
@@ -468,24 +516,23 @@ export function WebCheckoutSchedulePage() {
   }
 
   return (
-    <div className="space-y-6 pb-12 max-w-6xl mx-auto">
+    <div className="space-y-6 pb-28 lg:pb-12 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link
           to={validLiveUuid ? `/locations/${locId}` : "/search"}
-          className="inline-flex items-center gap-1.5 text-sm font-bold text-navy-900 hover:text-terracotta-600"
+          className="min-h-[44px] inline-flex items-center gap-1.5 text-sm font-bold text-navy-900 hover:text-terracotta-600 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Facility Profile
         </Link>
-        <Badge variant="info" size="md">
-          Server-Authoritative Checkout
-        </Badge>
+        <div
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-navy-50 border border-navy-200 text-xs font-semibold text-navy-900"
+          title="Pricing, capacity locks, and taxes are verified directly by the backend before authorization."
+        >
+          <ShieldCheck className="h-3.5 w-3.5 text-terracotta-600 shrink-0" />
+          <span>Server-Authoritative Checkout</span>
+        </div>
       </div>
-
-      <Alert variant="info" title="Server-Authoritative Checkout">
-        Pricing, capacity locks, tax computation, and PayHere signatures are calculated directly by
-        the backend before payment authorization.
-      </Alert>
 
       {!validLiveUuid ? (
         <Alert variant="warning" title="Invalid Storage Location">
@@ -493,6 +540,7 @@ export function WebCheckoutSchedulePage() {
         </Alert>
       ) : (
         <form
+          id="live-checkout-form"
           onSubmit={handleLiveCheckoutSubmit}
           className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
         >
@@ -589,6 +637,15 @@ export function WebCheckoutSchedulePage() {
                 </Badge>
               </div>
 
+              <div className="rounded-xl bg-sand-50 border border-sand-200 px-3.5 py-2.5">
+                <MascotIllustration
+                  mascot="blank-tag"
+                  size="xs"
+                  variant="inline"
+                  caption="Pick the closest category per bag — each item gets its own tamper-evident tag at drop-off."
+                />
+              </div>
+
               {oversizedBlocked && (
                 <Alert variant="warning">
                   This storage hub accepts Standard luggage only and cannot hold oversized surfboards
@@ -602,35 +659,39 @@ export function WebCheckoutSchedulePage() {
                   return (
                     <div
                       key={cat}
-                      className={`flex items-center justify-between p-4 rounded-xl border ${
+                      className={`flex items-center justify-between gap-3 p-4 rounded-xl border ${
                         isOversizedDisabled
                           ? "border-sand-200 bg-sand-100/70 opacity-65"
                           : "border-sand-200 bg-sand-50"
                       }`}
                     >
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm font-bold text-navy-950">
                           {CHECKOUT_BAG_LABELS[cat].title}
                         </p>
                         <p className="text-xs text-sand-700">{CHECKOUT_BAG_LABELS[cat].hint}</p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
+                          aria-label={`Decrease ${CHECKOUT_BAG_LABELS[cat].title}`}
+                          className="min-h-[44px] min-w-[44px]"
                           disabled={bags[cat] === 0}
                           onClick={() => adjustBagCount(cat, -1)}
                         >
                           -
                         </Button>
-                        <span className="w-7 text-center font-mono font-bold text-navy-950">
+                        <span className="w-7 text-center font-mono font-bold text-navy-950 tabular-nums">
                           {bags[cat]}
                         </span>
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
+                          aria-label={`Increase ${CHECKOUT_BAG_LABELS[cat].title}`}
+                          className="min-h-[44px] min-w-[44px]"
                           disabled={isOversizedDisabled}
                           onClick={() => adjustBagCount(cat, 1)}
                         >
@@ -643,10 +704,9 @@ export function WebCheckoutSchedulePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-navy-900 mb-1.5">
-                  Handover Notes for Host (Optional)
-                </label>
-                <textarea
+                <Textarea
+                  id="traveller-handover-notes"
+                  label="Handover Notes for Host (Optional)"
                   rows={2}
                   maxLength={500}
                   value={travellerNotes}
@@ -661,110 +721,203 @@ export function WebCheckoutSchedulePage() {
                     );
                   }}
                   placeholder="Flight arrival time, fragile contents note..."
-                  className="w-full rounded-xl border border-sand-300 bg-white px-3.5 py-2 text-sm text-navy-950 focus:outline-none focus:ring-2 focus:ring-terracotta-500"
                 />
               </div>
             </Card>
 
-            {/* Step 3: Billing Details for Gateway */}
+            {/* Step 3: Payment Method Selector */}
             <Card className="p-6 bg-white space-y-4">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-lg font-extrabold text-navy-950 flex items-center gap-2">
                   <CreditCard className="h-5 w-5 text-terracotta-500" />
-                  3. Traveller Billing Details
+                  3. Select Payment Method
                 </h2>
-                <span className="text-xs text-sand-600">Required for PayHere gateway</span>
+                <Badge variant="success" size="sm">
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                  PCI-DSS SAQ A
+                </Badge>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Input
-                  label="First Name"
-                  value={billing.firstName}
-                  onChange={(e) => {
-                    const next = { ...billing, firstName: e.target.value };
-                    setBilling(next);
-                    persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
-                  }}
-                  placeholder="First name"
-                />
-                <Input
-                  label="Last Name"
-                  value={billing.lastName}
-                  onChange={(e) => {
-                    const next = { ...billing, lastName: e.target.value };
-                    setBilling(next);
-                    persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
-                  }}
-                  placeholder="Last name"
-                />
-                <Input
-                  label="Email Address"
-                  type="email"
-                  value={billing.email}
-                  onChange={(e) => {
-                    const next = { ...billing, email: e.target.value };
-                    setBilling(next);
-                    persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
-                  }}
-                  placeholder="you@example.com"
-                />
-                <Input
-                  label="Phone Number"
-                  type="tel"
-                  value={billing.phone}
-                  onChange={(e) => {
-                    const next = { ...billing, phone: e.target.value };
-                    setBilling(next);
-                    persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
-                  }}
-                  placeholder="+94 7X XXX XXXX"
-                />
-                <div className="sm:col-span-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  data-testid="payment-provider-stripe"
+                  onClick={() => setSelectedProvider("STRIPE")}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    selectedProvider === "STRIPE"
+                      ? "border-terracotta-500 bg-terracotta-50/50 shadow-sm ring-2 ring-terracotta-500"
+                      : "border-sand-200 bg-sand-50 hover:bg-white"
+                  }`}
+                >
+                  <p className="font-bold text-sm text-navy-950">Credit / Debit Card</p>
+                  <p className="text-xs text-sand-600 mt-1">Visa, Mastercard, Amex, Apple/Google Pay</p>
+                  <span className="inline-block mt-2 text-[10px] uppercase font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                    Stripe Primary
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="payment-provider-paypal"
+                  onClick={() => setSelectedProvider("PAYPAL")}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    selectedProvider === "PAYPAL"
+                      ? "border-terracotta-500 bg-terracotta-50/50 shadow-sm ring-2 ring-terracotta-500"
+                      : "border-sand-200 bg-sand-50 hover:bg-white"
+                  }`}
+                >
+                  <p className="font-bold text-sm text-navy-950">PayPal</p>
+                  <p className="text-xs text-sand-600 mt-1">PayPal Wallet &amp; Pay in 4</p>
+                  <span className="inline-block mt-2 text-[10px] uppercase font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    Alternative
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="payment-provider-sandbox"
+                  onClick={() => setSelectedProvider("SANDBOX_GATEWAY")}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    selectedProvider === "SANDBOX_GATEWAY"
+                      ? "border-terracotta-500 bg-terracotta-50/50 shadow-sm ring-2 ring-terracotta-500"
+                      : "border-sand-200 bg-sand-50 hover:bg-white"
+                  }`}
+                >
+                  <p className="font-bold text-sm text-navy-950">Sandbox Sim</p>
+                  <p className="text-xs text-sand-600 mt-1">Instant simulator for testing</p>
+                  <span className="inline-block mt-2 text-[10px] uppercase font-bold text-sand-600 bg-sand-100 px-2 py-0.5 rounded border border-sand-300">
+                    Dev / Test
+                  </span>
+                </button>
+              </div>
+            </Card>
+
+            {/* Step 4: Billing Details */}
+            <Card className="p-6 bg-white space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-extrabold text-navy-950 flex items-center gap-2">
+                  <UserCheck className="h-5 w-5 text-terracotta-500" />
+                  4. Traveller Billing &amp; Contact Details
+                </h2>
+                {isHostApprovalMode ? (
+                  <button
+                    type="button"
+                    aria-expanded={showBillingFields}
+                    onClick={() => setBillingExpanded((prev) => !prev)}
+                    className="min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sand-200 bg-sand-50 text-xs font-bold text-navy-900 hover:bg-sand-100 transition-colors"
+                  >
+                    <span>
+                      {showBillingFields ? "Hide Billing Details" : "Add Optional Billing Details"}
+                    </span>
+                    {showBillingFields ? (
+                      <ChevronUp className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                ) : (
+                  <span className="text-xs text-sand-600">256-bit encrypted checkout</span>
+                )}
+              </div>
+
+              {isHostApprovalMode && !showBillingFields && (
+                <p className="text-xs text-sand-700">
+                  Payment is only requested after the host approves your storage request. You can
+                  optionally pre-fill billing details now.
+                </p>
+              )}
+
+              {showBillingFields && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
-                    label="Street Address"
-                    value={billing.address}
+                    label="First Name"
+                    value={billing.firstName}
                     onChange={(e) => {
-                      const next = { ...billing, address: e.target.value };
+                      const next = { ...billing, firstName: e.target.value };
                       setBilling(next);
-                      persistDraftSnapshot(
-                        dropOffLocal,
-                        collectionLocal,
-                        bags,
-                        travellerNotes,
-                        next
-                      );
+                      persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
                     }}
-                    placeholder="Billing street or hotel address"
+                    placeholder="First name"
+                  />
+                  <Input
+                    label="Last Name"
+                    value={billing.lastName}
+                    onChange={(e) => {
+                      const next = { ...billing, lastName: e.target.value };
+                      setBilling(next);
+                      persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
+                    }}
+                    placeholder="Last name"
+                  />
+                  <Input
+                    label="Email Address"
+                    type="email"
+                    value={billing.email}
+                    onChange={(e) => {
+                      const next = { ...billing, email: e.target.value };
+                      setBilling(next);
+                      persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
+                    }}
+                    placeholder="you@example.com"
+                  />
+                  <Input
+                    label="Phone Number"
+                    type="tel"
+                    value={billing.phone}
+                    onChange={(e) => {
+                      const next = { ...billing, phone: e.target.value };
+                      setBilling(next);
+                      persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
+                    }}
+                    placeholder="+94 7X XXX XXXX"
+                  />
+                  <div className="sm:col-span-2">
+                    <Input
+                      label="Street Address"
+                      value={billing.address}
+                      onChange={(e) => {
+                        const next = { ...billing, address: e.target.value };
+                        setBilling(next);
+                        persistDraftSnapshot(
+                          dropOffLocal,
+                          collectionLocal,
+                          bags,
+                          travellerNotes,
+                          next
+                        );
+                      }}
+                      placeholder="Billing street or hotel address"
+                    />
+                  </div>
+                  <Input
+                    label="City"
+                    value={billing.city}
+                    onChange={(e) => {
+                      const next = { ...billing, city: e.target.value };
+                      setBilling(next);
+                      persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
+                    }}
+                    placeholder="Colombo"
+                  />
+                  <Input
+                    label="Country"
+                    value={billing.country}
+                    onChange={(e) => {
+                      const next = { ...billing, country: e.target.value };
+                      setBilling(next);
+                      persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
+                    }}
+                    placeholder="Sri Lanka"
                   />
                 </div>
-                <Input
-                  label="City"
-                  value={billing.city}
-                  onChange={(e) => {
-                    const next = { ...billing, city: e.target.value };
-                    setBilling(next);
-                    persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
-                  }}
-                  placeholder="Colombo"
-                />
-                <Input
-                  label="Country"
-                  value={billing.country}
-                  onChange={(e) => {
-                    const next = { ...billing, country: e.target.value };
-                    setBilling(next);
-                    persistDraftSnapshot(dropOffLocal, collectionLocal, bags, travellerNotes, next);
-                  }}
-                  placeholder="Sri Lanka"
-                />
-              </div>
+              )}
             </Card>
           </div>
 
           {/* Right Summary Card */}
           <div className="lg:col-span-5 lg:sticky lg:top-20 space-y-4">
             <Card className="p-6 bg-white space-y-5 border-2 border-navy-900">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <h2 className="text-lg font-extrabold text-navy-950">Price Breakdown</h2>
                 {liveLocation && (
                   <Badge
@@ -803,7 +956,7 @@ export function WebCheckoutSchedulePage() {
                   {!liveQuote.available && (
                     <Alert variant="danger" title="Unavailable Window">
                       {liveQuote.unavailabilityReason ||
-                        "Not enough open capacity units during this window."}
+                        "Not enough open capacity slots during this window."}
                     </Alert>
                   )}
 
@@ -816,7 +969,7 @@ export function WebCheckoutSchedulePage() {
                           {item.durationUnits === 1 ? "unit" : "units"} @{" "}
                           {formatLkrMinor(item.unitRateMinor, liveQuote.currency)})
                         </span>
-                        <span className="font-mono font-bold text-navy-950 shrink-0">
+                        <span className="font-mono font-bold text-navy-950 shrink-0 tabular-nums">
                           {formatLkrMinor(item.lineTotalMinor, liveQuote.currency)}
                         </span>
                       </div>
@@ -826,7 +979,7 @@ export function WebCheckoutSchedulePage() {
                   {liveQuote.discountMinor > 0 && (
                     <div className="flex justify-between text-emerald-700">
                       <span>Discount</span>
-                      <span className="font-mono font-bold">
+                      <span className="font-mono font-bold tabular-nums">
                         -{formatLkrMinor(liveQuote.discountMinor, liveQuote.currency)}
                       </span>
                     </div>
@@ -834,7 +987,7 @@ export function WebCheckoutSchedulePage() {
 
                   <div className="flex justify-between text-sand-700 pt-2 border-t border-sand-200">
                     <span>Storage Subtotal</span>
-                    <span className="font-mono font-semibold">
+                    <span className="font-mono font-semibold tabular-nums">
                       {formatLkrMinor(liveQuote.storageSubtotalMinor, liveQuote.currency)}
                     </span>
                   </div>
@@ -843,14 +996,14 @@ export function WebCheckoutSchedulePage() {
                     <span>
                       Taxes ({(liveQuote.taxRateBps / 100).toFixed(2).replace(/\.00$/, "")}%)
                     </span>
-                    <span className="font-mono font-semibold">
+                    <span className="font-mono font-semibold tabular-nums">
                       {formatLkrMinor(liveQuote.taxAmountMinor, liveQuote.currency)}
                     </span>
                   </div>
 
                   <div className="flex justify-between items-baseline pt-3 border-t border-sand-300">
                     <span className="text-base font-extrabold text-navy-950">Total Payable</span>
-                    <span className="text-2xl font-black text-navy-950 font-mono">
+                    <span className="text-2xl font-black text-navy-950 font-mono tabular-nums">
                       {formatLkrMinor(liveQuote.totalAmountMinor, liveQuote.currency)}
                     </span>
                   </div>
@@ -862,7 +1015,7 @@ export function WebCheckoutSchedulePage() {
                     </p>
                     <p>{liveQuote.cancellationPolicySummary}</p>
                     <p className="text-[11px] text-sand-600">
-                      Remaining capacity: {liveQuote.remainingCapacityUnits} units
+                      Remaining availability: {liveQuote.remainingCapacityUnits} slots
                     </p>
                   </div>
                 </div>
@@ -893,23 +1046,41 @@ export function WebCheckoutSchedulePage() {
                   Boolean(liveQuote && !liveQuote.available)
                 }
               >
-                {!isAuthenticated ? (
-                  <>
-                    <UserCheck className="h-4 w-4" />
-                    Sign In &amp; Continue
-                  </>
-                ) : liveLocation?.bookingMode === "HOST_APPROVAL" ? (
-                  <>
-                    <Sparkles className="h-4 w-4" />
-                    Submit Approval Request
-                  </>
-                ) : (
-                  <>Proceed to Payment</>
-                )}
+                {submitCtaContent}
               </Button>
             </Card>
           </div>
         </form>
+      )}
+
+      {/* Sticky Mobile Summary Bar */}
+      {validLiveUuid && (
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-sand-200 px-4 py-3 shadow-lg">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold text-sand-600">Total Payable</p>
+              <p className="text-base font-black text-navy-950 font-mono tabular-nums">
+                {liveQuote
+                  ? formatLkrMinor(liveQuote.totalAmountMinor, liveQuote.currency)
+                  : `${totalBags} ${totalBags === 1 ? "bag" : "bags"}`}
+              </p>
+            </div>
+            <Button
+              type="submit"
+              form="live-checkout-form"
+              variant="primary"
+              size="md"
+              isLoading={bookingMutation.isPending || paymentIntentMutation.isPending}
+              disabled={
+                !scheduleValid ||
+                totalBags < 1 ||
+                Boolean(liveQuote && !liveQuote.available)
+              }
+            >
+              {submitCtaContent}
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );

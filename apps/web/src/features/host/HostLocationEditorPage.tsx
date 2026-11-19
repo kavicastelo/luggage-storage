@@ -6,7 +6,7 @@ import {
   type LocationAmenity
 } from "@luggage-storage/contracts";
 import { CheckCircle2, ImagePlus, Send, Star, Trash2 } from "lucide-react";
-import { Alert } from "@/components/ui/Alert";
+import { Alert, Card, LoadingSkeleton, MascotIllustration } from "@/components/ui";
 import { DEMO_LOCATIONS } from "@/data/mock-marketplace";
 import { uploadFileToR2, validateFileForUpload } from "@/lib/r2-uploader";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -19,8 +19,14 @@ import {
   useUpdateLocationMediaMutation,
   useUpdateLocationMutation
 } from "@/hooks/queries/use-host-portal";
-import { HostQueryErrorAlert, isUuid, NoLocationSelectedCard } from "./host-helpers";
+import {
+  HostLocationSetupTabs,
+  HostQueryErrorAlert,
+  isUuid,
+  NoLocationSelectedCard
+} from "./host-helpers";
 import { useHostVenue } from "./HostDashboardLayout";
+import { LocationDiscoveryMap } from "../traveller/LocationDiscoveryMap";
 
 const AMENITY_LABELS: Record<LocationAmenity, string> = {
   CCTV: "24/7 Monitored CCTV Recording",
@@ -82,6 +88,7 @@ export function HostLocationProfileEditorPage() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || !detail) return;
@@ -96,6 +103,7 @@ export function HostLocationProfileEditorPage() {
     setBookingMode(detail.bookingMode);
     setAcceptsOversized(detail.acceptsOversized);
     setAmenities(detail.amenities ?? []);
+    setHasUnsavedChanges(false);
   }, [isAuthenticated, detail]);
 
   if (isAuthenticated && !liveLocationId) {
@@ -118,9 +126,11 @@ export function HostLocationProfileEditorPage() {
 
   if (isAuthenticated && detailQuery.isLoading) {
     return (
-      <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs font-semibold text-navy-600">
-        Loading storage location profile...
-      </div>
+      <Card className="p-6 space-y-4">
+        <LoadingSkeleton variant="text" className="w-56 h-7" />
+        <LoadingSkeleton className="h-32 w-full" />
+        <LoadingSkeleton className="h-32 w-full" />
+      </Card>
     );
   }
 
@@ -138,6 +148,7 @@ export function HostLocationProfileEditorPage() {
   }
 
   const toggleAmenity = (amenity: string) => {
+    setHasUnsavedChanges(true);
     setAmenities((prev) =>
       prev.includes(amenity) ? prev.filter((item) => item !== amenity) : [...prev, amenity]
     );
@@ -149,6 +160,7 @@ export function HostLocationProfileEditorPage() {
     setSavedNotice(null);
 
     if (!isAuthenticated) {
+      setHasUnsavedChanges(false);
       setSavedNotice(
         `Location profile updated successfully for ${name}. Changes saved to local session.`
       );
@@ -174,6 +186,7 @@ export function HostLocationProfileEditorPage() {
           amenities
         }
       });
+      setHasUnsavedChanges(false);
       setSavedNotice(`Location profile updated for ${name}.`);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Failed to save location profile.");
@@ -284,6 +297,8 @@ export function HostLocationProfileEditorPage() {
         </div>
       </div>
 
+      <HostLocationSetupTabs locationId={targetLocationId} querySuffix={querySuffix} />
+
       {errorMsg && (
         <Alert variant="danger" title="Save Failed">
           {errorMsg}
@@ -298,7 +313,12 @@ export function HostLocationProfileEditorPage() {
       )}
 
       {/* Editor Form */}
-      <form id="location-profile-form" onSubmit={handleSave} className="space-y-6">
+      <form
+        id="location-profile-form"
+        onChange={() => setHasUnsavedChanges(true)}
+        onSubmit={handleSave}
+        className="space-y-6"
+      >
         <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
           <h2 className="text-sm font-bold text-navy-950">Public Profile Information</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -440,6 +460,29 @@ export function HostLocationProfileEditorPage() {
                     />
                   </div>
                 </div>
+
+                {Number.isFinite(latitude) && Number.isFinite(longitude) && (
+                  <div className="pt-2">
+                    <span className="block text-xs font-bold text-navy-900 mb-1.5">
+                      Facility Location Pin Preview
+                    </span>
+                    <LocationDiscoveryMap
+                      locations={[
+                        {
+                          id: "host-facility-preview",
+                          name: name.trim() || "My Facility",
+                          city: city.trim() || "Sri Lanka",
+                          approximateArea: addressLine1.trim() || "Transit Area",
+                          approximateLatitude: latitude,
+                          approximateLongitude: longitude,
+                          priceLabel: "Host Facility",
+                          href: "#"
+                        }
+                      ]}
+                      selectedLocationId="host-facility-preview"
+                    />
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -536,6 +579,23 @@ export function HostLocationProfileEditorPage() {
             </div>
           </div>
         </div>
+        {/* Sticky Bottom Save Bar */}
+        <div className="sticky bottom-4 z-10 rounded-2xl bg-white/95 backdrop-blur-sm border border-sand-200 px-5 py-3.5 shadow-lg flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs font-semibold">
+            {hasUnsavedChanges ? (
+              <span className="text-amber-800">Unsaved profile changes</span>
+            ) : (
+              <span className="text-navy-600">Profile settings synchronized</span>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={updateLocationMutation.isPending}
+            className="px-5 py-2 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold shadow-sm transition disabled:opacity-50"
+          >
+            {updateLocationMutation.isPending ? "Saving..." : "Save Location Profile"}
+          </button>
+        </div>
       </form>
 
       {/* Section 4: Live Location Media Gallery & R2 Upload */}
@@ -592,7 +652,13 @@ export function HostLocationProfileEditorPage() {
           </div>
 
           {mediaItems.length === 0 ? (
-            <p className="text-navy-500 py-3">No location photos uploaded yet.</p>
+            <div className="rounded-xl border border-dashed border-sand-300 bg-sand-50/70 p-6 flex flex-col items-center text-center space-y-2">
+              <MascotIllustration mascot="selfie" size="md" variant="empty" decorative />
+              <p className="font-bold text-navy-900">No location photos uploaded yet.</p>
+              <p className="text-[11px] text-navy-600 max-w-md">
+                Show travellers your secure luggage lockers, reception desk, and storefront signage to build confidence before booking.
+              </p>
+            </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
               {mediaItems.map((media) => (

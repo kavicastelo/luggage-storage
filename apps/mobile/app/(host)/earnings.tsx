@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { formatCurrencyMinorUnits, type CurrencyCode } from "@luggage-storage/contracts";
 import {
@@ -24,15 +24,19 @@ import { normalizeApiError } from "../../src/services/api-client";
 import { useAuthStore } from "../../src/store/useAuthStore";
 import {
   mobileColors,
+  mobileRadius,
   mobileSpacing,
   mobileStatusTokens,
   mobileTextColors,
   mobileTypography
 } from "../../src/lib/theme";
 
+type EarningsTab = "TRANSACTIONS" | "BATCHES";
+
 export default function HostEarningsScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
+  const [activeTab, setActiveTab] = useState<EarningsTab>("TRANSACTIONS");
 
   const isOwner = Boolean(
     user?.roles?.includes("HOST_OWNER") || user?.roles?.includes("SUPERADMIN")
@@ -115,19 +119,21 @@ export default function HostEarningsScreen() {
           </Card>
 
           <View style={styles.kpiGrid}>
-            <Card variant="default" style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>Accrued</Text>
-              <Text style={styles.kpiVal}>
-                {formatCurrencyMinorUnits(summary.totalAccruedMinor, currency)}
-              </Text>
-            </Card>
-            <Card variant="default" style={styles.kpiCard}>
-              <Text style={styles.kpiLabel}>On Hold</Text>
-              <Text style={styles.kpiVal}>
-                {formatCurrencyMinorUnits(summary.totalOnHoldMinor, currency)}
-              </Text>
-            </Card>
-            <Card variant="default" style={styles.kpiCard}>
+            <View style={styles.kpiRowTwo}>
+              <Card variant="default" style={styles.kpiCard}>
+                <Text style={styles.kpiLabel}>Accrued</Text>
+                <Text style={styles.kpiVal}>
+                  {formatCurrencyMinorUnits(summary.totalAccruedMinor, currency)}
+                </Text>
+              </Card>
+              <Card variant="default" style={styles.kpiCard}>
+                <Text style={styles.kpiLabel}>On Hold</Text>
+                <Text style={styles.kpiVal}>
+                  {formatCurrencyMinorUnits(summary.totalOnHoldMinor, currency)}
+                </Text>
+              </Card>
+            </View>
+            <Card variant="default" style={styles.kpiCardFull}>
               <Text style={styles.kpiLabel}>Settled Paid</Text>
               <Text style={styles.kpiVal}>
                 {formatCurrencyMinorUnits(summary.totalPaidMinor, currency)}
@@ -165,83 +171,127 @@ export default function HostEarningsScreen() {
             </Card>
           ) : null}
 
-          <Text style={styles.sectionTitle}>Transaction History ({summary.payables.length})</Text>
+          <View style={styles.tabsRow} accessibilityRole="tablist">
+            <TouchableOpacity
+              style={[styles.tabBtn, activeTab === "TRANSACTIONS" ? styles.tabBtnActive : null]}
+              onPress={() => setActiveTab("TRANSACTIONS")}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === "TRANSACTIONS" }}
+            >
+              <Text
+                style={[styles.tabText, activeTab === "TRANSACTIONS" ? styles.tabTextActive : null]}
+              >
+                Transactions ({summary.payables.length})
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabBtn, activeTab === "BATCHES" ? styles.tabBtnActive : null]}
+              onPress={() => setActiveTab("BATCHES")}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: activeTab === "BATCHES" }}
+            >
+              <Text
+                style={[styles.tabText, activeTab === "BATCHES" ? styles.tabTextActive : null]}
+              >
+                Payout Batches ({batchesQuery.data?.length ?? 0})
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-          {summary.payables.length === 0 ? (
-            <EmptyState
-              mascot="thinking"
-              title="No Payable Records Yet"
-              description="Each paid booking generates a double-entry payable showing gross booking amount, platform commission, and net host payable."
-            />
+          {activeTab === "TRANSACTIONS" ? (
+            <>
+              <Text style={styles.sectionTitle}>
+                Transaction History ({summary.payables.length})
+              </Text>
+
+              {summary.payables.length === 0 ? (
+                <EmptyState
+                  mascot="thinking"
+                  title="No Payable Records Yet"
+                  description="Each paid booking generates a double-entry payable showing gross booking amount, platform commission, and net host payable."
+                />
+              ) : (
+                summary.payables.map((item) => (
+                  <Card key={item.id} variant="elevated" style={styles.cardGap}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.refCode}>
+                        #{item.referenceCode || item.bookingId.slice(0, 8)}
+                      </Text>
+                      <StatusBadge status={item.status} size="sm" />
+                    </View>
+
+                    <Text style={styles.netValue}>
+                      Net Host Payable:{" "}
+                      {formatCurrencyMinorUnits(
+                        item.netPayableMinor,
+                        (item.currency || currency) as CurrencyCode
+                      )}
+                    </Text>
+                    <Text style={styles.metaText}>
+                      Gross Booking:{" "}
+                      {formatCurrencyMinorUnits(
+                        item.grossSubtotalMinor,
+                        (item.currency || currency) as CurrencyCode
+                      )}{" "}
+                      • Platform Fee:{" "}
+                      {formatCurrencyMinorUnits(
+                        item.commissionMinor,
+                        (item.currency || currency) as CurrencyCode
+                      )}
+                    </Text>
+                    <Text style={styles.metaText}>
+                      Accrued: {formatColomboDateTime(new Date(item.accruedAt))}
+                    </Text>
+                  </Card>
+                ))
+              )}
+            </>
           ) : (
-            summary.payables.map((item) => (
-              <Card key={item.id} variant="elevated" style={styles.cardGap}>
-                <View style={styles.rowBetween}>
-                  <Text style={styles.refCode}>
-                    #{item.referenceCode || item.bookingId.slice(0, 8)}
-                  </Text>
-                  <StatusBadge status={item.status} size="sm" />
-                </View>
-
-                <Text style={styles.netValue}>
-                  Net Host Payable:{" "}
-                  {formatCurrencyMinorUnits(item.netPayableMinor, (item.currency || currency) as CurrencyCode)}
-                </Text>
-                <Text style={styles.metaText}>
-                  Gross Booking:{" "}
-                  {formatCurrencyMinorUnits(item.grossSubtotalMinor, (item.currency || currency) as CurrencyCode)}{" "}
-                  • Platform Fee:{" "}
-                  {formatCurrencyMinorUnits(item.commissionMinor, (item.currency || currency) as CurrencyCode)}
-                </Text>
-                <Text style={styles.metaText}>
-                  Accrued: {formatColomboDateTime(new Date(item.accruedAt))}
-                </Text>
-              </Card>
-            ))
-          )}
-
-          <Text style={styles.sectionTitle}>
-            Settlement Payout Batches ({batchesQuery.data?.length ?? 0})
-          </Text>
-          {batchesQuery.isLoading ? (
-            <LoadingSkeleton count={2} />
-          ) : batchesQuery.error ? (
-            <ErrorState
-              title="Unable to Load Payout Batches"
-              message={normalizeApiError(batchesQuery.error).message}
-              onRetry={() => void batchesQuery.refetch()}
-            />
-          ) : (batchesQuery.data?.length ?? 0) === 0 ? (
-            <EmptyState
-              mascot="thinking"
-              title="No Payout Batches Yet"
-              description="Once eligible host payables are grouped and disbursed by finance, bank settlement batches and wire references appear here."
-            />
-          ) : (
-            (batchesQuery.data ?? []).map((batch) => (
-              <Card key={batch.id} variant="default" style={styles.cardGap}>
-                <View style={styles.rowBetween}>
-                  <Text style={styles.refCode}>{batch.batchCode}</Text>
-                  <StatusBadge status={batch.status} size="sm" />
-                </View>
-                <Text style={styles.netValue}>
-                  Net Disbursed:{" "}
-                  {formatCurrencyMinorUnits(
-                    batch.totalNetPayableMinor,
-                    (batch.currency || currency) as CurrencyCode
-                  )}
-                </Text>
-                <Text style={styles.metaText}>
-                  Items: {batch.itemCount} • Method: {batch.payoutMethod}
-                  {batch.payoutReference ? ` • Ref: ${batch.payoutReference}` : ""}
-                </Text>
-                <Text style={styles.metaText}>
-                  {batch.disbursedAt
-                    ? `Disbursed: ${formatColomboDateTime(new Date(batch.disbursedAt))}`
-                    : `Generated: ${formatColomboDateTime(new Date(batch.createdAt))}`}
-                </Text>
-              </Card>
-            ))
+            <>
+              <Text style={styles.sectionTitle}>
+                Settlement Payout Batches ({batchesQuery.data?.length ?? 0})
+              </Text>
+              {batchesQuery.isLoading ? (
+                <LoadingSkeleton count={2} />
+              ) : batchesQuery.error ? (
+                <ErrorState
+                  title="Unable to Load Payout Batches"
+                  message={normalizeApiError(batchesQuery.error).message}
+                  onRetry={() => void batchesQuery.refetch()}
+                />
+              ) : (batchesQuery.data?.length ?? 0) === 0 ? (
+                <EmptyState
+                  mascot="thinking"
+                  title="No Payout Batches Yet"
+                  description="Once eligible host payables are grouped and disbursed by finance, bank settlement batches and wire references appear here."
+                />
+              ) : (
+                (batchesQuery.data ?? []).map((batch) => (
+                  <Card key={batch.id} variant="default" style={styles.cardGap}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.refCode}>{batch.batchCode}</Text>
+                      <StatusBadge status={batch.status} size="sm" />
+                    </View>
+                    <Text style={styles.netValue}>
+                      Net Disbursed:{" "}
+                      {formatCurrencyMinorUnits(
+                        batch.totalNetPayableMinor,
+                        (batch.currency || currency) as CurrencyCode
+                      )}
+                    </Text>
+                    <Text style={styles.metaText}>
+                      Items: {batch.itemCount} • Method: {batch.payoutMethod}
+                      {batch.payoutReference ? ` • Ref: ${batch.payoutReference}` : ""}
+                    </Text>
+                    <Text style={styles.metaText}>
+                      {batch.disbursedAt
+                        ? `Disbursed: ${formatColomboDateTime(new Date(batch.disbursedAt))}`
+                        : `Generated: ${formatColomboDateTime(new Date(batch.createdAt))}`}
+                    </Text>
+                  </Card>
+                ))
+              )}
+            </>
           )}
         </View>
       )}
@@ -292,6 +342,9 @@ const styles = StyleSheet.create({
     color: mobileColors.sand[200]
   },
   kpiGrid: {
+    gap: mobileSpacing[2]
+  },
+  kpiRowTwo: {
     flexDirection: "row",
     gap: mobileSpacing[2]
   },
@@ -299,14 +352,46 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4
   },
+  kpiCardFull: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
   kpiLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "600",
     color: mobileTextColors.muted
   },
   kpiVal: {
-    ...mobileTypography.label,
+    ...mobileTypography.headingSm,
+    fontVariant: ["tabular-nums"],
     color: mobileColors.navy[900]
+  },
+  tabsRow: {
+    flexDirection: "row",
+    gap: mobileSpacing[2]
+  },
+  tabBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.white,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  tabBtnActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: mobileTextColors.secondary
+  },
+  tabTextActive: {
+    color: mobileColors.white
   },
   cardGap: {
     gap: mobileSpacing[2]

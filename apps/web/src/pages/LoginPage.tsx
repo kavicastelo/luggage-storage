@@ -4,7 +4,11 @@ import { useAuthStore } from "../store/useAuthStore";
 import { LoginRequestSchema } from "@luggage-storage/contracts";
 import { validateWithZod } from "../lib/validation";
 import { ApiClientError } from "../lib/api-client";
-import { Eye, EyeOff, Lock, Mail, AlertCircle, Loader2 } from "lucide-react";
+import { Alert } from "@/components/ui/Alert";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -44,9 +48,13 @@ export function LoginPage() {
           setServerError("Invalid email or password. Please try again.");
         } else if (err.statusCode === 403) {
           if (err.message.toLowerCase().includes("suspended")) {
-            setServerError("Your account has been suspended by an administrator. Please contact customer support.");
+            setServerError(
+              "Your account has been suspended by an administrator. Please contact customer support."
+            );
           } else if (err.message.toLowerCase().includes("deactivated")) {
-            setServerError("This account has been deactivated. Please contact customer support to reactivate.");
+            setServerError(
+              "This account has been deactivated. Please contact customer support to reactivate."
+            );
           } else {
             setServerError(err.message || "Access denied.");
           }
@@ -54,114 +62,126 @@ export function LoginPage() {
           setServerError(err.message || "An unexpected error occurred during login.");
         }
       } else {
-        setServerError(err instanceof Error ? err.message : "Failed to connect to authentication service.");
+        setServerError(
+          err instanceof Error ? err.message : "Failed to connect to authentication service."
+        );
       }
     }
   };
 
   return (
-    <div className="max-w-md mx-auto my-8 bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Sign in to your account</h1>
-        <p className="text-sm text-slate-500 mt-2">
-          Access your luggage storage bookings, profile, and security settings
+    <Card className="max-w-md mx-auto my-8 bg-white p-8 shadow-md">
+      <div className="text-center mb-7 space-y-2">
+        <MascotIllustration mascot="wave" size="sm" variant="bare" decorative />
+        <h1 className="text-2xl font-extrabold text-navy-950 tracking-tight">
+          Sign in to your account
+        </h1>
+        <p className="text-sm text-sand-700">
+          Access your luggage storage bookings, custody passes, and security settings
         </p>
       </div>
 
       {serverError && (
-        <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-red-700">{serverError}</div>
-        </div>
+        <Alert variant="danger" className="mb-6">
+          {serverError}
+        </Alert>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="email">
+          <label className="block text-sm font-semibold text-navy-900 mb-1.5" htmlFor="email">
             Email address
           </label>
           <div className="relative">
-            <Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="email"
               type="email"
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${fieldErrors.email
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
-                }`}
+              aria-invalid={Boolean(fieldErrors.email)}
+              aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-4 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
+                fieldErrors.email
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
+              }`}
               placeholder="you@example.com"
               disabled={isLoading}
             />
           </div>
           {fieldErrors.email && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+            <p id="login-email-error" role="alert" className="mt-1.5 text-xs font-medium text-rose-600">
+              {fieldErrors.email}
+            </p>
           )}
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-sm font-medium text-slate-700" htmlFor="password">
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-sm font-semibold text-navy-900" htmlFor="password">
               Password
             </label>
             <Link
               to="/forgot-password"
-              className="text-xs font-medium text-blue-600 hover:text-blue-700"
+              className="text-xs font-semibold text-terracotta-600 hover:text-terracotta-700"
             >
               Forgot password?
             </Link>
           </div>
           <div className="relative">
-            <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="password"
               type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={`w-full pl-10 pr-10 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${fieldErrors.password
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
-                }`}
+              aria-invalid={Boolean(fieldErrors.password)}
+              aria-describedby={fieldErrors.password ? "login-password-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-12 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
+                fieldErrors.password
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
+              }`}
               placeholder="••••••••"
               disabled={isLoading}
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+              className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center absolute right-0 top-1/2 -translate-y-1/2 text-sand-600 hover:text-navy-950 rounded-r-xl transition-colors"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
-              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
           {fieldErrors.password && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+            <p
+              id="login-password-error"
+              role="alert"
+              className="mt-1.5 text-xs font-medium text-rose-600"
+            >
+              {fieldErrors.password}
+            </p>
           )}
         </div>
 
-        <button
+        <Button
           type="submit"
-          disabled={isLoading}
-          className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+          variant="primary"
+          isLoading={isLoading}
+          className="w-full"
         >
-          {isLoading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Signing in...</span>
-            </>
-          ) : (
-            <span>Sign In</span>
-          )}
-        </button>
+          {isLoading ? "Signing in..." : "Sign In"}
+        </Button>
       </form>
 
-      <div className="mt-6 text-center text-sm text-slate-500 space-y-2">
+      <div className="mt-6 pt-5 border-t border-sand-200 text-center text-sm text-sand-700 space-y-2">
         <div>
           Don&apos;t have an account?{" "}
-          <Link to="/register" className="font-semibold text-blue-600 hover:text-blue-700">
+          <Link to="/register" className="font-bold text-terracotta-600 hover:text-terracotta-700">
             Create account
           </Link>
         </div>
@@ -169,13 +189,12 @@ export function LoginPage() {
           Need to verify your email?{" "}
           <Link
             to={email ? `/verify-email?email=${encodeURIComponent(email)}` : "/verify-email"}
-            className="font-semibold text-blue-600 hover:text-blue-700"
+            className="font-bold text-navy-900 hover:text-terracotta-600 underline"
           >
             Verify email or resend link
           </Link>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
-

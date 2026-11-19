@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import {
   Badge,
+  BottomSheet,
   Button,
   Card,
   ErrorState,
@@ -36,6 +37,8 @@ export default function HostScannerScreen() {
   const verifyMutation = useVerifyCustodyPassMutation();
 
   const [selectedBookingId, setSelectedBookingId] = useState<string>("");
+  const [bookingSheetOpen, setBookingSheetOpen] = useState(false);
+  const [scanMode, setScanMode] = useState<"CAMERA" | "PIN">("CAMERA");
   const [operation, setOperation] = useState<"CHECK_IN" | "COLLECTION">("CHECK_IN");
   const [enableTorch, setEnableTorch] = useState(false);
   const [pinInput, setPinInput] = useState("");
@@ -141,6 +144,18 @@ export default function HostScannerScreen() {
     void runVerifyPass({ qrToken: cleanToken });
   };
 
+  const selectedBooking = useMemo(
+    () => eligibleBookings.find((b) => b.id === selectedBookingId) ?? null,
+    [eligibleBookings, selectedBookingId]
+  );
+
+  const handleResetScan = () => {
+    setVerifiedSummary(null);
+    setVerifyError(null);
+    setPinInput("");
+    setQrInput("");
+  };
+
   return (
     <ScreenContainer
       keyboardAvoiding
@@ -154,68 +169,116 @@ export default function HostScannerScreen() {
       testID="host-scanner-screen"
     >
       <View style={styles.stack}>
-        <Card variant="default" style={styles.cardGap}>
-          <FormSection
-            title="1. Select Reservation"
-            subtitle="Choose the arriving traveller booking to verify single-use handover credentials."
-          >
-            {eligibleBookings.length === 0 ? (
-              <Text style={styles.mutedNote}>
-                No CONFIRMED or IN_STORAGE bookings currently queued for handover.
-              </Text>
-            ) : (
-              eligibleBookings.map((b) => (
-                <SelectionCard
-                  key={b.id}
-                  title={`#${b.referenceCode} • ${b.totalBags} bag(s)`}
-                  subtitle={`${b.status === "IN_STORAGE" ? "Ready for Collection" : "Ready for Check-In"} • ${b.location.name}`}
-                  selected={selectedBookingId === b.id}
-                  onPress={() => handleSelectBooking(b.id, b.status)}
-                />
-              ))
-            )}
-          </FormSection>
-        </Card>
-
-        <Card variant="elevated" style={styles.cardGap}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Camera Scanner</Text>
-            <Button
-              title={enableTorch ? "Torch On" : "Torch Off"}
-              size="sm"
-              variant="outline"
-              onPress={() => setEnableTorch((prev) => !prev)}
-            />
+        <TouchableOpacity
+          style={styles.activeBookingPill}
+          onPress={() => setBookingSheetOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Select booking for handover verification"
+          testID="scanner-booking-selector-trigger"
+        >
+          <View style={styles.activeBookingTextCol}>
+            <Text style={styles.activeBookingEyebrow}>
+              ACTIVE RESERVATION ({operation === "COLLECTION" ? "COLLECTION" : "CHECK-IN"})
+            </Text>
+            <Text style={styles.activeBookingTitle} numberOfLines={1}>
+              {selectedBooking
+                ? `#${selectedBooking.referenceCode} • ${selectedBooking.totalBags} bag(s) • ${selectedBooking.location.name}`
+                : eligibleBookings.length === 0
+                  ? "No queued check-ins or collections"
+                  : "Tap to select a reservation"}
+            </Text>
           </View>
+          <View style={styles.changePillBadge}>
+            <Text style={styles.changePillText}>
+              {eligibleBookings.length > 0 ? `Change (${eligibleBookings.length})` : "Empty"}
+            </Text>
+          </View>
+        </TouchableOpacity>
 
-          {!permission ? (
-            <Text style={styles.mutedNote}>Checking camera permissions...</Text>
-          ) : !permission.granted ? (
-            <View style={styles.permBox}>
-              <Text style={styles.mutedNote}>
-                Camera permission is required to scan traveller custody QR passes directly.
-              </Text>
+        <View style={styles.modeToggleRow} accessibilityRole="tablist">
+          <TouchableOpacity
+            style={[styles.modeTabBtn, scanMode === "CAMERA" ? styles.modeTabBtnActive : null]}
+            onPress={() => setScanMode("CAMERA")}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: scanMode === "CAMERA" }}
+          >
+            <MobileIcon
+              name="camera"
+              size={15}
+              color={scanMode === "CAMERA" ? mobileColors.white : mobileColors.navy[900]}
+            />
+            <Text
+              style={[
+                styles.modeTabText,
+                scanMode === "CAMERA" ? styles.modeTabTextActive : null
+              ]}
+            >
+              Camera Scanner
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.modeTabBtn, scanMode === "PIN" ? styles.modeTabBtnActive : null]}
+            onPress={() => setScanMode("PIN")}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: scanMode === "PIN" }}
+          >
+            <MobileIcon
+              name="key"
+              size={15}
+              color={scanMode === "PIN" ? mobileColors.white : mobileColors.navy[900]}
+            />
+            <Text
+              style={[styles.modeTabText, scanMode === "PIN" ? styles.modeTabTextActive : null]}
+            >
+              6-Digit PIN Fallback
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {scanMode === "CAMERA" ? (
+          <Card variant="elevated" style={styles.cardGap}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Camera Scanner</Text>
               <Button
-                title="Enable Camera Access"
-                onPress={() => {
-                  void requestPermission();
-                }}
+                title={enableTorch ? "Torch On" : "Torch Off"}
+                size="sm"
+                variant="outline"
+                onPress={() => setEnableTorch((prev) => !prev)}
               />
             </View>
-          ) : (
-            <View style={styles.cameraBox}>
-              <CameraView
-                style={styles.camera}
-                facing="back"
-                enableTorch={enableTorch}
-                barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                onBarcodeScanned={handleQrScanned}
-              />
-            </View>
-          )}
-        </Card>
 
-        <Card variant="default" style={styles.cardGap}>
+            {!permission ? (
+              <Text style={styles.mutedNote}>Checking camera permissions...</Text>
+            ) : !permission.granted ? (
+              <View style={styles.permBox}>
+                <Text style={styles.mutedNote}>
+                  Camera permission is required to scan traveller custody QR passes directly.
+                </Text>
+                <Button
+                  title="Enable Camera Access"
+                  onPress={() => {
+                    void requestPermission();
+                  }}
+                />
+              </View>
+            ) : (
+              <View style={styles.cameraBox}>
+                <CameraView
+                  style={styles.camera}
+                  facing="back"
+                  enableTorch={enableTorch}
+                  barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+                  onBarcodeScanned={handleQrScanned}
+                />
+                <View style={styles.reticleOverlay} pointerEvents="none">
+                  <View style={styles.reticleFrame} />
+                  <Text style={styles.reticleHint}>Align custody QR inside frame</Text>
+                </View>
+              </View>
+            )}
+          </Card>
+        ) : (
           <FormSection
             title="6-Digit PIN Fallback"
             subtitle="Use the traveller's 6-digit single-use PIN if camera scanning is unavailable."
@@ -247,7 +310,7 @@ export default function HostScannerScreen() {
               onPress={handleVerifyManualQr}
             />
           </FormSection>
-        </Card>
+        )}
 
         {verifyError ? <ErrorState title="Verification Error" message={verifyError} /> : null}
 
@@ -287,9 +350,45 @@ export default function HostScannerScreen() {
                 })
               }
             />
+            <Button
+              title="Scan Next"
+              variant="outline"
+              size="sm"
+              leftIcon={<MobileIcon name="refresh" size={14} color={mobileColors.navy[900]} />}
+              onPress={handleResetScan}
+            />
           </Card>
         ) : null}
       </View>
+
+      <BottomSheet
+        visible={bookingSheetOpen}
+        title="Select Reservation"
+        subtitle="Choose the arriving traveller booking to verify handover credentials"
+        onClose={() => setBookingSheetOpen(false)}
+        testID="scanner-booking-sheet"
+      >
+        <View style={styles.sheetStack}>
+          {eligibleBookings.length === 0 ? (
+            <Text style={styles.mutedNote}>
+              No CONFIRMED or IN_STORAGE bookings currently queued for handover.
+            </Text>
+          ) : (
+            eligibleBookings.map((b) => (
+              <SelectionCard
+                key={b.id}
+                title={`#${b.referenceCode} • ${b.totalBags} bag(s)`}
+                subtitle={`${b.status === "IN_STORAGE" ? "Ready for Collection" : "Ready for Check-In"} • ${b.location.name}`}
+                selected={selectedBookingId === b.id}
+                onPress={() => {
+                  handleSelectBooking(b.id, b.status);
+                  setBookingSheetOpen(false);
+                }}
+              />
+            ))
+          )}
+        </View>
+      </BottomSheet>
     </ScreenContainer>
   );
 }
@@ -318,13 +417,113 @@ const styles = StyleSheet.create({
     gap: mobileSpacing[2]
   },
   cameraBox: {
-    height: 240,
+    height: 260,
     borderRadius: mobileRadius.lg,
     overflow: "hidden",
-    backgroundColor: mobileColors.navy[950]
+    backgroundColor: mobileColors.navy[950],
+    position: "relative"
   },
   camera: {
     flex: 1
+  },
+  reticleOverlay: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: mobileSpacing[2]
+  },
+  reticleFrame: {
+    width: 170,
+    height: 170,
+    borderRadius: mobileRadius.lg,
+    borderWidth: 2,
+    borderColor: mobileColors.terracotta[400],
+    backgroundColor: "rgba(255, 255, 255, 0.04)"
+  },
+  reticleHint: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: mobileColors.white,
+    backgroundColor: "rgba(7, 14, 26, 0.65)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: mobileRadius.full
+  },
+  activeBookingPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileColors.card,
+    borderWidth: 1,
+    borderColor: mobileColors.border,
+    borderRadius: mobileRadius.xl,
+    paddingHorizontal: mobileSpacing[4],
+    paddingVertical: mobileSpacing[3],
+    minHeight: 56
+  },
+  activeBookingTextCol: {
+    flex: 1,
+    gap: 2
+  },
+  activeBookingEyebrow: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    color: mobileColors.terracotta[600]
+  },
+  activeBookingTitle: {
+    ...mobileTypography.label,
+    color: mobileTextColors.primary
+  },
+  changePillBadge: {
+    minHeight: 32,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  changePillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  modeToggleRow: {
+    flexDirection: "row",
+    gap: mobileSpacing[2]
+  },
+  modeTabBtn: {
+    flex: 1,
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.white,
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    paddingHorizontal: mobileSpacing[3]
+  },
+  modeTabBtnActive: {
+    backgroundColor: mobileColors.navy[900],
+    borderColor: mobileColors.navy[900]
+  },
+  modeTabText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  modeTabTextActive: {
+    color: mobileColors.white
+  },
+  sheetStack: {
+    gap: mobileSpacing[3]
   },
   successCard: {
     backgroundColor: mobileStatusTokens.successBg,

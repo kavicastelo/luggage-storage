@@ -4,16 +4,30 @@ import { useAuthStore } from "../store/useAuthStore";
 import { RegisterRequestSchema, RegisterResponseData } from "@luggage-storage/contracts";
 import { validateWithZod } from "../lib/validation";
 import { ApiClientError } from "../lib/api-client";
-import { Eye, EyeOff, Lock, Mail, User, Phone, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Alert } from "@/components/ui/Alert";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { MascotIllustration } from "@/components/ui/MascotIllustration";
+import { Eye, EyeOff, Lock, Mail, User, Phone } from "lucide-react";
 import { z } from "zod";
 
-// Extended form validation schema to require confirmPassword matching
 const WebRegisterFormSchema = RegisterRequestSchema.extend({
   confirmPassword: z.string().min(1, "Please confirm your password")
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"]
 });
+
+function formatFriendlyAccountStatus(status: string): string {
+  switch (status) {
+    case "PENDING_VERIFICATION":
+      return "Pending Email Verification";
+    case "ACTIVE":
+      return "Active";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -51,7 +65,6 @@ export function RegisterPage() {
     }
 
     try {
-      // Strictly omit any role field so the backend assigns the default TRAVELLER role
       const result = await registerUser({
         displayName: validation.data.displayName,
         email: validation.data.email,
@@ -62,7 +75,9 @@ export function RegisterPage() {
     } catch (err) {
       if (err instanceof ApiClientError) {
         if (err.statusCode === 409) {
-          setServerError("An account with this email address already exists. Please sign in instead.");
+          setServerError(
+            "An account with this email address already exists. Please sign in instead."
+          );
         } else {
           setServerError(err.message || "Failed to create account. Please verify your information.");
         }
@@ -72,159 +87,179 @@ export function RegisterPage() {
     }
   };
 
-  // If successfully registered, show clear pending verification status message
   if (registeredData) {
     return (
-      <div className="max-w-md mx-auto my-8 bg-white p-8 rounded-xl shadow-sm border border-slate-200 text-center">
-        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <CheckCircle2 className="h-6 w-6 text-green-600" />
-        </div>
-        <h1 className="text-2xl font-bold text-slate-900">Account Created Successfully!</h1>
-        <p className="text-sm text-slate-600 mt-3 leading-relaxed">
-          Welcome to LuggageStorage, <span className="font-semibold">{registeredData.displayName}</span>.
-        </p>
-
-        <div className="my-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-left">
-          <h2 className="text-xs font-bold uppercase tracking-wider text-amber-800">
-            Email Verification Required
-          </h2>
-          <p className="text-xs text-amber-700 mt-1 leading-normal">
-            Account status: <span className="font-semibold">{registeredData.status}</span>. We have sent a verification link to{" "}
-            <span className="font-semibold">{registeredData.email}</span>. Please verify your email address before signing in.
+      <Card className="max-w-md mx-auto my-8 bg-white p-8 shadow-md text-center space-y-5">
+        <MascotIllustration mascot="jump" size="md" variant="bare" decorative />
+        <div>
+          <h1 className="text-2xl font-extrabold text-navy-950">Account Created Successfully!</h1>
+          <p className="text-sm text-sand-700 mt-2 leading-relaxed">
+            Welcome to LuggageStorage,{" "}
+            <span className="font-bold text-navy-950">{registeredData.displayName}</span>.
           </p>
         </div>
 
+        <Alert variant="warning" title="Email Verification Required" className="text-left">
+          <p className="text-xs leading-relaxed">
+            Status:{" "}
+            <span className="font-bold">{formatFriendlyAccountStatus(registeredData.status)}</span>.
+            We have sent a verification link to{" "}
+            <span className="font-semibold">{registeredData.email}</span>. Please verify your email
+            address before signing in.
+          </p>
+        </Alert>
+
         <div className="flex flex-col gap-3">
-          <button
+          <Button
+            type="button"
+            variant="primary"
             onClick={() =>
               navigate(`/verify-email?email=${encodeURIComponent(registeredData.email)}`)
             }
-            className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm"
+            className="w-full"
           >
             Enter Verification Token / Resend Link
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
             onClick={() => navigate("/login")}
-            className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg text-sm transition"
+            className="w-full"
           >
             Proceed to Sign In
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="max-w-md mx-auto my-8 bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-      <div className="text-center mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Create your account</h1>
-        <p className="text-sm text-slate-500 mt-2">
-          Join LuggageStorage as a traveller to store bags securely worldwide
+    <Card className="max-w-md mx-auto my-8 bg-white p-8 shadow-md">
+      <div className="text-center mb-6 space-y-2">
+        <MascotIllustration mascot="wave" size="sm" variant="bare" decorative />
+        <h1 className="text-2xl font-extrabold text-navy-950 tracking-tight">
+          Create your account
+        </h1>
+        <p className="text-sm text-sand-700">
+          Join LuggageStorage to reserve verified bag storage across Sri Lanka
         </p>
       </div>
 
       {serverError && (
-        <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-          <div className="text-sm text-red-700">{serverError}</div>
-        </div>
+        <Alert variant="danger" className="mb-6">
+          {serverError}
+        </Alert>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="displayName">
+          <label className="block text-sm font-semibold text-navy-900 mb-1.5" htmlFor="displayName">
             Full name / Display name
           </label>
           <div className="relative">
-            <User className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="displayName"
               type="text"
               autoComplete="name"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.displayName)}
+              aria-describedby={fieldErrors.displayName ? "reg-name-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-4 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.displayName
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
-              placeholder="Alex Smith"
+              placeholder="Nimali Perera"
               disabled={isLoading}
             />
           </div>
           {fieldErrors.displayName && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.displayName}</p>
+            <p id="reg-name-error" role="alert" className="mt-1.5 text-xs font-medium text-rose-600">
+              {fieldErrors.displayName}
+            </p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="email">
+          <label className="block text-sm font-semibold text-navy-900 mb-1.5" htmlFor="email">
             Email address
           </label>
           <div className="relative">
-            <Mail className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="email"
               type="email"
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.email)}
+              aria-describedby={fieldErrors.email ? "reg-email-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-4 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.email
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
-              placeholder="alex@example.com"
+              placeholder="nimali@example.com"
               disabled={isLoading}
             />
           </div>
           {fieldErrors.email && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>
+            <p id="reg-email-error" role="alert" className="mt-1.5 text-xs font-medium text-rose-600">
+              {fieldErrors.email}
+            </p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="phoneNumber">
+          <label className="block text-sm font-semibold text-navy-900 mb-1.5" htmlFor="phoneNumber">
             Phone number (optional)
           </label>
           <div className="relative">
-            <Phone className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="phoneNumber"
               type="tel"
               autoComplete="tel"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.phoneNumber)}
+              aria-describedby={fieldErrors.phoneNumber ? "reg-phone-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-4 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.phoneNumber
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
-              placeholder="+1 (555) 000-0000"
+              placeholder="+94 77 123 4567"
               disabled={isLoading}
             />
           </div>
           {fieldErrors.phoneNumber && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.phoneNumber}</p>
+            <p id="reg-phone-error" role="alert" className="mt-1.5 text-xs font-medium text-rose-600">
+              {fieldErrors.phoneNumber}
+            </p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="password">
+          <label className="block text-sm font-semibold text-navy-900 mb-1.5" htmlFor="password">
             Password (min. 8 characters)
           </label>
           <div className="relative">
-            <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="password"
               type={showPassword ? "text" : "password"}
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={`w-full pl-10 pr-10 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.password)}
+              aria-describedby={fieldErrors.password ? "reg-password-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-12 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.password
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
               placeholder="••••••••"
               disabled={isLoading}
@@ -232,33 +267,40 @@ export function RegisterPage() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+              className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center absolute right-0 top-1/2 -translate-y-1/2 text-sand-600 hover:text-navy-950 rounded-r-xl transition-colors"
               aria-label={showPassword ? "Hide password" : "Show password"}
             >
-              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
           {fieldErrors.password && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
+            <p id="reg-password-error" role="alert" className="mt-1.5 text-xs font-medium text-rose-600">
+              {fieldErrors.password}
+            </p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1" htmlFor="confirmPassword">
+          <label
+            className="block text-sm font-semibold text-navy-900 mb-1.5"
+            htmlFor="confirmPassword"
+          >
             Confirm password
           </label>
           <div className="relative">
-            <Lock className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-sand-500 pointer-events-none" />
             <input
               id="confirmPassword"
               type={showConfirmPassword ? "text" : "password"}
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className={`w-full pl-10 pr-10 py-2 border rounded-lg text-sm transition focus:outline-none focus:ring-2 ${
+              aria-invalid={Boolean(fieldErrors.confirmPassword)}
+              aria-describedby={fieldErrors.confirmPassword ? "reg-confirm-error" : undefined}
+              className={`w-full min-h-[44px] pl-10 pr-12 py-2 border rounded-xl text-sm text-navy-950 bg-white transition focus:outline-none focus:ring-2 ${
                 fieldErrors.confirmPassword
-                  ? "border-red-300 focus:ring-red-400"
-                  : "border-slate-300 focus:ring-blue-500 focus:border-blue-500"
+                  ? "border-rose-500 focus:ring-rose-500/40"
+                  : "border-sand-300 focus:ring-terracotta-500/50 focus:border-terracotta-500"
               }`}
               placeholder="••••••••"
               disabled={isLoading}
@@ -266,40 +308,30 @@ export function RegisterPage() {
             <button
               type="button"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600"
+              className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center absolute right-0 top-1/2 -translate-y-1/2 text-sand-600 hover:text-navy-950 rounded-r-xl transition-colors"
               aria-label={showConfirmPassword ? "Hide password" : "Show password"}
             >
-              {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
           {fieldErrors.confirmPassword && (
-            <p className="mt-1 text-xs text-red-600">{fieldErrors.confirmPassword}</p>
+            <p id="reg-confirm-error" role="alert" className="mt-1.5 text-xs font-medium text-rose-600">
+              {fieldErrors.confirmPassword}
+            </p>
           )}
         </div>
 
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="w-full mt-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-sm transition shadow-sm flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Creating account...</span>
-            </>
-          ) : (
-            <span>Create Account</span>
-          )}
-        </button>
+        <Button type="submit" variant="primary" isLoading={isLoading} className="w-full mt-2">
+          {isLoading ? "Creating account..." : "Create Account"}
+        </Button>
       </form>
 
-      <div className="mt-6 text-center text-sm text-slate-500">
+      <div className="mt-6 pt-5 border-t border-sand-200 text-center text-sm text-sand-700">
         Already have an account?{" "}
-        <Link to="/login" className="font-semibold text-blue-600 hover:text-blue-700">
+        <Link to="/login" className="font-bold text-terracotta-600 hover:text-terracotta-700">
           Sign in
         </Link>
       </div>
-    </div>
+    </Card>
   );
 }
-

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, AppState, Platform } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, AppState, Platform, Linking } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   BAG_CATEGORIES,
@@ -33,13 +33,7 @@ import { useAuthStore } from "../../src/store/useAuthStore";
 import { useBookingDetailQuery, usePublicLocationDetailQuery } from "../../src/hooks";
 import { marketplaceApi } from "../../src/services/marketplace-api";
 import { normalizeApiError } from "../../src/services/api-client";
-import {
-  isPayHereNativeSdkHandoff,
-  isPayHereWebPostHandoff,
-  saveMobilePendingCheckoutContext,
-  submitPayHereWebCheckoutForm
-} from "../../src/lib/payment-handoff";
-import { launchPayHereNativeCheckout } from "../../src/lib/payhere-native";
+import { saveMobilePendingCheckoutContext } from "../../src/lib/payment-handoff";
 import {
   mobileColors,
   mobileRadius,
@@ -93,6 +87,7 @@ export default function TravellerCheckoutScreen() {
     BAG_OVERSIZED: 0
   });
   const [travellerNotes, setTravellerNotes] = useState("");
+  const [billingExpanded, setBillingExpanded] = useState(false);
 
   const [liveQuote, setLiveQuote] = useState<BookingQuoteResponse | null>(null);
   const [isQuoting, setIsQuoting] = useState(false);
@@ -117,6 +112,7 @@ export default function TravellerCheckoutScreen() {
     intent: PaymentIntent;
     status: CheckoutStatusResponse | null;
   } | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<"STRIPE" | "PAYPAL" | "SANDBOX_GATEWAY">("STRIPE");
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
   const submitInFlightRef = useRef(false);
@@ -243,7 +239,7 @@ export default function TravellerCheckoutScreen() {
     billingCountry
   ]);
 
-  const checkPayHerePaymentStatus = useCallback(
+  const checkPaymentStatus = useCallback(
     async (overrideTarget?: { bookingId: string; referenceCode: string }) => {
       const target = overrideTarget ?? awaitingCheckout;
       if (!target) {
@@ -276,126 +272,64 @@ export default function TravellerCheckoutScreen() {
     }
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "active") {
-        checkPayHerePaymentStatus().catch(() => {});
+        checkPaymentStatus().catch(() => {});
       }
     });
 
     const timer = setInterval(() => {
-      if (pollCountRef.current >= 10) {
+      if (pollCountRef.current >= 15) {
         clearInterval(timer);
         return;
       }
       pollCountRef.current += 1;
-      checkPayHerePaymentStatus().catch(() => {});
+      checkPaymentStatus().catch(() => {});
     }, 4000);
 
     return () => {
       subscription.remove();
       clearInterval(timer);
     };
-  }, [awaitingCheckout, checkPayHerePaymentStatus]);
+  }, [awaitingCheckout, checkPaymentStatus]);
 
-  const dispatchPayHereIntent = async (
+  const dispatchPaymentIntent = async (
     bookingId: string,
     referenceCode: string,
     intent: PaymentIntent
   ): Promise<boolean> => {
-    const isWebRuntime = Platform.OS === "web";
-
-    if (isWebRuntime) {
-      if (
-        intent.nextAction !== "REDIRECT_TO_PROVIDER" ||
-        !isPayHereWebPostHandoff(intent.checkoutHandoff)
-      ) {
-        setCheckoutError(
-          "Payment gateway returned an invalid web checkout handoff payload. Your booking has not been charged."
-        );
-        return true;
-      }
-
-      pollCountRef.current = 0;
-      setAwaitingCheckout({
-        bookingId,
-        referenceCode,
-        intent,
-        status: null
-      });
-      saveMobilePendingCheckoutContext({
-        bookingId,
-        intentId: intent.id,
-        orderId: intent.providerOrderId,
-        provider: "PAYHERE",
-        channel: "WEB",
-        createdAt: new Date().toISOString()
-      });
-
-      try {
-        submitPayHereWebCheckoutForm(intent.checkoutHandoff);
-      } catch (openErr: unknown) {
-        setCheckoutError(
-          openErr instanceof Error
-            ? openErr.message
-            : "Unable to launch PayHere web checkout form."
-        );
-      }
-      return true;
-    }
-
-    if (
-      intent.nextAction === "LAUNCH_NATIVE_SDK" &&
-      isPayHereNativeSdkHandoff(intent.checkoutHandoff)
-    ) {
-      pollCountRef.current = 0;
-      setAwaitingCheckout({
-        bookingId,
-        referenceCode,
-        intent,
-        status: null
-      });
-
-      const outcome = await launchPayHereNativeCheckout(intent.checkoutHandoff.sdkPayload);
-      if (outcome.status === "ERROR") {
-        setCheckoutError(outcome.message);
-      }
-      await checkPayHerePaymentStatus({ bookingId, referenceCode });
-      return true;
-    }
-
-    if (intent.nextAction === "REDIRECT_TO_PROVIDER") {
-      setCheckoutError(
-        "Server returned a web redirect handoff for a native device checkout. Tap Retry PayHere Checkout to request a mobile SDK session."
-      );
-      return true;
-    }
-
-    return false;
-  };
-
-  const reopenCurrentPayHereCheckout = async () => {
-    if (!awaitingCheckout) {
-      return;
-    }
-    setCheckoutError(null);
-    await dispatchPayHereIntent(
-      awaitingCheckout.bookingId,
-      awaitingCheckout.referenceCode,
-      awaitingCheckout.intent
-    );
-  };
-
-  const executePaymentIntentFlow = async (bookingId: string, referenceCode: string) => {
-    const channel = Platform.OS === "web" ? "WEB" : "MOBILE_APP";
-    const intent = await marketplaceApi.createPaymentIntent({
+    pollCountRef.current = 0;
+    setAwaitingCheckout({
       bookingId,
-      channel,
-      idempotencyKey: `mob-pay-${channel.toLowerCase()}-${bookingId}-${Date.now()}`,
-      customerDetails: buildCustomerDetails()
+      referenceCode,
+      intent,
+      status: null
+    });
+    saveMobilePendingCheckoutContext({
+      bookingId,
+      intentId: intent.id,
+      orderId: intent.providerOrderId,
+      provider: intent.provider,
+      channel: intent.checkoutChannel,
+      createdAt: new Date().toISOString()
     });
 
-    if (intent.provider === "PAYHERE") {
-      const handled = await dispatchPayHereIntent(bookingId, referenceCode, intent);
-      if (handled) {
-        return;
+    if (intent.provider === "STRIPE" || intent.nextAction === "STRIPE_ELEMENTS_CONFIRM") {
+      if (Platform.OS === "web") {
+        router.push({
+          pathname: "/booking/confirm",
+          params: { bookingId, intentId: intent.id, provider: "STRIPE" }
+        });
+        return true;
+      }
+      return true;
+    }
+
+    if (intent.provider === "PAYPAL" || intent.nextAction === "PAYPAL_CHECKOUT_APPROVE") {
+      if (
+        intent.checkoutHandoff.mode === "PAYPAL_CHECKOUT" &&
+        intent.checkoutHandoff.approveUrl
+      ) {
+        await Linking.openURL(intent.checkoutHandoff.approveUrl);
+        return true;
       }
     }
 
@@ -410,20 +344,47 @@ export default function TravellerCheckoutScreen() {
           pathname: "/(traveller)/pass",
           params: { bookingId, ref: referenceCode }
         });
-        return;
+        return true;
       }
-      setCheckoutError(
-        "Payment submitted, awaiting server confirmation. Use My Storage to refresh status."
-      );
+      return true;
+    }
+
+    return false;
+  };
+
+  const reopenCurrentCheckout = async () => {
+    if (!awaitingCheckout) {
+      return;
+    }
+    setCheckoutError(null);
+    if (
+      awaitingCheckout.intent.provider === "PAYPAL" &&
+      awaitingCheckout.intent.checkoutHandoff.mode === "PAYPAL_CHECKOUT" &&
+      awaitingCheckout.intent.checkoutHandoff.approveUrl
+    ) {
+      await Linking.openURL(awaitingCheckout.intent.checkoutHandoff.approveUrl);
+    }
+  };
+
+  const executePaymentIntentFlow = async (bookingId: string, referenceCode: string) => {
+    const channel = Platform.OS === "web" ? "WEB" : "MOBILE_APP";
+    const intent = await marketplaceApi.createPaymentIntent({
+      bookingId,
+      channel,
+      provider: selectedProvider,
+      idempotencyKey: `mob-pay-${channel.toLowerCase()}-${bookingId}-${Date.now()}`,
+      customerDetails: buildCustomerDetails()
+    });
+
+    const handled = await dispatchPaymentIntent(bookingId, referenceCode, intent);
+    if (handled) {
       return;
     }
 
-    setCheckoutError(
-      "Unsupported payment handoff mode returned by server. Failing closed without unlocking custody pass."
-    );
+    setCheckoutError("Payment initiated. Awaiting gateway confirmation.");
   };
 
-  const handleRetryPayHereCheckout = async () => {
+  const handleRetryCheckout = async () => {
     if (!awaitingCheckout || isProcessing || submitInFlightRef.current) {
       return;
     }
@@ -431,62 +392,37 @@ export default function TravellerCheckoutScreen() {
     setIsProcessing(true);
     setCheckoutError(null);
     try {
-      const channel = Platform.OS === "web" ? "WEB" : "MOBILE_APP";
-      const freshIntent = await marketplaceApi.createPaymentIntent({
-        bookingId: awaitingCheckout.bookingId,
-        channel,
-        idempotencyKey: `mob-retry-${channel.toLowerCase()}-${awaitingCheckout.bookingId}-${Date.now()}`,
-        customerDetails: buildCustomerDetails()
-      });
-
-      if (freshIntent.provider === "PAYHERE") {
-        const handled = await dispatchPayHereIntent(
-          awaitingCheckout.bookingId,
-          awaitingCheckout.referenceCode,
-          freshIntent
-        );
-        if (handled) {
-          return;
-        }
-      }
-
-      if (
-        freshIntent.nextAction === "SANDBOX_SIMULATION" &&
-        freshIntent.checkoutHandoff.mode === "SANDBOX_SIMULATION"
-      ) {
-        await marketplaceApi.simulateSandboxPayment(freshIntent.id, { outcome: "SUCCEEDED" });
-        const status = await marketplaceApi.getCheckoutStatus({
-          bookingId: awaitingCheckout.bookingId
-        });
-        if (status.bookingStatus === "CONFIRMED" || status.bookingStatus === "IN_STORAGE") {
-          router.replace({
-            pathname: "/(traveller)/pass",
-            params: {
-              bookingId: awaitingCheckout.bookingId,
-              ref: awaitingCheckout.referenceCode
-            }
-          });
-          return;
-        }
-        setCheckoutError("Awaiting server confirmation. Tap Check Payment Status shortly.");
-        return;
-      }
-
-      setCheckoutError("Unsupported payment action received from server.");
+      await executePaymentIntentFlow(
+        awaitingCheckout.bookingId,
+        awaitingCheckout.referenceCode
+      );
     } catch (err: unknown) {
       setCheckoutError(normalizeApiError(err).message);
     } finally {
-      submitInFlightRef.current = false;
       setIsProcessing(false);
+      submitInFlightRef.current = false;
     }
   };
+
+  const checkoutRedirectPath = useMemo(() => {
+    if (resolvedLocationId && UUID_REGEX.test(resolvedLocationId)) {
+      return `/(traveller)/checkout?locId=${resolvedLocationId}`;
+    }
+    if (hasValidExistingBookingId && existingBookingId) {
+      return `/(traveller)/checkout?bookingId=${existingBookingId}`;
+    }
+    return "/(traveller)/checkout";
+  }, [existingBookingId, hasValidExistingBookingId, resolvedLocationId]);
 
   const handleConfirmAndPay = async () => {
     if (isProcessing || submitInFlightRef.current) {
       return;
     }
     if (!isAuthenticated) {
-      router.push("/(auth)/login");
+      router.push({
+        pathname: "/(auth)/login",
+        params: { redirectTo: checkoutRedirectPath }
+      });
       return;
     }
     if (!resolvedLocationId || !UUID_REGEX.test(resolvedLocationId)) {
@@ -583,6 +519,62 @@ export default function TravellerCheckoutScreen() {
   };
 
   const existingBooking = existingBookingQuery.data;
+  const isHostApprovalFlow = location?.bookingMode === "HOST_APPROVAL" && !existingBooking;
+  const hasKnownBillingSummary = Boolean(billingFirstName.trim() || billingEmail.trim());
+  const activeCurrency = ((existingBooking?.currency || liveQuote?.currency || "LKR") as CurrencyCode);
+  const activeTotalMinor = existingBooking?.totalAmountMinor ?? liveQuote?.totalAmountMinor ?? null;
+
+  const stickyFooter =
+    !locationQuery.isLoading &&
+    !(hasValidExistingBookingId && existingBookingQuery.isLoading) &&
+    !locationQuery.isError &&
+    !awaitingCheckout ? (
+      <View style={styles.stickyFooter}>
+        <View style={styles.stickySummaryCol}>
+          <Text style={styles.stickySummaryLabel}>
+            {existingBooking
+              ? `${existingBooking.totalBags} bag(s)`
+              : `${totalBags} bag${totalBags === 1 ? "" : "s"}`}
+          </Text>
+          <Text style={styles.stickySummaryValue}>
+            {activeTotalMinor !== null
+              ? formatCurrencyMinorUnits(activeTotalMinor, activeCurrency)
+              : isQuoting
+                ? "Calculating..."
+                : "Quote pending"}
+          </Text>
+        </View>
+        <View style={styles.stickyCtaWrap}>
+          {currentStep === 1 && !hasValidExistingBookingId ? (
+            <Button
+              title="Continue to Bags"
+              rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
+              disabled={!isScheduleValid}
+              onPress={() => setCurrentStep(2)}
+              fullWidth
+            />
+          ) : currentStep === 2 && !hasValidExistingBookingId ? (
+            <Button
+              title="Review & Pay"
+              rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
+              disabled={totalBags === 0 || isQuoting || Boolean(liveQuote && !liveQuote.available)}
+              onPress={() => setCurrentStep(3)}
+              fullWidth
+            />
+          ) : (
+            <Button
+              title={isHostApprovalFlow ? "Submit Request" : "Confirm & Pay"}
+              leftIcon={<MobileIcon name="credit-card" size={16} color={mobileColors.white} />}
+              isLoading={isProcessing}
+              onPress={() => {
+                void handleConfirmAndPay();
+              }}
+              fullWidth
+            />
+          )}
+        </View>
+      </View>
+    ) : undefined;
 
   return (
     <ScreenContainer
@@ -594,6 +586,7 @@ export default function TravellerCheckoutScreen() {
           onBack={handleBack}
         />
       }
+      footer={stickyFooter}
       testID="traveller-checkout-screen"
     >
       {locationQuery.isLoading || (hasValidExistingBookingId && existingBookingQuery.isLoading) ? (
@@ -613,7 +606,13 @@ export default function TravellerCheckoutScreen() {
             paymentStatus={
               awaitingCheckout.status?.paymentIntent?.status ?? awaitingCheckout.intent.status
             }
-            providerLabel="PayHere Lanka"
+            providerLabel={
+              awaitingCheckout.intent.provider === "STRIPE"
+                ? "Stripe Global"
+                : awaitingCheckout.intent.provider === "PAYPAL"
+                ? "PayPal"
+                : "Sandbox Gateway"
+            }
             amountMinor={awaitingCheckout.intent.amountMinor}
             currency={awaitingCheckout.intent.currency}
             expiresAt={awaitingCheckout.intent.expiresAt}
@@ -621,61 +620,52 @@ export default function TravellerCheckoutScreen() {
             isChecking={isCheckingStatus}
             isRetrying={isProcessing}
             onCheckStatus={() => {
-              void checkPayHerePaymentStatus();
+              void checkPaymentStatus();
             }}
             onReopenCheckout={() => {
-              void reopenCurrentPayHereCheckout();
+              void reopenCurrentCheckout();
             }}
             onRetryCheckout={() => {
-              void handleRetryPayHereCheckout();
+              void handleRetryCheckout();
             }}
           />
 
-          <View style={styles.handoffButtons}>
-            <Button
-              title="Check Payment Status"
-              variant="primary"
-              isLoading={isCheckingStatus}
-              onPress={() => {
-                void checkPayHerePaymentStatus();
-              }}
-            />
-            <Button
-              title="Re-open PayHere Checkout"
-              variant="secondary"
-              onPress={() => {
-                void reopenCurrentPayHereCheckout();
-              }}
-            />
-            <Button
-              title="Retry PayHere Checkout"
-              variant="outline"
-              isLoading={isProcessing}
-              onPress={() => {
-                void handleRetryPayHereCheckout();
-              }}
-            />
-          </View>
+          <Text style={styles.handoffHint}>
+            Tap Check Payment Status to sync with the server, Re-open Checkout if your
+            gateway tab closed, or Retry Checkout for a fresh payment session.
+          </Text>
         </View>
       ) : (
         <View style={styles.stack}>
           {!hasValidExistingBookingId ? (
             <View style={styles.stepperRow}>
               {[
-                { step: 1, label: "1. Schedule" },
-                { step: 2, label: "2. Bags" },
-                { step: 3, label: "3. Review & Pay" }
+                { step: 1 as const, label: "1. Schedule" },
+                { step: 2 as const, label: "2. Bags" },
+                { step: 3 as const, label: "3. Review & Pay" }
               ].map((item) => {
                 const active = currentStep === item.step;
                 const done = currentStep > item.step;
+                const canJump =
+                  item.step < currentStep ||
+                  (item.step === 2 && isScheduleValid) ||
+                  (item.step === 3 && isScheduleValid && totalBags > 0);
                 return (
-                  <View
+                  <TouchableOpacity
                     key={item.step}
                     style={[
                       styles.stepPill,
                       active && styles.stepPillActive,
                       done && styles.stepPillDone
                     ]}
+                    disabled={!canJump || active}
+                    onPress={() => {
+                      if (canJump) {
+                        setCurrentStep(item.step);
+                      }
+                    }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active, disabled: !canJump }}
                   >
                     <Text
                       style={[
@@ -685,14 +675,14 @@ export default function TravellerCheckoutScreen() {
                     >
                       {item.label}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
           ) : null}
 
           {currentStep === 1 && !hasValidExistingBookingId ? (
-            <Card variant="elevated" style={styles.cardGap}>
+            <View style={styles.stack}>
               <FormSection
                 title="Storage Window"
                 subtitle={`Operating timezone: ${location?.timezone || "Asia/Colombo"} (${location?.operatingHoursSummary ?? "Operating hours not configured"})`}
@@ -720,18 +710,11 @@ export default function TravellerCheckoutScreen() {
                   }
                 />
               </FormSection>
-
-              <Button
-                title="Continue to Bag Selection"
-                rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
-                disabled={!isScheduleValid}
-                onPress={() => setCurrentStep(2)}
-              />
-            </Card>
+            </View>
           ) : null}
 
           {currentStep === 2 && !hasValidExistingBookingId ? (
-            <Card variant="elevated" style={styles.cardGap}>
+            <View style={styles.stack}>
               <FormSection
                 title="Select Luggage Quantities"
                 subtitle="Prices are computed live by the marketplace pricing engine in LKR."
@@ -808,14 +791,7 @@ export default function TravellerCheckoutScreen() {
                   }
                 />
               ) : null}
-
-              <Button
-                title="Continue to Review & Pay"
-                rightIcon={<MobileIcon name="arrow-right" size={16} color={mobileColors.white} />}
-                disabled={totalBags === 0 || isQuoting || Boolean(liveQuote && !liveQuote.available)}
-                onPress={() => setCurrentStep(3)}
-              />
-            </Card>
+            </View>
           ) : null}
 
           {currentStep === 3 ? (
@@ -846,67 +822,170 @@ export default function TravellerCheckoutScreen() {
                   <Text style={styles.policyTitle}>Sign in Required to Lock Capacity</Text>
                   <Text style={styles.bodyText}>
                     Your schedule and bag count remain ready. Sign in or create an account to lock
-                    storage capacity and proceed to PayHere LKR checkout.
+                    storage capacity and proceed to secure checkout.
                   </Text>
                   <Button
                     title="Sign In to Continue"
                     leftIcon={<MobileIcon name="lock" size={16} color={mobileColors.white} />}
-                    onPress={() => router.push("/(auth)/login")}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(auth)/login",
+                        params: { redirectTo: checkoutRedirectPath }
+                      })
+                    }
                   />
                 </Card>
               ) : null}
 
-              <Card variant="default" style={styles.cardGap}>
+              {!isHostApprovalFlow ? (
                 <FormSection
-                  title="Billing & PayHere Contact Details"
-                  subtitle="Optional billing details passed to PayHere Checkout (never leaves the signed payment handoff)."
+                  title="Select Payment Method"
+                  subtitle="Primary card processing with Stripe or PayPal digital wallet."
                 >
-                  <TextInput
-                    label="First Name"
-                    value={billingFirstName}
-                    onChangeText={setBillingFirstName}
-                    placeholder="First name"
-                  />
-                  <TextInput
-                    label="Last Name"
-                    value={billingLastName}
-                    onChangeText={setBillingLastName}
-                    placeholder="Last name"
-                  />
-                  <TextInput
-                    label="Email"
-                    value={billingEmail}
-                    onChangeText={setBillingEmail}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                  <TextInput
-                    label="Phone Number"
-                    value={billingPhone}
-                    onChangeText={setBillingPhone}
-                    keyboardType="phone-pad"
-                    placeholder="+94 77 000 0000"
-                  />
-                  <TextInput
-                    label="Street Address"
-                    value={billingAddress}
-                    onChangeText={setBillingAddress}
-                    placeholder="Colombo address or hotel"
-                  />
-                  <TextInput
-                    label="City"
-                    value={billingCity}
-                    onChangeText={setBillingCity}
-                    placeholder="Colombo"
-                  />
-                  <TextInput
-                    label="Country"
-                    value={billingCountry}
-                    onChangeText={setBillingCountry}
-                    placeholder="Sri Lanka"
-                  />
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={() => setSelectedProvider("STRIPE")}
+                      style={[
+                        styles.providerOption,
+                        selectedProvider === "STRIPE" && styles.providerOptionSelected
+                      ]}
+                      accessibilityRole="button"
+                    >
+                      <MobileIcon
+                        name="credit-card"
+                        size="md"
+                        color={
+                          selectedProvider === "STRIPE"
+                            ? mobileColors.terracotta[600]
+                            : mobileColors.navy[900]
+                        }
+                      />
+                      <Text style={styles.providerOptionTitle}>Card</Text>
+                      <Text style={styles.providerOptionSub}>Stripe</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setSelectedProvider("PAYPAL")}
+                      style={[
+                        styles.providerOption,
+                        selectedProvider === "PAYPAL" && styles.providerOptionSelected
+                      ]}
+                      accessibilityRole="button"
+                    >
+                      <MobileIcon
+                        name="wallet"
+                        size="md"
+                        color={
+                          selectedProvider === "PAYPAL"
+                            ? mobileColors.terracotta[600]
+                            : mobileColors.navy[900]
+                        }
+                      />
+                      <Text style={styles.providerOptionTitle}>PayPal</Text>
+                      <Text style={styles.providerOptionSub}>Wallet</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setSelectedProvider("SANDBOX_GATEWAY")}
+                      style={[
+                        styles.providerOption,
+                        selectedProvider === "SANDBOX_GATEWAY" && styles.providerOptionSelected
+                      ]}
+                      accessibilityRole="button"
+                    >
+                      <MobileIcon
+                        name="shield-check"
+                        size="md"
+                        color={
+                          selectedProvider === "SANDBOX_GATEWAY"
+                            ? mobileColors.terracotta[600]
+                            : mobileColors.navy[900]
+                        }
+                      />
+                      <Text style={styles.providerOptionTitle}>Sandbox</Text>
+                      <Text style={styles.providerOptionSub}>Simulate</Text>
+                    </TouchableOpacity>
+                  </View>
                 </FormSection>
-              </Card>
+              ) : null}
+
+              {!isHostApprovalFlow ? (
+                <FormSection
+                  title="Billing & Contact Details"
+                  subtitle="Pre-filled from your account for secure checkout."
+                  rightSlot={
+                    <TouchableOpacity
+                      style={styles.collapseToggleBtn}
+                      onPress={() => setBillingExpanded((prev) => !prev)}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        billingExpanded ? "Hide billing details" : "Edit billing details"
+                      }
+                    >
+                      <Text style={styles.collapseToggleText}>
+                        {billingExpanded ? "Hide" : hasKnownBillingSummary ? "Edit" : "Expand"}
+                      </Text>
+                    </TouchableOpacity>
+                  }
+                >
+                  {!billingExpanded && hasKnownBillingSummary ? (
+                    <Text style={styles.bodyText}>
+                      {[billingFirstName, billingLastName].filter(Boolean).join(" ") || "Account holder"}
+                      {billingEmail ? ` · ${billingEmail}` : ""}
+                      {billingPhone ? ` · ${billingPhone}` : ""}
+                    </Text>
+                  ) : null}
+
+                  {billingExpanded || !hasKnownBillingSummary ? (
+                    <>
+                      <TextInput
+                        label="First Name"
+                        value={billingFirstName}
+                        onChangeText={setBillingFirstName}
+                        placeholder="First name"
+                      />
+                      <TextInput
+                        label="Last Name"
+                        value={billingLastName}
+                        onChangeText={setBillingLastName}
+                        placeholder="Last name"
+                      />
+                      <TextInput
+                        label="Email"
+                        value={billingEmail}
+                        onChangeText={setBillingEmail}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                      />
+                      <TextInput
+                        label="Phone Number"
+                        value={billingPhone}
+                        onChangeText={setBillingPhone}
+                        keyboardType="phone-pad"
+                        placeholder="+94 77 000 0000"
+                      />
+                      <TextInput
+                        label="Street Address"
+                        value={billingAddress}
+                        onChangeText={setBillingAddress}
+                        placeholder="Colombo address or hotel"
+                      />
+                      <TextInput
+                        label="City"
+                        value={billingCity}
+                        onChangeText={setBillingCity}
+                        placeholder="Colombo"
+                      />
+                      <TextInput
+                        label="Country"
+                        value={billingCountry}
+                        onChangeText={setBillingCountry}
+                        placeholder="Sri Lanka"
+                      />
+                    </>
+                  ) : null}
+                </FormSection>
+              ) : null}
 
               <Card variant="outlined" style={styles.policyCard}>
                 <View style={styles.policyHeader}>
@@ -922,25 +1001,12 @@ export default function TravellerCheckoutScreen() {
                   late. No silent charges and luggage return is NEVER delayed or withheld at the
                   counter.
                 </Text>
-                <Badge label="Authoritative PayHere Checkout" variant="info" size="sm" />
+                <Badge label="Secure Verified Payment" variant="info" size="sm" />
               </Card>
 
               {checkoutError ? (
                 <ErrorState title="Checkout Blocked" message={checkoutError} />
               ) : null}
-
-              <Button
-                title={
-                  location?.bookingMode === "HOST_APPROVAL" && !existingBooking
-                    ? "Submit Booking Request"
-                    : "Confirm & Proceed to Payment"
-                }
-                leftIcon={<MobileIcon name="credit-card" size={16} color={mobileColors.white} />}
-                isLoading={isProcessing}
-                onPress={() => {
-                  void handleConfirmAndPay();
-                }}
-              />
             </View>
           ) : null}
         </View>
@@ -1057,7 +1123,73 @@ const styles = StyleSheet.create({
     ...mobileTypography.bodySm,
     color: mobileTextColors.secondary
   },
-  handoffButtons: {
-    gap: mobileSpacing[3]
+  handoffHint: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted,
+    textAlign: "center",
+    paddingHorizontal: mobileSpacing[2]
+  },
+  collapseToggleBtn: {
+    minHeight: 36,
+    paddingHorizontal: mobileSpacing[3],
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.sand[100],
+    justifyContent: "center",
+    alignItems: "center"
+  },
+  collapseToggleText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.terracotta[600]
+  },
+  stickyFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[3],
+    backgroundColor: mobileColors.card,
+    borderTopWidth: 1,
+    borderTopColor: mobileColors.border,
+    paddingHorizontal: mobileSpacing[4],
+    paddingVertical: mobileSpacing[3]
+  },
+  stickySummaryCol: {
+    flex: 1,
+    gap: 2
+  },
+  stickySummaryLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileTextColors.muted
+  },
+  stickySummaryValue: {
+    ...mobileTypography.headingMd,
+    color: mobileColors.navy[900]
+  },
+  stickyCtaWrap: {
+    flex: 1.2
+  },
+  providerOption: {
+    flex: 1,
+    padding: mobileSpacing[3],
+    borderRadius: mobileRadius.md,
+    borderWidth: 1,
+    borderColor: mobileColors.border,
+    backgroundColor: mobileColors.sand[50],
+    alignItems: "center",
+    gap: 4
+  },
+  providerOptionSelected: {
+    borderColor: mobileColors.terracotta[500],
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 2
+  },
+  providerOptionTitle: {
+    ...mobileTypography.bodySm,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  providerOptionSub: {
+    fontSize: 10,
+    color: mobileTextColors.muted
   }
 });

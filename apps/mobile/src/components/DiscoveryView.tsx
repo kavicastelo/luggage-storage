@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   BAG_CATEGORIES,
   formatCurrencyMinorUnits,
@@ -9,16 +10,20 @@ import {
 } from "@luggage-storage/contracts";
 import {
   Badge,
+  BottomSheet,
   Button,
   Card,
   DateTimeSelector,
   EmptyState,
   ErrorState,
+  IconButton,
+  InteractiveMobileMap,
   LoadingSkeleton,
   LocationCard,
   MobileIcon,
   ScreenContainer,
   SearchInput,
+  StatusBadge,
   formatColomboDateTime
 } from ".";
 import {
@@ -45,6 +50,7 @@ export interface DiscoveryViewProps {
   initialCity?: string;
   initialSearchTerm?: string;
   headerTitle?: string;
+  showBackButton?: boolean;
 }
 
 function defaultDropOffDate(): Date {
@@ -60,13 +66,16 @@ function defaultCollectionDate(dropOff: Date): Date {
 export function DiscoveryView({
   initialCity = "All",
   initialSearchTerm = "",
-  headerTitle = "BagBox Sri Lanka"
+  headerTitle = "LuggageStorage Sri Lanka",
+  showBackButton = false
 }: DiscoveryViewProps) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { isAuthenticated, user } = useAuthStore();
   const { savedIds, hydrate: hydrateSaved, toggleSaved, isSaved } = useSavedLocationsStore();
 
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(initialSearchTerm);
   const [selectedCity, setSelectedCity] = useState<string>(
     SRI_LANKA_CITIES.includes(initialCity as (typeof SRI_LANKA_CITIES)[number])
       ? initialCity
@@ -78,7 +87,8 @@ export function DiscoveryView({
   const [gpsStatusMessage, setGpsStatusMessage] = useState<string | null>(null);
   const [isLocating, setIsLocating] = useState(false);
 
-  const [availabilityFilterOpen, setAvailabilityFilterOpen] = useState(false);
+  const [filterSheetVisible, setFilterSheetVisible] = useState(false);
+  const [availabilityFilterActive, setAvailabilityFilterActive] = useState(false);
   const [dropOffAt, setDropOffAt] = useState<Date>(() => defaultDropOffDate());
   const [collectionAt, setCollectionAt] = useState<Date>(() =>
     defaultCollectionDate(defaultDropOffDate())
@@ -89,29 +99,47 @@ export function DiscoveryView({
     BAG_LARGE: 0,
     BAG_OVERSIZED: 0
   });
+  const [viewMode, setViewMode] = useState<"list" | "map">("list");
+  const [selectedMapLocationId, setSelectedMapLocationId] = useState<string | null>(null);
 
   useEffect(() => {
     void hydrateSaved();
   }, [hydrateSaved]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  const totalSelectedBags = useMemo(
+    () =>
+      bagCounts.BAG_SMALL +
+      bagCounts.BAG_MEDIUM +
+      bagCounts.BAG_LARGE +
+      bagCounts.BAG_OVERSIZED,
+    [bagCounts]
+  );
+
   const searchParams = useMemo(
     () => ({
       city: selectedCity !== "All" ? selectedCity : undefined,
-      searchTerm: searchTerm.trim() || undefined,
+      searchTerm: debouncedSearchTerm.trim() || undefined,
       latitude: nearMeCoords?.latitude,
       longitude: nearMeCoords?.longitude,
       radiusMeters: nearMeCoords ? 15000 : undefined,
       page: 1,
       limit: 30
     }),
-    [nearMeCoords, searchTerm, selectedCity]
+    [nearMeCoords, debouncedSearchTerm, selectedCity]
   );
 
   const locationsQuery = useSearchLocationsQuery(searchParams, true);
 
   const isAvailabilityWindowValid = collectionAt.getTime() > dropOffAt.getTime();
   const availabilityQuery = useSearchAvailabilityQuery(
-    availabilityFilterOpen && isAvailabilityWindowValid
+    availabilityFilterActive && isAvailabilityWindowValid && totalSelectedBags > 0
       ? {
           city: selectedCity !== "All" ? selectedCity : undefined,
           dropOffAt: dropOffAt.toISOString(),
@@ -143,7 +171,7 @@ export function DiscoveryView({
 
   const visibleLocations = useMemo(() => {
     const base = locationsQuery.data?.locations ?? [];
-    if (!availabilityFilterOpen || !isAvailabilityWindowValid || !availabilityQuery.data) {
+    if (!availabilityFilterActive || !isAvailabilityWindowValid || !availabilityQuery.data) {
       return base;
     }
     return base.filter((loc) => {
@@ -151,7 +179,7 @@ export function DiscoveryView({
       return q ? q.available : false;
     });
   }, [
-    availabilityFilterOpen,
+    availabilityFilterActive,
     availabilityQuery.data,
     isAvailabilityWindowValid,
     locationsQuery.data,
@@ -196,7 +224,7 @@ export function DiscoveryView({
   const handleRefresh = async () => {
     await Promise.all([
       locationsQuery.refetch(),
-      availabilityFilterOpen ? availabilityQuery.refetch() : Promise.resolve(),
+      availabilityFilterActive ? availabilityQuery.refetch() : Promise.resolve(),
       isAuthenticated ? myBookingsQuery.refetch() : Promise.resolve()
     ]);
   };
@@ -214,11 +242,27 @@ export function DiscoveryView({
       }}
       testID="traveller-discovery-screen"
     >
-      <View style={styles.heroHeader}>
+      <View
+        style={[
+          styles.heroHeader,
+          { paddingTop: Math.max(insets.top + mobileSpacing[3], mobileSpacing[5]) }
+        ]}
+      >
         <View style={styles.heroTopRow}>
+          {showBackButton ? (
+            <IconButton
+              icon="arrow-left"
+              variant="navy"
+              onPress={() => router.back()}
+              accessibilityLabel="Go back"
+              testID="discovery-back-btn"
+            />
+          ) : null}
           <View style={styles.heroTitleCol}>
-            <Text style={styles.heroEyebrow}>TRUSTED CUSTODY NETWORK</Text>
-            <Text style={styles.heroTitle}>{headerTitle}</Text>
+            <Text style={styles.heroEyebrow}>LUGGAGESTORAGE · SRI LANKA</Text>
+            <Text style={styles.heroTitle} numberOfLines={1}>
+              {headerTitle}
+            </Text>
           </View>
           <TouchableOpacity
             style={styles.accountPill}
@@ -264,18 +308,21 @@ export function DiscoveryView({
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.toolChip, availabilityFilterOpen ? styles.toolChipActive : null]}
-            onPress={() => setAvailabilityFilterOpen((prev) => !prev)}
+            style={[styles.toolChip, availabilityFilterActive ? styles.toolChipActive : null]}
+            onPress={() => setFilterSheetVisible(true)}
             accessibilityRole="button"
             accessibilityLabel="Filter by schedule and bags"
+            testID="discovery-dates-bags-trigger"
           >
             <MobileIcon
               name="calendar"
               size={14}
-              color={availabilityFilterOpen ? mobileColors.white : mobileColors.sand[100]}
+              color={availabilityFilterActive ? mobileColors.white : mobileColors.sand[100]}
             />
             <Text style={styles.toolChipText}>
-              {availabilityFilterOpen ? "Dates & Bags (On)" : "Check Dates & Bags"}
+              {availabilityFilterActive
+                ? `${totalSelectedBags} bag${totalSelectedBags === 1 ? "" : "s"} · Live Quote`
+                : "Dates & Bags"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -286,12 +333,15 @@ export function DiscoveryView({
           <Card variant="elevated" style={styles.activeBookingBanner}>
             <View style={styles.activeBannerRow}>
               <View style={styles.activeBannerCol}>
-                <Text style={styles.activeBannerEyebrow}>ACTIVE RESERVATION</Text>
+                <View style={styles.activeBannerTop}>
+                  <Text style={styles.activeBannerEyebrow}>ACTIVE RESERVATION</Text>
+                  <StatusBadge status={activeBannerBooking.status} size="sm" />
+                </View>
                 <Text style={styles.activeBannerTitle}>
                   {activeBannerBooking.location.name} • #{activeBannerBooking.referenceCode}
                 </Text>
                 <Text style={styles.activeBannerMeta}>
-                  {activeBannerBooking.totalBags} bag(s) • {activeBannerBooking.status}
+                  {activeBannerBooking.totalBags} bag(s) scheduled
                 </Text>
               </View>
               <Button
@@ -356,74 +406,36 @@ export function DiscoveryView({
           })}
         </ScrollView>
 
+        {availabilityFilterActive ? (
+          <View style={styles.activeFilterSummaryRow}>
+            <TouchableOpacity
+              style={styles.activeFilterSummaryBody}
+              onPress={() => setFilterSheetVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Edit dates and bags filter"
+            >
+              <MobileIcon name="calendar" size={14} color={mobileColors.terracotta[600]} />
+              <Text style={styles.activeFilterSummaryText} numberOfLines={1}>
+                {totalSelectedBags} bag{totalSelectedBags === 1 ? "" : "s"} •{" "}
+                {formatColomboDateTime(dropOffAt)} → {formatColomboDateTime(collectionAt)}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.clearFilterPill}
+              onPress={() => setAvailabilityFilterActive(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Clear dates and bags filter"
+            >
+              <Text style={styles.clearFilterText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {gpsStatusMessage ? (
           <View style={styles.noticeRow}>
             <MobileIcon name="info" size={16} color={mobileColors.navy[700]} />
             <Text style={styles.noticeText}>{gpsStatusMessage}</Text>
           </View>
-        ) : null}
-
-        {availabilityFilterOpen ? (
-          <Card variant="outlined" style={styles.availabilityCard}>
-            <Text style={styles.sectionTitle}>Check Live Capacity & Pricing</Text>
-            <DateTimeSelector
-              label="Drop-off (Asia/Colombo)"
-              value={dropOffAt}
-              minimumDate={new Date()}
-              onChange={(next) => {
-                setDropOffAt(next);
-                if (collectionAt.getTime() <= next.getTime()) {
-                  setCollectionAt(defaultCollectionDate(next));
-                }
-              }}
-            />
-            <DateTimeSelector
-              label="Collection (Asia/Colombo)"
-              value={collectionAt}
-              minimumDate={new Date(dropOffAt.getTime() + 60 * 60 * 1000)}
-              onChange={setCollectionAt}
-              errorText={
-                !isAvailabilityWindowValid ? "Collection must be after drop-off." : null
-              }
-            />
-
-            <View style={styles.bagGrid}>
-              {(
-                [
-                  { key: "BAG_SMALL", label: "Small" },
-                  { key: "BAG_MEDIUM", label: "Medium" },
-                  { key: "BAG_LARGE", label: "Large" },
-                  { key: "BAG_OVERSIZED", label: "Oversized" }
-                ] as const
-              ).map((item) => (
-                <View key={item.key} style={styles.bagCounterCard}>
-                  <Text style={styles.bagCounterLabel}>{item.label}</Text>
-                  <View style={styles.bagStepperRow}>
-                    <TouchableOpacity
-                      style={styles.stepperBtn}
-                      onPress={() => adjustBag(item.key, -1)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Decrease ${item.label} bags`}
-                    >
-                      <MobileIcon name="minus" size={16} color={mobileColors.navy[900]} />
-                    </TouchableOpacity>
-                    <Text style={styles.bagCountVal}>{bagCounts[item.key]}</Text>
-                    <TouchableOpacity
-                      style={styles.stepperBtn}
-                      onPress={() => adjustBag(item.key, 1)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Increase ${item.label} bags`}
-                    >
-                      <MobileIcon name="plus" size={16} color={mobileColors.navy[900]} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </View>
-            <Text style={styles.windowSummary}>
-              Window: {formatColomboDateTime(dropOffAt)} → {formatColomboDateTime(collectionAt)}
-            </Text>
-          </Card>
         ) : null}
 
         <View style={styles.privacyCard}>
@@ -438,7 +450,33 @@ export function DiscoveryView({
           <Text style={styles.resultsTitle}>
             {selectedCity === "All" ? "Verified Sri Lanka Hubs" : `Hubs in ${selectedCity}`}
           </Text>
-          <Badge label={`${visibleLocations.length} open`} variant="navy" size="sm" />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={styles.viewModeToggle}>
+              <TouchableOpacity
+                onPress={() => setViewMode("list")}
+                style={[styles.viewModeBtn, viewMode === "list" && styles.viewModeBtnActive]}
+                accessibilityLabel="Switch to list view"
+              >
+                <MobileIcon
+                  name="list"
+                  size={14}
+                  color={viewMode === "list" ? mobileColors.white : mobileColors.navy[900]}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setViewMode("map")}
+                style={[styles.viewModeBtn, viewMode === "map" && styles.viewModeBtnActive]}
+                accessibilityLabel="Switch to map view"
+              >
+                <MobileIcon
+                  name="map"
+                  size={14}
+                  color={viewMode === "map" ? mobileColors.white : mobileColors.navy[900]}
+                />
+              </TouchableOpacity>
+            </View>
+            <Badge label={`${visibleLocations.length} open`} variant="navy" size="sm" />
+          </View>
         </View>
 
         {locationsQuery.isLoading ? (
@@ -460,10 +498,52 @@ export function DiscoveryView({
             onAction={() => {
               setSelectedCity("All");
               setSearchTerm("");
+              setDebouncedSearchTerm("");
               setNearMeCoords(null);
-              setAvailabilityFilterOpen(false);
+              setAvailabilityFilterActive(false);
             }}
           />
+        ) : viewMode === "map" ? (
+          <View style={{ gap: mobileSpacing[4] }}>
+            <InteractiveMobileMap
+              locations={visibleLocations.map((l) => ({
+                id: l.id,
+                name: l.name,
+                city: l.city,
+                latitude: l.approximateLatitude,
+                longitude: l.approximateLongitude,
+                priceLabel: typeof l.baseRateMinor === "number"
+                  ? formatCurrencyMinorUnits(l.baseRateMinor, (l.currency || "LKR") as CurrencyCode)
+                  : undefined
+              }))}
+              selectedLocationId={selectedMapLocationId || visibleLocations[0]?.id}
+              onSelectLocation={(id) => setSelectedMapLocationId(id)}
+              userLocation={nearMeCoords}
+              height={300}
+            />
+            {(() => {
+              const activeLoc =
+                visibleLocations.find(
+                  (l) => l.id === (selectedMapLocationId || visibleLocations[0]?.id)
+                ) || visibleLocations[0];
+              if (!activeLoc) return null;
+              return (
+                <LocationCard
+                  location={activeLoc}
+                  isSaved={savedIds.includes(activeLoc.id) || isSaved(activeLoc.id)}
+                  onToggleSaved={() => {
+                    void toggleSaved(activeLoc.id);
+                  }}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(traveller)/location",
+                      params: { id: activeLoc.id }
+                    })
+                  }
+                />
+              );
+            })()}
+          </View>
         ) : (
           <View style={styles.listGap}>
             {visibleLocations.map((loc) => {
@@ -503,6 +583,97 @@ export function DiscoveryView({
           </View>
         )}
       </View>
+
+      <BottomSheet
+        visible={filterSheetVisible}
+        title="Check Dates & Bags"
+        subtitle="Filter hubs with live capacity and instant LKR quotes"
+        onClose={() => setFilterSheetVisible(false)}
+        testID="discovery-dates-bags-sheet"
+      >
+        <View style={styles.sheetContent}>
+          <DateTimeSelector
+            label="Drop-off (Asia/Colombo)"
+            value={dropOffAt}
+            minimumDate={new Date()}
+            onChange={(next) => {
+              setDropOffAt(next);
+              if (collectionAt.getTime() <= next.getTime()) {
+                setCollectionAt(defaultCollectionDate(next));
+              }
+            }}
+          />
+          <DateTimeSelector
+            label="Collection (Asia/Colombo)"
+            value={collectionAt}
+            minimumDate={new Date(dropOffAt.getTime() + 60 * 60 * 1000)}
+            onChange={setCollectionAt}
+            errorText={!isAvailabilityWindowValid ? "Collection must be after drop-off." : null}
+          />
+
+          <View style={styles.bagGrid}>
+            {(
+              [
+                { key: "BAG_SMALL", label: "Small" },
+                { key: "BAG_MEDIUM", label: "Medium" },
+                { key: "BAG_LARGE", label: "Large" },
+                { key: "BAG_OVERSIZED", label: "Oversized" }
+              ] as const
+            ).map((item) => (
+              <View key={item.key} style={styles.bagCounterCard}>
+                <Text style={styles.bagCounterLabel}>{item.label}</Text>
+                <View style={styles.bagStepperRow}>
+                  <TouchableOpacity
+                    style={styles.stepperBtn}
+                    onPress={() => adjustBag(item.key, -1)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Decrease ${item.label} bags`}
+                  >
+                    <MobileIcon name="minus" size={16} color={mobileColors.navy[900]} />
+                  </TouchableOpacity>
+                  <Text style={styles.bagCountVal}>{bagCounts[item.key]}</Text>
+                  <TouchableOpacity
+                    style={styles.stepperBtn}
+                    onPress={() => adjustBag(item.key, 1)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Increase ${item.label} bags`}
+                  >
+                    <MobileIcon name="plus" size={16} color={mobileColors.navy[900]} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <Text style={styles.windowSummary}>
+            Window: {formatColomboDateTime(dropOffAt)} → {formatColomboDateTime(collectionAt)}
+          </Text>
+
+          <View style={styles.sheetActions}>
+            <Button
+              title="Clear Filter"
+              variant="outline"
+              size="sm"
+              style={styles.sheetActionBtn}
+              onPress={() => {
+                setAvailabilityFilterActive(false);
+                setFilterSheetVisible(false);
+              }}
+            />
+            <Button
+              title="Apply Dates & Bags"
+              variant="primary"
+              size="sm"
+              style={styles.sheetActionBtn}
+              disabled={!isAvailabilityWindowValid || totalSelectedBags === 0}
+              onPress={() => {
+                setAvailabilityFilterActive(true);
+                setFilterSheetVisible(false);
+              }}
+            />
+          </View>
+        </View>
+      </BottomSheet>
     </ScreenContainer>
   );
 }
@@ -591,7 +762,13 @@ const styles = StyleSheet.create({
   },
   activeBannerCol: {
     flex: 1,
-    gap: 2
+    gap: 4
+  },
+  activeBannerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: mobileSpacing[2]
   },
   activeBannerEyebrow: {
     fontSize: 11,
@@ -633,6 +810,56 @@ const styles = StyleSheet.create({
   },
   cityChipTextActive: {
     color: mobileColors.white
+  },
+  activeFilterSummaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileColors.terracotta[50],
+    borderWidth: 1,
+    borderColor: mobileColors.terracotta[200],
+    borderRadius: mobileRadius.lg,
+    paddingHorizontal: mobileSpacing[3],
+    paddingVertical: mobileSpacing[2]
+  },
+  activeFilterSummaryBody: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
+  activeFilterSummaryText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: mobileColors.terracotta[800],
+    flex: 1
+  },
+  clearFilterPill: {
+    minHeight: 32,
+    paddingHorizontal: 10,
+    borderRadius: mobileRadius.full,
+    backgroundColor: mobileColors.white,
+    borderWidth: 1,
+    borderColor: mobileColors.terracotta[300],
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  clearFilterText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.terracotta[700]
+  },
+  sheetContent: {
+    gap: mobileSpacing[3]
+  },
+  sheetActions: {
+    flexDirection: "row",
+    gap: mobileSpacing[3],
+    marginTop: mobileSpacing[2]
+  },
+  sheetActionBtn: {
+    flex: 1
   },
   noticeRow: {
     flexDirection: "row",
@@ -721,6 +948,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center"
+  },
+  viewModeToggle: {
+    flexDirection: "row",
+    backgroundColor: mobileColors.sand[200],
+    borderRadius: mobileRadius.md,
+    padding: 2
+  },
+  viewModeBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: mobileRadius.sm
+  },
+  viewModeBtnActive: {
+    backgroundColor: mobileColors.navy[900]
   },
   resultsTitle: {
     ...mobileTypography.headingMd,

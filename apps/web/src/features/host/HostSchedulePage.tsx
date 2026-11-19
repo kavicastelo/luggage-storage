@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import type { OpeningHourItemInput, OpeningHoursExceptionType } from "@luggage-storage/contracts";
-import { CheckCircle2, Plus, Trash2 } from "lucide-react";
-import { Alert } from "@/components/ui/Alert";
+import { CheckCircle2, Copy, Plus, Trash2 } from "lucide-react";
+import { Alert, Button, Card, LoadingSkeleton } from "@/components/ui";
 import { DEMO_LOCATIONS } from "@/data/mock-marketplace";
 import { isDemoPreviewActive } from "@/config/demo-preview";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -14,7 +14,12 @@ import {
   useOpeningHoursQuery,
   useSetOpeningHoursMutation
 } from "@/hooks/queries/use-host-portal";
-import { HostQueryErrorAlert, isUuid, NoLocationSelectedCard } from "./host-helpers";
+import {
+  HostLocationSetupTabs,
+  HostQueryErrorAlert,
+  isUuid,
+  NoLocationSelectedCard
+} from "./host-helpers";
 import { useHostVenue } from "./HostDashboardLayout";
 
 const WEEK_DAY_LABELS = [
@@ -128,9 +133,12 @@ export function HostScheduleCalendarEditorPage() {
 
   if (isAuthenticated && (hoursQuery.isLoading || exceptionsQuery.isLoading)) {
     return (
-      <div className="bg-white rounded-2xl border border-sand-200 p-8 text-center text-xs font-semibold text-navy-600">
-        Loading operating schedule...
-      </div>
+      <Card className="p-6 space-y-4">
+        <LoadingSkeleton variant="text" className="w-56 h-7" />
+        <LoadingSkeleton className="h-14 w-full" />
+        <LoadingSkeleton className="h-14 w-full" />
+        <LoadingSkeleton className="h-14 w-full" />
+      </Card>
     );
   }
 
@@ -153,6 +161,31 @@ export function HostScheduleCalendarEditorPage() {
   const updateDay = (dayOfWeek: number, patch: Partial<OpeningHourItemInput>) => {
     setWeeklySchedule((prev) =>
       prev.map((item) => (item.dayOfWeek === dayOfWeek ? { ...item, ...patch } : item))
+    );
+  };
+
+  const copyMondaySchedule = (scope: "WEEKDAYS" | "ALL") => {
+    const monday = weeklySchedule.find((d) => d.dayOfWeek === 1);
+    if (!monday) return;
+    setWeeklySchedule((prev) =>
+      prev.map((item) => {
+        const shouldApply =
+          scope === "ALL" ? item.dayOfWeek > 1 : item.dayOfWeek >= 2 && item.dayOfWeek <= 5;
+        if (!shouldApply) return item;
+        return {
+          ...item,
+          openTime: monday.openTime,
+          closeTime: monday.closeTime,
+          allowsDropoff: monday.allowsDropoff,
+          allowsCollection: monday.allowsCollection,
+          isClosed: monday.isClosed
+        };
+      })
+    );
+    setSavedNotice(
+      scope === "WEEKDAYS"
+        ? "Copied Monday schedule to Tuesday–Friday. Click Save Schedule to commit."
+        : "Copied Monday schedule to all days. Click Save Schedule to commit."
     );
   };
 
@@ -251,6 +284,8 @@ export function HostScheduleCalendarEditorPage() {
         </div>
       </div>
 
+      <HostLocationSetupTabs locationId={targetLocationId} querySuffix={querySuffix} />
+
       {errorMsg && (
         <Alert variant="danger" title="Schedule Error">
           {errorMsg}
@@ -265,10 +300,30 @@ export function HostScheduleCalendarEditorPage() {
       )}
 
       {/* 7-Day Matrix */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-navy-950">Standard Weekly Schedule</h2>
-          <span className="text-xs text-navy-500">Sri Lanka Standard Time (IST, UTC+5:30)</span>
+      <Card className="p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold text-navy-950">Standard Weekly Schedule</h2>
+            <span className="text-xs text-navy-500">Sri Lanka Standard Time (IST, UTC+5:30)</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => copyMondaySchedule("WEEKDAYS")}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-sand-50 hover:bg-sand-100 text-[11px] font-bold text-navy-800 transition"
+            >
+              <Copy className="h-3 w-3" />
+              <span>Copy Monday to Weekdays</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => copyMondaySchedule("ALL")}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-sand-50 hover:bg-sand-100 text-[11px] font-bold text-navy-800 transition"
+            >
+              <Copy className="h-3 w-3" />
+              <span>Copy Monday to All Days</span>
+            </button>
+          </div>
         </div>
 
         <div className="space-y-2">
@@ -286,22 +341,24 @@ export function HostScheduleCalendarEditorPage() {
                 />
                 <span className="font-bold text-navy-900">{WEEK_DAY_LABELS[item.dayOfWeek]}</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2.5">
                 <span className="text-navy-600">Open:</span>
                 <input
-                  type="text"
+                  type="time"
+                  aria-label={`${WEEK_DAY_LABELS[item.dayOfWeek]} open time`}
                   disabled={item.isClosed}
                   value={item.openTime}
                   onChange={(e) => updateDay(item.dayOfWeek, { openTime: e.target.value })}
-                  className="w-20 px-2 py-1 rounded-lg border border-sand-300 font-mono text-center text-xs disabled:opacity-50"
+                  className="px-2.5 py-1 rounded-lg border border-sand-300 font-mono text-xs bg-white disabled:opacity-50"
                 />
                 <span className="text-navy-600">to</span>
                 <input
-                  type="text"
+                  type="time"
+                  aria-label={`${WEEK_DAY_LABELS[item.dayOfWeek]} close time`}
                   disabled={item.isClosed}
                   value={item.closeTime}
                   onChange={(e) => updateDay(item.dayOfWeek, { closeTime: e.target.value })}
-                  className="w-20 px-2 py-1 rounded-lg border border-sand-300 font-mono text-center text-xs disabled:opacity-50"
+                  className="px-2.5 py-1 rounded-lg border border-sand-300 font-mono text-xs bg-white disabled:opacity-50"
                 />
               </div>
               <div className="flex items-center gap-4 text-[11px] text-navy-600">
@@ -331,10 +388,21 @@ export function HostScheduleCalendarEditorPage() {
             </div>
           ))}
         </div>
-      </div>
+
+        <div className="flex justify-end pt-2 border-t border-sand-100">
+          <Button
+            type="button"
+            size="sm"
+            isLoading={saveHoursMutation.isPending}
+            onClick={() => void handleSaveSchedule()}
+          >
+            {saveHoursMutation.isPending ? "Saving..." : "Save Schedule"}
+          </Button>
+        </div>
+      </Card>
 
       {/* Holiday & Closure Exceptions */}
-      <div className="bg-white rounded-2xl border border-sand-200 p-6 space-y-4 shadow-sm">
+      <Card className="p-6 space-y-4">
         <div className="space-y-1">
           <h2 className="text-sm font-bold text-navy-950">
             Sri Lankan Poya &amp; Mercantile Exceptions
@@ -377,7 +445,7 @@ export function HostScheduleCalendarEditorPage() {
                   <div>
                     <label className="block font-bold text-navy-900 mb-1">Open</label>
                     <input
-                      type="text"
+                      type="time"
                       value={exceptionOpen}
                       onChange={(e) => setExceptionOpen(e.target.value)}
                       className="w-full rounded-lg border border-sand-300 px-2 py-1.5 bg-white font-mono"
@@ -386,7 +454,7 @@ export function HostScheduleCalendarEditorPage() {
                   <div>
                     <label className="block font-bold text-navy-900 mb-1">Close</label>
                     <input
-                      type="text"
+                      type="time"
                       value={exceptionClose}
                       onChange={(e) => setExceptionClose(e.target.value)}
                       className="w-full rounded-lg border border-sand-300 px-2 py-1.5 bg-white font-mono"
@@ -501,7 +569,7 @@ export function HostScheduleCalendarEditorPage() {
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
