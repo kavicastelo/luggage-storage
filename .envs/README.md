@@ -34,7 +34,7 @@ These variables must **never** be prefixed with `VITE_` or `EXPO_PUBLIC_`, and m
 - `RATE_LIMIT_HASH_SECRET`: HMAC secret for client identifier anonymization.
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`: Cloudflare R2 object storage access keys.
 - `ZOHO_SMTP_PASSWORD` / `RESEND_API_KEY`: Transactional email credentials.
-- `PAYMENT_WEBHOOK_SECRET` / `PAYHERE_WEB_MERCHANT_SECRET` / `PAYHERE_MOBILE_MERCHANT_SECRET`: Payment webhook HMAC signing secret and PayHere channel-specific secrets (registered Web Domain vs Android App `com.luggagestorage.app`, reflected in `PAYHERE_ANDROID_PACKAGE_NAME`).
+- `PAYMENT_WEBHOOK_SECRET` / `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `PAYPAL_CLIENT_SECRET` / `PAYPAL_WEBHOOK_ID`: Payment gateway API secrets and cryptographic webhook verification keys (Stripe primary, PayPal alternative, Sandbox simulation). PayHere is decommissioned.
 - `CUSTODY_TOKEN_HMAC_SECRET`: Dedicated keyed HMAC-SHA256 secret ($\ge 32$ characters, never stored in PostgreSQL or client bundles) used exclusively for single-use custody QR tokens and 6-digit PIN verification (`hmac-sha256-v2`).
 
 ### Public Client Configuration (Safe for Bundling)
