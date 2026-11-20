@@ -187,43 +187,49 @@ export default function HostLayout() {
           }}
         />
 
+        {/* Sub-routes hidden from tab bar via tabBarButton (replaces non-routable href: null) */}
         <Tabs.Screen
           name="scanner"
           options={{
-            href: null,
             title: "Handover Scanner",
+            tabBarButton: () => null,
+            tabBarItemStyle: { display: "none" },
             tabBarStyle: { display: "none" }
           }}
         />
         <Tabs.Screen
           name="intake"
           options={{
-            href: null,
             title: "Bag Intake",
+            tabBarButton: () => null,
+            tabBarItemStyle: { display: "none" },
             tabBarStyle: { display: "none" }
           }}
         />
         <Tabs.Screen
           name="onboarding"
           options={{
-            href: null,
             title: "Partner Onboarding",
+            tabBarButton: () => null,
+            tabBarItemStyle: { display: "none" },
             tabBarStyle: { display: "none" }
           }}
         />
         <Tabs.Screen
           name="locations"
           options={{
-            href: null,
             title: "Storage Hubs",
+            tabBarButton: () => null,
+            tabBarItemStyle: { display: "none" },
             tabBarStyle: { display: "none" }
           }}
         />
         <Tabs.Screen
           name="location-editor"
           options={{
-            href: null,
             title: "Hub Configuration",
+            tabBarButton: () => null,
+            tabBarItemStyle: { display: "none" },
             tabBarStyle: { display: "none" }
           }}
         />
