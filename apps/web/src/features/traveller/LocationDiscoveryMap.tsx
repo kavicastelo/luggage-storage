@@ -47,6 +47,43 @@ const SRI_LANKA_BOUNDS = {
   maxLng: 81.9
 };
 
+interface MapTileInfo {
+  key: string;
+  url: string;
+  leftPct: number;
+  topPct: number;
+  widthPct: number;
+  heightPct: number;
+}
+
+function lng2tile(lon: number, zoom: number): number {
+  return Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
+}
+
+function lat2tile(lat: number, zoom: number): number {
+  const rad = (lat * Math.PI) / 180;
+  return Math.floor(
+    ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * Math.pow(2, zoom)
+  );
+}
+
+function tile2lng(x: number, zoom: number): number {
+  return (x / Math.pow(2, zoom)) * 360 - 180;
+}
+
+function tile2lat(y: number, zoom: number): number {
+  const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, zoom);
+  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}
+
+function computeBaseZoom(lngSpan: number): number {
+  if (lngSpan > 2.0) return 8;
+  if (lngSpan > 0.8) return 9;
+  if (lngSpan > 0.3) return 11;
+  if (lngSpan > 0.08) return 13;
+  return 15;
+}
+
 function formatDistance(meters: number): string {
   if (meters < 1000) return `${meters} m`;
   return `${(meters / 1000).toFixed(1)} km`;
@@ -65,7 +102,13 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
   selectedLocationId,
   onSelectLocation
 }) => {
-  const mapTilerKey = (import.meta.env.VITE_MAPTILER_KEY as string | undefined)?.trim();
+  const mapTilerKey = (
+    (import.meta.env.VITE_MAPTILER_KEY as string | undefined) ||
+    (import.meta.env.VITE_MAPTILER_API_KEY as string | undefined)
+  )?.trim();
+
+  // Failed tiles cache to fallback gracefully to CARTO raster tiles
+  const [failedTiles, setFailedTiles] = useState<Record<string, boolean>>({});
 
   // Map viewport state (zoom and center offset)
   const [zoomLevel, setZoomLevel] = useState<number>(1);
@@ -213,14 +256,55 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
     }
   }, [travelMode, routePreviewOpen, activePoint, handleCalculateRoute]);
 
-  // Center coordinate for MapTiler static backdrop
-  const centerLat = (bounds.minLat + bounds.maxLat) / 2;
-  const centerLng = (bounds.minLng + bounds.maxLng) / 2;
-  const mapTilerStaticUrl = mapTilerKey
-    ? `https://api.maptiler.com/maps/streets-v2/static/${centerLng.toFixed(3)},${centerLat.toFixed(
-        3
-      )},9/700x450.png?key=${encodeURIComponent(mapTilerKey)}`
-    : null;
+  // Compute dynamic slippy raster tiles for visible bounding box
+  const visibleTiles = useMemo<MapTileInfo[]>(() => {
+    const lngSpan = bounds.maxLng - bounds.minLng;
+    const baseZoom = computeBaseZoom(lngSpan);
+    const z = Math.min(16, Math.max(5, baseZoom + Math.round(zoomLevel - 1)));
+
+    const minX = lng2tile(bounds.minLng, z);
+    const maxX = lng2tile(bounds.maxLng, z);
+    const minY = lat2tile(bounds.maxLat, z);
+    const maxY = lat2tile(bounds.minLat, z);
+
+    // Limit tile count defensively to prevent excessive network requests
+    if ((maxX - minX + 1) * (maxY - minY + 1) > 64) {
+      return [];
+    }
+
+    const tiles: MapTileInfo[] = [];
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const key = `${z}/${x}/${y}`;
+        const lngLeft = tile2lng(x, z);
+        const lngRight = tile2lng(x + 1, z);
+        const latTop = tile2lat(y, z);
+        const latBottom = tile2lat(y + 1, z);
+
+        const leftPct = ((lngLeft - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100;
+        const topPct = ((bounds.maxLat - latTop) / (bounds.maxLat - bounds.minLat)) * 100;
+        const widthPct = ((lngRight - lngLeft) / (bounds.maxLng - bounds.minLng)) * 100;
+        const heightPct = ((latTop - latBottom) / (bounds.maxLat - bounds.minLat)) * 100;
+
+        const sub = ["a", "b", "c"][(x + y) % 3];
+        const isFailed = failedTiles[key];
+        const primaryUrl = mapTilerKey
+          ? `https://api.maptiler.com/maps/streets-v2/256/${z}/${x}/${y}.png?key=${encodeURIComponent(mapTilerKey)}`
+          : `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;
+        const fallbackUrl = `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;
+
+        tiles.push({
+          key,
+          url: isFailed ? fallbackUrl : primaryUrl,
+          leftPct,
+          topPct,
+          widthPct,
+          heightPct
+        });
+      }
+    }
+    return tiles;
+  }, [bounds, zoomLevel, mapTilerKey, failedTiles]);
 
   // Zoom handlers
   const handleZoomIn = () => setZoomLevel((z) => Math.min(2.5, z + 0.3));
@@ -278,20 +362,39 @@ export const LocationDiscoveryMap: React.FC<LocationDiscoveryMapProps> = ({
         role="region"
         aria-label="Interactive Luggage Storage Map"
       >
-        {/* Backdrop static vector tiles */}
-        {mapTilerStaticUrl && (
-          <img
-            src={mapTilerStaticUrl}
-            alt="Transit map backdrop"
-            className="absolute inset-0 w-full h-full object-cover opacity-40 pointer-events-none"
-            style={{
-              transform: `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${
-                panOffset.y / zoomLevel
-              }px)`,
-              transition: isDragging ? "none" : "transform 0.2s ease-out"
-            }}
-          />
-        )}
+        {/* Slippy Tile Raster Map Layer */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            transform: `scale(${zoomLevel}) translate(${panOffset.x / zoomLevel}px, ${
+              panOffset.y / zoomLevel
+            }px)`,
+            transition: isDragging ? "none" : "transform 0.2s ease-out"
+          }}
+        >
+          {visibleTiles.map((tile) => (
+            <img
+              key={tile.key}
+              src={tile.url}
+              alt=""
+              loading="lazy"
+              onError={() => {
+                setFailedTiles((prev) => ({ ...prev, [tile.key]: true }));
+              }}
+              className="absolute select-none pointer-events-none"
+              style={{
+                left: `${tile.leftPct}%`,
+                top: `${tile.topPct}%`,
+                width: `${tile.widthPct}%`,
+                height: `${tile.heightPct}%`,
+                objectFit: "fill",
+                opacity: 0.88
+              }}
+            />
+          ))}
+          {/* Subtle translucent dark tint to enhance marker contrast */}
+          <div className="absolute inset-0 bg-navy-950/20 pointer-events-none" />
+        </div>
 
         {/* Vector SVG Layer for Grid, Route Polyline, and Connectors */}
         <svg
