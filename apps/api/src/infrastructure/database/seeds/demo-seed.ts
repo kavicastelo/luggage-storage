@@ -538,6 +538,17 @@ export async function resetDatabase(): Promise<void> {
         "security_audit_events",
         "users"
       CASCADE;
+
+      DELETE FROM "role_permissions"
+      WHERE "role_id" IN (
+        SELECT "id" FROM "roles" WHERE "code" NOT IN ('SUPERADMIN', 'SUPPORT', 'HOST_OWNER', 'HOST_STAFF', 'TRAVELLER')
+      );
+
+      DELETE FROM "roles"
+      WHERE "code" NOT IN ('SUPERADMIN', 'SUPPORT', 'HOST_OWNER', 'HOST_STAFF', 'TRAVELLER');
+
+      DELETE FROM "permissions"
+      WHERE "code" LIKE 'auth:test:%';
     `);
     console.log("🧹 [Demo Seeder] Operational tables truncated.");
   } finally {

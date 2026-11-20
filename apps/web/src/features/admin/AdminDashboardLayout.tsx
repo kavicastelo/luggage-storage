@@ -51,7 +51,10 @@ const SUPPORT_ALLOWED_EXACT_PATHS = new Set([
   "/admin/refunds",
   "/admin/support",
   "/admin/incidents",
-  "/admin/staff"
+  "/admin/staff",
+  "/admin/users",
+  "/admin/rbac",
+  "/admin/roles"
 ]);
 
 function isSupportAllowedAdminPath(normalizedPath: string): boolean {

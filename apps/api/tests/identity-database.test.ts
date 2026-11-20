@@ -286,6 +286,11 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
           [userId, roleId1]
         )
       ).rejects.toThrowError(/duplicate key value violates unique constraint/i);
+
+      // Cleanup multi-role test artifacts
+      await migratorPool.query(`DELETE FROM user_roles WHERE user_id = $1;`, [userId]);
+      await migratorPool.query(`DELETE FROM users WHERE id = $1;`, [userId]);
+      await migratorPool.query(`DELETE FROM roles WHERE id IN ($1, $2);`, [roleId1, roleId2]);
     });
 
     it("should reject duplicate role-permission assignments", async () => {
@@ -314,6 +319,11 @@ describe("WP-02: Identity Database Architecture & Integrity Tests", () => {
           [roleId, permId]
         )
       ).rejects.toThrowError(/duplicate key value violates unique constraint/i);
+
+      // Cleanup duplicate role-permission test artifacts
+      await migratorPool.query(`DELETE FROM role_permissions WHERE role_id = $1;`, [roleId]);
+      await migratorPool.query(`DELETE FROM roles WHERE id = $1;`, [roleId]);
+      await migratorPool.query(`DELETE FROM permissions WHERE id = $1;`, [permId]);
     });
   });
 

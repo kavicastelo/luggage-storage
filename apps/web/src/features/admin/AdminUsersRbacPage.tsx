@@ -81,7 +81,10 @@ export function AdminUsersRbacPage() {
       isAuthenticated
     });
 
-  const [activeTab, setActiveTab] = useState<ActiveWorkspaceTab>("users");
+  const isRbacPath = location.pathname.includes("/rbac") || location.pathname.includes("/roles");
+  const tabParam = searchParams.get("tab");
+  const initialTab: ActiveWorkspaceTab = tabParam === "matrix" || isRbacPath ? "matrix" : "users";
+  const [activeTab, setActiveTab] = useState<ActiveWorkspaceTab>(initialTab);
   const [searchInput, setSearchInput] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<UserStatus | "">("");
