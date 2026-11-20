@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -104,6 +104,28 @@ export default function HostRequestsScreen() {
     () => allBookings.filter((b) => b.status === "PENDING_HOST_APPROVAL").length,
     [allBookings]
   );
+  const upcomingCount = useMemo(
+    () =>
+      allBookings.filter(
+        (b) => b.status === "PENDING_PAYMENT" || b.status === "CONFIRMED"
+      ).length,
+    [allBookings]
+  );
+  const activeCount = useMemo(
+    () => allBookings.filter((b) => b.status === "IN_STORAGE").length,
+    [allBookings]
+  );
+  const pastCount = useMemo(
+    () => allBookings.filter((b) => PAST_STATUSES.has(b.status)).length,
+    [allBookings]
+  );
+
+  // Auto-switch to UPCOMING if there are no pending approval requests but there are confirmed arrivals
+  useEffect(() => {
+    if (pendingCount === 0 && upcomingCount > 0 && activeTab === "PENDING") {
+      setActiveTab("UPCOMING");
+    }
+  }, [pendingCount, upcomingCount, activeTab]);
 
   const filtered = useMemo(() => {
     switch (activeTab) {
@@ -216,9 +238,9 @@ export default function HostRequestsScreen() {
           {(
             [
               { key: "PENDING", label: "Pending", badge: pendingCount },
-              { key: "UPCOMING", label: "Upcoming", badge: 0 },
-              { key: "ACTIVE", label: "Active", badge: 0 },
-              { key: "PAST", label: "Past", badge: 0 }
+              { key: "UPCOMING", label: "Upcoming", badge: upcomingCount },
+              { key: "ACTIVE", label: "Active", badge: activeCount },
+              { key: "PAST", label: "Past", badge: pastCount }
             ] as const
           ).map((tab) => {
             const active = activeTab === tab.key;

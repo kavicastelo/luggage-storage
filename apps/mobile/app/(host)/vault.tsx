@@ -125,6 +125,15 @@ export default function HostVaultScreen() {
     }
   }, [params.bookingId, bookings]);
 
+  useEffect(() => {
+    if (typeof params.qrToken === "string" && params.qrToken) {
+      setQrTokenInput(params.qrToken);
+    }
+    if (typeof params.pin === "string" && params.pin) {
+      setPinInput(params.pin);
+    }
+  }, [params.qrToken, params.pin]);
+
   const listForTab =
     activeTab === "ACTIVE"
       ? activeStored

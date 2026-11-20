@@ -61,12 +61,21 @@ export default function HostIntakeScreen() {
 
   const submitInFlightRef = useRef(false);
   const [pinCode, setPinCode] = useState(typeof params.pin === "string" ? params.pin : "");
-  const [qrToken] = useState(typeof params.qrToken === "string" ? params.qrToken : "");
+  const [qrToken, setQrToken] = useState(typeof params.qrToken === "string" ? params.qrToken : "");
   const [bags, setBags] = useState<IntakeBagDraft[]>([]);
   const [bagCountExceptionReason, setBagCountExceptionReason] = useState("");
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const [photoSkipped, setPhotoSkipped] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof params.pin === "string" && params.pin) {
+      setPinCode(params.pin);
+    }
+    if (typeof params.qrToken === "string" && params.qrToken) {
+      setQrToken(params.qrToken);
+    }
+  }, [params.pin, params.qrToken]);
 
   useEffect(() => {
     if (!detail || bags.length > 0) {

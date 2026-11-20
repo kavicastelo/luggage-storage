@@ -45,14 +45,31 @@ export default function HostLiveDeskScreen() {
 
   const businesses = businessesQuery.data ?? [];
   const locations = locationsQuery.data ?? [];
-  const activeLocation = useMemo(
-    () => locations.find((l) => l.id === selectedHostLocationId) ?? locations[0] ?? null,
-    [locations, selectedHostLocationId]
-  );
+  const bookings = bookingsQuery.data?.bookings ?? [];
+
+  const activeLocation = useMemo(() => {
+    if (selectedHostLocationId === "ALL") {
+      return null;
+    }
+    if (selectedHostLocationId) {
+      const match = locations.find((l) => l.id === selectedHostLocationId);
+      if (match) return match;
+    }
+    // Prefer location with active check-ins, collections, or pending approvals
+    const locWithBookings = locations.find((l) =>
+      bookings.some(
+        (b) =>
+          b.locationId === l.id &&
+          (b.status === "CONFIRMED" ||
+            b.status === "IN_STORAGE" ||
+            b.status === "PENDING_HOST_APPROVAL")
+      )
+    );
+    return locWithBookings ?? locations[0] ?? null;
+  }, [locations, selectedHostLocationId, bookings]);
 
   const poolsQuery = useCapacityPoolsQuery(activeLocation?.id, Boolean(activeLocation?.id));
 
-  const bookings = bookingsQuery.data?.bookings ?? [];
   const scopedBookings = useMemo(() => {
     if (!activeLocation) {
       return bookings;
@@ -88,7 +105,11 @@ export default function HostLiveDeskScreen() {
       header={
         <SafeHeader
           title="Desk Counter Active"
-          subtitle={activeLocation ? `${activeLocation.name} • ${activeLocation.city}` : "Partner Desk"}
+          subtitle={
+            activeLocation
+              ? `${activeLocation.name} • ${activeLocation.city}`
+              : `All Storage Hubs (${locations.length} Locations)`
+          }
           rightAction={
             <Button
               title="Hubs"
@@ -139,9 +160,13 @@ export default function HostLiveDeskScreen() {
             <View style={styles.heroTop}>
               <View style={styles.heroTextCol}>
                 <Badge label="Desk Counter Active" variant="success" size="sm" />
-                <Text style={styles.heroTitle}>{activeLocation?.name}</Text>
+                <Text style={styles.heroTitle}>
+                  {activeLocation ? activeLocation.name : "All Storage Hubs"}
+                </Text>
                 <Text style={styles.heroSub}>
-                  {activeLocation?.addressLine1}, {activeLocation?.city}
+                  {activeLocation
+                    ? `${activeLocation.addressLine1}, ${activeLocation.city}`
+                    : `${locations.length} active partner locations`}
                 </Text>
               </View>
               <MascotIllustration mascot="salute" size="sm" variant="hero" />
@@ -157,7 +182,7 @@ export default function HostLiveDeskScreen() {
               >
                 <MobileIcon name="map-pin" size={14} color={mobileColors.terracotta[300]} />
                 <Text style={styles.hubSwitcherText} numberOfLines={1}>
-                  Hub: {activeLocation?.name} ({locations.length} hubs)
+                  Hub: {activeLocation ? activeLocation.name : "All Storage Hubs"} ({locations.length} hubs)
                 </Text>
                 <Text style={styles.hubSwitcherAction}>Switch</Text>
               </TouchableOpacity>
@@ -297,6 +322,15 @@ export default function HostLiveDeskScreen() {
         testID="host-hub-switcher-sheet"
       >
         <View style={styles.sheetStack}>
+          <SelectionCard
+            title="All Storage Hubs"
+            subtitle={`Consolidated live desk for all ${locations.length} partner locations`}
+            selected={selectedHostLocationId === "ALL" || !activeLocation}
+            onPress={() => {
+              setSelectedHostLocationId("ALL");
+              setHubSheetVisible(false);
+            }}
+          />
           {locations.map((loc) => (
             <SelectionCard
               key={loc.id}
