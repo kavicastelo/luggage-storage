@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type {
   BookingDetail,
+  BookingStatus,
   CustodyPassResponse,
   RecordBookingExceptionRequest
 } from "@luggage-storage/contracts";
@@ -108,7 +109,9 @@ export function TravellerWebPortalPage() {
     {
       page,
       limit: 10,
-      ...(selectedStatusFilter !== "ALL" ? { status: selectedStatusFilter as any } : {}),
+      ...(selectedStatusFilter !== "ALL"
+        ? { status: selectedStatusFilter as BookingStatus }
+        : {}),
       ...(searchTerm.trim() ? { search: searchTerm.trim() } : {})
     },
     { enabled: !isDemoMode && isAuthenticated }

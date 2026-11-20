@@ -37,6 +37,7 @@ import {
   useInfiniteHostBookingsQuery,
   useRejectHostBookingMutation,
   useReportBookingExceptionMutation
+  // useHostBookingsQuery( - alternative non-virtualized query hook
 } from "../../src/hooks";
 import { normalizeApiError } from "../../src/services/api-client";
 import {

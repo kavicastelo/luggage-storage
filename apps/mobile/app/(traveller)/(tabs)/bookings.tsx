@@ -35,6 +35,7 @@ import {
   useCancelBookingMutation,
   useInfiniteMyBookingsQuery,
   useReportBookingExceptionMutation
+  // useMyBookingsQuery( - alternative non-virtualized query hook
 } from "../../../src/hooks";
 import { normalizeApiError } from "../../../src/services/api-client";
 import { useAuthStore } from "../../../src/store/useAuthStore";
