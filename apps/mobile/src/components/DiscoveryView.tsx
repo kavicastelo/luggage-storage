@@ -380,7 +380,7 @@ export function DiscoveryView({
             <IconButton
               icon="arrow-left"
               variant="navy"
-              onPress={() => router.back()}
+              onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
               accessibilityLabel="Go back"
               testID="discovery-back-btn"
             />
