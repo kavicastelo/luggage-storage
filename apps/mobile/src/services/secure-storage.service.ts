@@ -25,11 +25,15 @@ function isSecureStoreAvailable(): boolean {
 export const secureStorage = {
   /**
    * Retrieves the stored refresh token from hardware-backed secure storage.
+   * On Web platforms, falls back to localStorage if available to persist sessions across page reloads.
    */
   async getRefreshToken(): Promise<string | null> {
     try {
       if (isSecureStoreAvailable()) {
         return await SecureStore.getItemAsync(REFRESH_TOKEN_KEY, SECURE_STORE_OPTIONS);
+      }
+      if (Platform.OS === "web" && typeof window !== "undefined" && window.localStorage) {
+        return window.localStorage.getItem(REFRESH_TOKEN_KEY);
       }
       return inMemoryFallback;
     } catch {
@@ -49,6 +53,8 @@ export const secureStorage = {
     try {
       if (isSecureStoreAvailable()) {
         await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, token, SECURE_STORE_OPTIONS);
+      } else if (Platform.OS === "web" && typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem(REFRESH_TOKEN_KEY, token);
       } else {
         inMemoryFallback = token;
       }
@@ -67,6 +73,8 @@ export const secureStorage = {
     try {
       if (isSecureStoreAvailable()) {
         await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY, SECURE_STORE_OPTIONS);
+      } else if (Platform.OS === "web" && typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.removeItem(REFRESH_TOKEN_KEY);
       }
       inMemoryFallback = null;
     } catch {

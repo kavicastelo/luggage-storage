@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import type { BookingDetail } from "@luggage-storage/contracts";
 import {
   Badge,
   BottomSheet,
@@ -37,8 +38,11 @@ export default function HostScannerScreen() {
   const verifyMutation = useVerifyCustodyPassMutation();
 
   const [selectedBookingId, setSelectedBookingId] = useState<string>("");
+  const [referenceSearch, setReferenceSearch] = useState("");
   const [bookingSheetOpen, setBookingSheetOpen] = useState(false);
-  const [scanMode, setScanMode] = useState<"CAMERA" | "PIN">("CAMERA");
+  const [scanMode, setScanMode] = useState<"CAMERA" | "PIN">(
+    Platform.OS === "web" ? "PIN" : "CAMERA"
+  );
   const [operation, setOperation] = useState<"CHECK_IN" | "COLLECTION">("CHECK_IN");
   const [enableTorch, setEnableTorch] = useState(false);
   const [pinInput, setPinInput] = useState("");
@@ -66,52 +70,101 @@ export default function HostScannerScreen() {
       const match = eligibleBookings.find((b) => b.id === params.bookingId);
       if (match) {
         setOperation(match.status === "IN_STORAGE" ? "COLLECTION" : "CHECK_IN");
+        setReferenceSearch(match.referenceCode);
       }
       return;
     }
     if (!selectedBookingId && eligibleBookings[0]) {
       setSelectedBookingId(eligibleBookings[0].id);
       setOperation(eligibleBookings[0].status === "IN_STORAGE" ? "COLLECTION" : "CHECK_IN");
+      setReferenceSearch(eligibleBookings[0].referenceCode);
     }
   }, [params.bookingId, eligibleBookings, selectedBookingId]);
 
-  const handleSelectBooking = (bookingId: string, status: string) => {
+  const handleSelectBooking = (bookingId: string, status: string, refCode?: string) => {
     setSelectedBookingId(bookingId);
     setOperation(status === "IN_STORAGE" ? "COLLECTION" : "CHECK_IN");
+    if (refCode) {
+      setReferenceSearch(refCode);
+    }
     setVerifiedSummary(null);
     setVerifyError(null);
   };
 
-  const runVerifyPass = async (payload: { qrToken?: string; verificationPin?: string }) => {
+  const runVerifyPass = async (payload: {
+    qrToken?: string;
+    verificationPin?: string;
+    targetBookingId?: string;
+  }) => {
     setVerifyError(null);
     setVerifiedSummary(null);
 
-    if (!selectedBookingId || !UUID_REGEX.test(selectedBookingId)) {
-      setVerifyError("Select a confirmed or in-storage booking before verifying a pass.");
+    const primaryId = payload.targetBookingId || selectedBookingId;
+    const candidates = eligibleBookings.slice();
+    if (primaryId) {
+      const idx = candidates.findIndex((b) => b.id === primaryId);
+      if (idx > -1) {
+        const [chosen] = candidates.splice(idx, 1);
+        candidates.unshift(chosen);
+      }
+    }
+
+    if (candidates.length === 0) {
+      setVerifyError("No confirmed or in-storage bookings found at your counters to verify.");
       return;
     }
 
-    try {
-      const result = await verifyMutation.mutateAsync({
-        bookingId: selectedBookingId,
-        operation,
-        ...(payload.qrToken ? { qrToken: payload.qrToken } : {}),
-        ...(payload.verificationPin ? { verificationPin: payload.verificationPin } : {})
-      });
-      setVerifiedSummary({
-        ...result,
-        qrToken: payload.qrToken,
-        verificationPin: payload.verificationPin
-      });
-    } catch (err) {
-      const normalized = normalizeApiError(err);
-      if (normalized.statusCode === 429 && normalized.retryAfterSeconds) {
-        setVerifyError(
-          `Too many verification attempts. Please wait ${normalized.retryAfterSeconds}s before retrying.`
-        );
-      } else {
-        setVerifyError(normalized.message);
+    let lastError: Error | null = null;
+    let matched = false;
+
+    for (const b of candidates) {
+      const defaultOp = b.status === "IN_STORAGE" ? "COLLECTION" : "CHECK_IN";
+      const operationsToTry: Array<"CHECK_IN" | "COLLECTION"> = [operation];
+      if (defaultOp !== operation) {
+        operationsToTry.push(defaultOp);
       }
+
+      for (const currentOp of operationsToTry) {
+        try {
+          const result = await verifyMutation.mutateAsync({
+            bookingId: b.id,
+            operation: currentOp,
+            ...(payload.qrToken ? { qrToken: payload.qrToken } : {}),
+            ...(payload.verificationPin ? { verificationPin: payload.verificationPin } : {})
+          });
+
+          setSelectedBookingId(b.id);
+          setOperation(currentOp);
+          setReferenceSearch(b.referenceCode);
+          setVerifiedSummary({
+            ...result,
+            qrToken: payload.qrToken,
+            verificationPin: payload.verificationPin
+          });
+          matched = true;
+          break;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          const normalized = normalizeApiError(err);
+          if (normalized.statusCode === 429) {
+            setVerifyError(
+              `Too many verification attempts. Please wait ${normalized.retryAfterSeconds || 60}s before retrying.`
+            );
+            return;
+          }
+        }
+      }
+
+      if (matched) break;
+    }
+
+    if (!matched && lastError) {
+      const normalized = normalizeApiError(lastError);
+      setVerifyError(
+        normalized.statusCode === 401 || normalized.statusCode === 404
+          ? "Invalid custody pass or PIN for queued reservations. Verify the reference code or ensure booking is confirmed."
+          : normalized.message
+      );
     }
   };
 
@@ -119,10 +172,36 @@ export default function HostScannerScreen() {
     if (verifyMutation.isPending || verifiedSummary) {
       return;
     }
-    const cleanToken = data.trim();
-    if (cleanToken.length === 64) {
+    const raw = String(data ?? "").trim();
+    if (!raw) return;
+
+    // 1. 64-char hex token
+    const tokenMatch = raw.match(/[a-f0-9]{64}/i);
+    if (tokenMatch) {
+      const cleanToken = tokenMatch[0].toLowerCase();
       setQrInput(cleanToken);
       void runVerifyPass({ qrToken: cleanToken });
+      return;
+    }
+
+    // 2. 6-digit PIN
+    const pinMatch = raw.match(/\b\d{6}\b/);
+    if (pinMatch) {
+      setPinInput(pinMatch[0]);
+      void runVerifyPass({ verificationPin: pinMatch[0] });
+      return;
+    }
+
+    // 3. Reference code
+    const refMatch = raw.match(/(LSB-[A-Z0-9-]+|DEMO-[A-Z0-9-]+)/i);
+    if (refMatch) {
+      const matchedCode = refMatch[0].toUpperCase();
+      const match = eligibleBookings.find(
+        (b) => b.referenceCode.toUpperCase() === matchedCode
+      );
+      if (match) {
+        handleSelectBooking(match.id, match.status, match.referenceCode);
+      }
     }
   };
 
@@ -156,6 +235,14 @@ export default function HostScannerScreen() {
     setQrInput("");
   };
 
+  const handleBack = () => {
+    if (params.bookingId) {
+      router.replace("/(host)/requests");
+    } else {
+      router.replace("/(host)");
+    }
+  };
+
   return (
     <ScreenContainer
       keyboardAvoiding
@@ -163,12 +250,70 @@ export default function HostScannerScreen() {
         <SafeHeader
           title="Handover Scanner"
           subtitle="QR Token & 6-Digit PIN Verification"
-          onBack={() => router.back()}
+          onBack={handleBack}
         />
       }
       testID="host-scanner-screen"
     >
       <View style={styles.stack}>
+        {/* Operation Mode Selector: Check-In vs Collection */}
+        <View style={styles.operationToggleRow}>
+          <TouchableOpacity
+            style={[
+              styles.opToggleBtn,
+              operation === "CHECK_IN" ? styles.opToggleBtnActive : null
+            ]}
+            onPress={() => {
+              setOperation("CHECK_IN");
+              setVerifiedSummary(null);
+              setVerifyError(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Select Check-In Arrival operation"
+          >
+            <MobileIcon
+              name="package-check"
+              size={14}
+              color={operation === "CHECK_IN" ? mobileColors.white : mobileColors.navy[900]}
+            />
+            <Text
+              style={[
+                styles.opToggleText,
+                operation === "CHECK_IN" ? styles.opToggleTextActive : null
+              ]}
+            >
+              Check-In (Arrival)
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.opToggleBtn,
+              operation === "COLLECTION" ? styles.opToggleBtnActive : null
+            ]}
+            onPress={() => {
+              setOperation("COLLECTION");
+              setVerifiedSummary(null);
+              setVerifyError(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Select Collection Pick-Up operation"
+          >
+            <MobileIcon
+              name="arrow-right"
+              size={14}
+              color={operation === "COLLECTION" ? mobileColors.white : mobileColors.navy[900]}
+            />
+            <Text
+              style={[
+                styles.opToggleText,
+                operation === "COLLECTION" ? styles.opToggleTextActive : null
+              ]}
+            >
+              Collection (Pick-Up)
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity
           style={styles.activeBookingPill}
           onPress={() => setBookingSheetOpen(true)}
@@ -194,6 +339,27 @@ export default function HostScannerScreen() {
             </Text>
           </View>
         </TouchableOpacity>
+
+        {/* Quick Reference Code Lookup Input */}
+        <TextInput
+          label="Quick Lookup by Reference Code"
+          placeholder="e.g. DEMO-COLOMBO-001 or reference #"
+          value={referenceSearch}
+          onChangeText={(val) => {
+            setReferenceSearch(val);
+            const trimmed = val.trim().toUpperCase();
+            if (trimmed.length >= 3) {
+              const match = eligibleBookings.find((b) =>
+                b.referenceCode.toUpperCase().includes(trimmed)
+              );
+              if (match) {
+                handleSelectBooking(match.id, match.status, match.referenceCode);
+              }
+            }
+          }}
+          leftIcon="search"
+          autoCapitalize="characters"
+        />
 
         <View style={styles.modeToggleRow} accessibilityRole="tablist">
           <TouchableOpacity
@@ -248,6 +414,15 @@ export default function HostScannerScreen() {
               />
             </View>
 
+            {Platform.OS === "web" ? (
+              <View style={styles.webCameraNotice}>
+                <MobileIcon name="info" size={16} color={mobileStatusTokens.info} />
+                <Text style={styles.webCameraNoticeText}>
+                  Direct camera barcode scanning is active on Android & iOS mobile devices. On web, use the 6-Digit PIN or Manual Token mode.
+                </Text>
+              </View>
+            ) : null}
+
             {!permission ? (
               <Text style={styles.mutedNote}>Checking camera permissions...</Text>
             ) : !permission.granted ? (
@@ -280,8 +455,8 @@ export default function HostScannerScreen() {
           </Card>
         ) : (
           <FormSection
-            title="6-Digit PIN Fallback"
-            subtitle="Use the traveller's 6-digit single-use PIN if camera scanning is unavailable."
+            title="6-Digit PIN & Token Verification"
+            subtitle="Enter the traveller's 6-digit single-use PIN or custody token. The system automatically matches against your counter reservations."
           >
             <TextInput
               label="6-Digit Fallback PIN"
@@ -537,5 +712,50 @@ const styles = StyleSheet.create({
   successMeta: {
     ...mobileTypography.bodySm,
     color: mobileColors.emerald[700]
+  },
+  operationToggleRow: {
+    flexDirection: "row",
+    gap: mobileSpacing[2]
+  },
+  opToggleBtn: {
+    flex: 1,
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: mobileRadius.lg,
+    backgroundColor: mobileColors.sand[100],
+    borderWidth: 1,
+    borderColor: mobileColors.sand[300],
+    paddingHorizontal: mobileSpacing[2]
+  },
+  opToggleBtnActive: {
+    backgroundColor: mobileColors.terracotta[600],
+    borderColor: mobileColors.terracotta[600]
+  },
+  opToggleText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: mobileColors.navy[900]
+  },
+  opToggleTextActive: {
+    color: mobileColors.white
+  },
+  webCameraNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: mobileSpacing[2],
+    backgroundColor: mobileStatusTokens.infoBg,
+    borderColor: mobileStatusTokens.infoBorder,
+    borderWidth: 1,
+    borderRadius: mobileRadius.md,
+    padding: mobileSpacing[3],
+    marginBottom: mobileSpacing[2]
+  },
+  webCameraNoticeText: {
+    ...mobileTypography.bodySm,
+    color: mobileStatusTokens.info,
+    flex: 1
   }
 });

@@ -1,7 +1,9 @@
-import { eq, sql, asc } from "drizzle-orm";
+import { eq, sql, asc, and } from "drizzle-orm";
 import {
+  DEFAULT_ROLE_PERMISSIONS,
   Permission,
-  RoleDetail
+  RoleDetail,
+  SYSTEM_PERMISSIONS
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
 import { AppError } from "../../common/errors/app-error.js";
@@ -352,6 +354,272 @@ export class RbacService {
     });
 
     return this.getUserRoles(context.targetUserId);
+  }
+
+  /**
+   * Idempotently seeds and self-heals all catalogue permissions and default role-permission mappings.
+   * Can be safely executed on server boot, seeding, or migration recovery.
+   */
+  async ensureDefaultRolePermissions(): Promise<{ permissionsCount: number; mappingsCount: number }> {
+    const PERMISSION_METADATA: Record<string, { name: string; description: string; module: string }> = {
+      "identity.profile.read": { name: "Read Own Profile", description: "View own profile and account details", module: "identity" },
+      "identity.profile.update": { name: "Update Own Profile", description: "Update own profile and display name", module: "identity" },
+      "identity.session.read_own": { name: "Read Own Sessions", description: "View own active sessions and devices", module: "identity" },
+      "identity.session.revoke_own": { name: "Revoke Own Session", description: "Revoke own active authentication sessions", module: "identity" },
+      "identity.password.change": { name: "Change Own Password", description: "Change own account password", module: "identity" },
+
+      "admin.user.read": { name: "Read Users", description: "View and search user accounts and profiles", module: "admin" },
+      "admin.user.suspend": { name: "Suspend User", description: "Suspend user accounts and revoke sessions", module: "admin" },
+      "admin.user.reinstate": { name: "Reinstate User", description: "Reinstate suspended user accounts", module: "admin" },
+      "admin.user.deactivate": { name: "Deactivate User", description: "Deactivate user accounts and revoke sessions", module: "admin" },
+      "admin.user.reactivate": { name: "Reactivate User", description: "Reactivate deactivated user accounts", module: "admin" },
+      "admin.user.verify_email": { name: "Verify User Email", description: "Administratively verify user email", module: "admin" },
+
+      "admin.session.read_any": { name: "Read Any Session", description: "Inspect active sessions of any user", module: "admin" },
+      "admin.session.revoke_any": { name: "Revoke Any Session", description: "Administratively terminate sessions of any user", module: "admin" },
+
+      "admin.role.read": { name: "Read Roles", description: "View system roles and permission mappings", module: "admin" },
+      "admin.role.assign": { name: "Assign Roles", description: "Assign system roles to user accounts", module: "admin" },
+      "admin.role.revoke": { name: "Revoke Roles", description: "Revoke assigned system roles from user accounts", module: "admin" },
+      "admin.permission.read": { name: "Read Permissions", description: "View permission catalogue and role mappings", module: "admin" },
+
+      "admin.audit.read": { name: "Read Audit Logs", description: "Inspect immutable security audit event logs", module: "admin" },
+      "admin.platform.manage": { name: "Platform Governance", description: "Full platform governance and security policies", module: "admin" },
+      "admin.kyc.manage": { name: "KYC Management", description: "Review and approve host business verifications", module: "admin" },
+      "admin.financial.manage": { name: "Financial Management", description: "Manage commissions, payouts, and financial ledgers", module: "admin" },
+
+      "support.ticket.read": { name: "Read Support Tickets", description: "View customer support tickets and inquiries", module: "support" },
+      "support.ticket.update": { name: "Update Support Tickets", description: "Respond to and update support tickets", module: "support" },
+
+      "hosts.business.create": { name: "Create Host Business", description: "Register new host business entities", module: "hosts" },
+      "hosts.business.read_own": { name: "Read Own Host Business", description: "View own host business profiles and verifications", module: "hosts" },
+      "hosts.business.update_own": { name: "Update Own Host Business", description: "Update own host business profile and bank details", module: "hosts" },
+      "hosts.staff.read_own": { name: "Read Own Staff", description: "View staff team members across owned hubs", module: "hosts" },
+      "hosts.staff.manage_own": { name: "Manage Own Staff", description: "Invite, update, and remove staff memberships", module: "hosts" },
+      "hosts.verification.submit": { name: "Submit Verification", description: "Submit business KYC documents for moderation", module: "hosts" },
+      "hosts.verification.read_own": { name: "Read Own Verification", description: "View status of KYC business verifications", module: "hosts" },
+      "hosts.location.create": { name: "Create Location", description: "Create new storage hub locations", module: "hosts" },
+      "hosts.location.read_own": { name: "Read Own Locations", description: "View own storage hub locations and zones", module: "hosts" },
+      "hosts.location.update_own": { name: "Update Own Location", description: "Update storage hub profile and attributes", module: "hosts" },
+      "hosts.location.submit": { name: "Submit Location", description: "Submit storage hub for public listing moderation", module: "hosts" },
+      "hosts.location.disable": { name: "Disable Location", description: "Disable storage hub from public search", module: "hosts" },
+      "hosts.location.configure": { name: "Configure Location", description: "Configure hub schedules, capacity pools, and pricing", module: "hosts" },
+
+      "admin.host.read": { name: "Read Host Directory", description: "Inspect all host partner businesses", module: "admin" },
+      "admin.host.verify": { name: "Verify Host Businesses", description: "Approve or reject host verification KYC submissions", module: "admin" },
+      "admin.location.read": { name: "Read All Locations", description: "Inspect all storage hub locations across the platform", module: "admin" },
+      "admin.location.moderate": { name: "Moderate Locations", description: "Approve, reject, or suspend storage hub listings", module: "admin" },
+
+      "upload.initiate": { name: "Initiate Upload", description: "Request signed pre-authenticated image upload URLs", module: "uploads" },
+
+      "bookings.create": { name: "Create Booking", description: "Reserve luggage storage and request payment intents", module: "bookings" },
+      "bookings.read_own": { name: "Read Own Bookings", description: "View own traveller bookings and custody passes", module: "bookings" },
+      "bookings.cancel_own": { name: "Cancel Own Booking", description: "Cancel own booking and request eligible refund", module: "bookings" },
+
+      "hosts.bookings.read_own": { name: "Read Host Bookings", description: "View reservations and queue for owned locations", module: "hosts" },
+      "hosts.bookings.manage_own": { name: "Manage Host Bookings", description: "Accept, reject, or cancel incoming reservations", module: "hosts" },
+      "hosts.custody.operate": { name: "Operate Custody", description: "Verify custody passes, check in bags, and release luggage", module: "custody" },
+      "hosts.finance.read_own": { name: "Read Host Finance", description: "View earnings, payouts, and settlement summaries", module: "hosts" },
+
+      "admin.booking.read": { name: "Read All Bookings", description: "Inspect all global platform bookings", module: "admin" },
+      "admin.booking.manage": { name: "Manage Platform Bookings", description: "Override or administratively cancel any booking", module: "admin" },
+      "admin.payment.read": { name: "Read Payments", description: "Inspect transactions, intents, and webhook logs", module: "admin" },
+      "admin.refund.read": { name: "Read Refunds", description: "View customer refund requests and processing status", module: "admin" },
+      "admin.refund.manage": { name: "Manage Refunds", description: "Authorize and process customer payment refunds", module: "admin" }
+    };
+
+    // 1. Ensure all system permissions exist in the permissions table
+    for (const [code, meta] of Object.entries(PERMISSION_METADATA)) {
+      await db.execute(sql`
+        INSERT INTO permissions (code, name, description, module)
+        VALUES (${code}, ${meta.name}, ${meta.description}, ${meta.module})
+        ON CONFLICT (code) DO UPDATE
+        SET name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            module = EXCLUDED.module;
+      `);
+    }
+
+    // 2. Fetch all permissions and roles
+    const allPerms = await db.select({ id: schema.permissions.id, code: schema.permissions.code }).from(schema.permissions);
+    const permMap = new Map<string, string>();
+    for (const p of allPerms) {
+      permMap.set(p.code, p.id);
+    }
+
+    const allRoles = await db.select({ id: schema.roles.id, code: schema.roles.code }).from(schema.roles);
+    const roleMap = new Map<string, string>();
+    for (const r of allRoles) {
+      roleMap.set(r.code, r.id);
+    }
+
+    let mappingsCount = 0;
+
+    // 3. Ensure role-permission mappings for each system role
+    for (const [roleCode, permCodes] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+      const roleId = roleMap.get(roleCode);
+      if (!roleId) continue;
+
+      for (const pCode of permCodes) {
+        const permId = permMap.get(pCode);
+        if (!permId) continue;
+
+        const inserted = await db.execute(sql`
+          INSERT INTO role_permissions (role_id, permission_id)
+          VALUES (${roleId}::uuid, ${permId}::uuid)
+          ON CONFLICT (role_id, permission_id) DO NOTHING;
+        `);
+        if ((inserted as { rowCount?: number }).rowCount) {
+          mappingsCount += (inserted as { rowCount?: number }).rowCount ?? 0;
+        }
+      }
+    }
+
+    return {
+      permissionsCount: allPerms.length,
+      mappingsCount
+    };
+  }
+
+  /**
+   * Assigns a specific permission code to a system role.
+   */
+  async assignPermissionToRole(
+    adminId: string,
+    roleCode: string,
+    permissionCode: string,
+    clientInfo?: { ip?: string; userAgent?: string; correlationId?: string }
+  ): Promise<string[]> {
+    const normalizedRole = roleCode.trim().toUpperCase();
+    const normalizedPerm = permissionCode.trim().toLowerCase();
+
+    const [role] = await db
+      .select({ id: schema.roles.id })
+      .from(schema.roles)
+      .where(eq(schema.roles.code, normalizedRole))
+      .limit(1);
+
+    if (!role) {
+      throw AppError.notFound(`Role not found: ${normalizedRole}`);
+    }
+
+    const [perm] = await db
+      .select({ id: schema.permissions.id })
+      .from(schema.permissions)
+      .where(eq(schema.permissions.code, normalizedPerm))
+      .limit(1);
+
+    if (!perm) {
+      throw AppError.notFound(`Permission not found: ${normalizedPerm}`);
+    }
+
+    await db.execute(sql`
+      INSERT INTO role_permissions (role_id, permission_id)
+      VALUES (${role.id}::uuid, ${perm.id}::uuid)
+      ON CONFLICT (role_id, permission_id) DO NOTHING;
+    `);
+
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_ROLE_ASSIGNED,
+      userId: adminId,
+      clientInfo,
+      metadata: {
+        action: "ASSIGN_ROLE_PERMISSION",
+        roleCode: normalizedRole,
+        permissionCode: normalizedPerm
+      }
+    });
+
+    const updatedRoles = await this.listRoles();
+    const target = updatedRoles.find((r) => r.code === normalizedRole);
+    return target?.permissions ?? [];
+  }
+
+  /**
+   * Revokes a specific permission code from a system role.
+   */
+  async revokePermissionFromRole(
+    adminId: string,
+    roleCode: string,
+    permissionCode: string,
+    clientInfo?: { ip?: string; userAgent?: string; correlationId?: string }
+  ): Promise<string[]> {
+    const normalizedRole = roleCode.trim().toUpperCase();
+    const normalizedPerm = permissionCode.trim().toLowerCase();
+
+    // Guard against stripping Superadmin of governance rights
+    const PROTECTED_SUPERADMIN_PERMISSIONS = new Set([
+      "admin.platform.manage",
+      "admin.role.read",
+      "admin.role.assign",
+      "admin.role.revoke",
+      "admin.permission.read"
+    ]);
+
+    if (normalizedRole === "SUPERADMIN" && PROTECTED_SUPERADMIN_PERMISSIONS.has(normalizedPerm)) {
+      throw AppError.forbidden("Cannot revoke essential platform governance permissions from the Superadmin role.");
+    }
+
+    const [role] = await db
+      .select({ id: schema.roles.id })
+      .from(schema.roles)
+      .where(eq(schema.roles.code, normalizedRole))
+      .limit(1);
+
+    if (!role) {
+      throw AppError.notFound(`Role not found: ${normalizedRole}`);
+    }
+
+    const [perm] = await db
+      .select({ id: schema.permissions.id })
+      .from(schema.permissions)
+      .where(eq(schema.permissions.code, normalizedPerm))
+      .limit(1);
+
+    if (!perm) {
+      throw AppError.notFound(`Permission not found: ${normalizedPerm}`);
+    }
+
+    await db.execute(sql`
+      DELETE FROM role_permissions
+      WHERE role_id = ${role.id}::uuid AND permission_id = ${perm.id}::uuid;
+    `);
+
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_ROLE_REVOKED,
+      userId: adminId,
+      clientInfo,
+      metadata: {
+        action: "REVOKE_ROLE_PERMISSION",
+        roleCode: normalizedRole,
+        permissionCode: normalizedPerm
+      }
+    });
+
+    const updatedRoles = await this.listRoles();
+    const target = updatedRoles.find((r) => r.code === normalizedRole);
+    return target?.permissions ?? [];
+  }
+
+  /**
+   * Resets all system roles to the standard recommended permission matrix.
+   */
+  async resetRolePermissionsToDefault(
+    adminId: string,
+    clientInfo?: { ip?: string; userAgent?: string; correlationId?: string }
+  ): Promise<RoleDetail[]> {
+    await this.ensureDefaultRolePermissions();
+
+    await auditService.recordEvent({
+      eventType: SecurityEventType.AUTH_ROLE_ASSIGNED,
+      userId: adminId,
+      clientInfo,
+      metadata: {
+        action: "RESET_DEFAULT_ROLE_PERMISSIONS"
+      }
+    });
+
+    return this.listRoles();
   }
 }
 

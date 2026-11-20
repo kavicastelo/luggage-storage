@@ -637,6 +637,53 @@ export function useRevokeAdminUserRoleMutation() {
   );
 }
 
+export function useAssignRolePermissionMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: ({ roleCode, permissionCode }: { roleCode: string; permissionCode: string }) =>
+        authApi.assignRolePermission(roleCode, permissionCode),
+      onSuccess: () => {
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.roles() });
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.permissions() });
+        void qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      }
+    },
+    qc
+  );
+}
+
+export function useRevokeRolePermissionMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: ({ roleCode, permissionCode }: { roleCode: string; permissionCode: string }) =>
+        authApi.revokeRolePermission(roleCode, permissionCode),
+      onSuccess: () => {
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.roles() });
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.permissions() });
+        void qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      }
+    },
+    qc
+  );
+}
+
+export function useResetRolePermissionsMutation() {
+  const qc = useResolvedQueryClient();
+  return useMutation(
+    {
+      mutationFn: () => authApi.resetRolePermissionsToDefaults(),
+      onSuccess: () => {
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.roles() });
+        void qc.invalidateQueries({ queryKey: adminQueryKeys.permissions() });
+        void qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      }
+    },
+    qc
+  );
+}
+
 // ============================================================================
 // Initiative 6 Hooks — Dispute Adjudication, Payout Batches & Support Desk
 // ============================================================================

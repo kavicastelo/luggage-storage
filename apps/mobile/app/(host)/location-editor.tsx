@@ -508,7 +508,7 @@ export default function HostLocationEditorScreen() {
   if (!businessesQuery.isLoading && businesses.length === 0) {
     return (
       <ScreenContainer
-        header={<SafeHeader title="Hub Configuration" onBack={() => router.back()} />}
+        header={<SafeHeader title="Hub Configuration" onBack={() => router.replace("/(host)/locations")} />}
         testID="host-location-no-business"
       >
         <EmptyState
@@ -529,7 +529,7 @@ export default function HostLocationEditorScreen() {
         <SafeHeader
           title={existing ? existing.name : "Create Storage Hub"}
           subtitle={existing ? `${existing.city} • ${existing.status}` : "Sri Lanka Location Setup"}
-          onBack={() => router.back()}
+          onBack={() => router.replace("/(host)/locations")}
         />
       }
       testID="host-location-editor-screen"

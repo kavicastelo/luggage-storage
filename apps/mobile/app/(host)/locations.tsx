@@ -38,7 +38,7 @@ export default function HostLocationsScreen() {
         <SafeHeader
           title="My Storage Hubs"
           subtitle={business ? business.tradeName : "Sri Lanka Partner Locations"}
-          onBack={() => router.back()}
+          onBack={() => router.replace("/(host)")}
           rightAction={
             <Button
               title="New Hub"

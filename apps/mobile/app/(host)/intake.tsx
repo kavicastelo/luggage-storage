@@ -61,12 +61,21 @@ export default function HostIntakeScreen() {
 
   const submitInFlightRef = useRef(false);
   const [pinCode, setPinCode] = useState(typeof params.pin === "string" ? params.pin : "");
-  const [qrToken] = useState(typeof params.qrToken === "string" ? params.qrToken : "");
+  const [qrToken, setQrToken] = useState(typeof params.qrToken === "string" ? params.qrToken : "");
   const [bags, setBags] = useState<IntakeBagDraft[]>([]);
   const [bagCountExceptionReason, setBagCountExceptionReason] = useState("");
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const [photoSkipped, setPhotoSkipped] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof params.pin === "string" && params.pin) {
+      setPinCode(params.pin);
+    }
+    if (typeof params.qrToken === "string" && params.qrToken) {
+      setQrToken(params.qrToken);
+    }
+  }, [params.pin, params.qrToken]);
 
   useEffect(() => {
     if (!detail || bags.length > 0) {
@@ -213,10 +222,27 @@ export default function HostIntakeScreen() {
     }
   };
 
+  const handleBack = () => {
+    if (params.qrToken || params.pin) {
+      router.replace({
+        pathname: "/(host)/scanner",
+        params: {
+          ...(bookingId ? { bookingId } : {}),
+          ...(params.qrToken ? { qrToken: params.qrToken } : {}),
+          ...(params.pin ? { pin: params.pin } : {})
+        }
+      });
+    } else if (bookingId) {
+      router.replace("/(host)/requests");
+    } else {
+      router.replace("/(host)");
+    }
+  };
+
   if (!bookingId) {
     return (
       <ScreenContainer
-        header={<SafeHeader title="Counter Bag Intake" onBack={() => router.back()} />}
+        header={<SafeHeader title="Counter Bag Intake" onBack={handleBack} />}
         testID="host-intake-missing"
       >
         <EmptyState
@@ -250,7 +276,7 @@ export default function HostIntakeScreen() {
         <SafeHeader
           title="Counter Bag Intake"
           subtitle={detail ? `#${detail.referenceCode}` : "Custody Check-In"}
-          onBack={() => router.back()}
+          onBack={handleBack}
         />
       }
       footer={stickyFooter}

@@ -157,23 +157,6 @@ export default function TravellerBookingsScreen() {
     }
   };
 
-  if (!isAuthenticated) {
-    return (
-      <ScreenContainer
-        header={<SafeHeader title="My Storage" />}
-        testID="traveller-bookings-guest"
-      >
-        <EmptyState
-          mascot="suitcase-walk"
-          title="Sign in to View Reservations"
-          description="Track upcoming check-ins, PayHere payment status, refunds, and custody QR passes across your devices."
-          actionTitle="Sign In"
-          onAction={() => router.push("/(auth)/login")}
-        />
-      </ScreenContainer>
-    );
-  }
-
   const handleEndReached = useCallback(() => {
     if (bookingsQuery.hasNextPage && !bookingsQuery.isFetchingNextPage) {
       void bookingsQuery.fetchNextPage();
@@ -391,6 +374,23 @@ export default function TravellerBookingsScreen() {
     activeTab,
     router
   ]);
+
+  if (!isAuthenticated) {
+    return (
+      <ScreenContainer
+        header={<SafeHeader title="My Storage" />}
+        testID="traveller-bookings-guest"
+      >
+        <EmptyState
+          mascot="suitcase-walk"
+          title="Sign in to View Reservations"
+          description="Track upcoming check-ins, PayHere payment status, refunds, and custody QR passes across your devices."
+          actionTitle="Sign In"
+          onAction={() => router.push("/(auth)/login")}
+        />
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer

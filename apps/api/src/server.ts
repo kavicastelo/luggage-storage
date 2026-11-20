@@ -27,6 +27,15 @@ async function main() {
     await app.listen({ port: env.PORT, host: env.HOST });
     logger.info(`Server listening at http://${env.HOST}:${env.PORT}`);
     logger.info(`OpenAPI documentation available at http://${env.HOST}:${env.PORT}/docs`);
+
+    // Self-heal standard role permissions on server start
+    try {
+      const { rbacService } = await import("./modules/auth/rbac.service.js");
+      await rbacService.ensureDefaultRolePermissions();
+      logger.info("Standard RBAC roles and permissions self-healed successfully.");
+    } catch (rbacErr) {
+      logger.warn({ err: rbacErr }, "RBAC default permissions self-heal deferred or failed");
+    }
   } catch (err) {
     logger.fatal({ err }, "Failed to start server");
     process.exit(1);

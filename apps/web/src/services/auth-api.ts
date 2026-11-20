@@ -33,6 +33,7 @@ import {
   AssignUserRoleRequest,
   AssignUserRoleResponseData,
   RevokeUserRoleResponseData,
+  RolePermissionMutationResponseData,
   UserProfileResponseData,
   UpdateProfileRequest,
   UpdateProfileResponseData,
@@ -367,6 +368,39 @@ export const authApi = {
     const res = await fetchApi<RevokeUserRoleResponseData>(
       `/admin/users/${userId}/roles/${encodeURIComponent(roleCode)}`,
       { method: "DELETE" }
+    );
+    return res.data;
+  },
+
+  async assignRolePermission(
+    roleCode: string,
+    permissionCode: string
+  ): Promise<RolePermissionMutationResponseData> {
+    const res = await fetchApi<RolePermissionMutationResponseData>(
+      `/admin/roles/${encodeURIComponent(roleCode)}/permissions`,
+      {
+        method: "POST",
+        body: JSON.stringify({ permissionCode })
+      }
+    );
+    return res.data;
+  },
+
+  async revokeRolePermission(
+    roleCode: string,
+    permissionCode: string
+  ): Promise<RolePermissionMutationResponseData> {
+    const res = await fetchApi<RolePermissionMutationResponseData>(
+      `/admin/roles/${encodeURIComponent(roleCode)}/permissions/${encodeURIComponent(permissionCode)}`,
+      { method: "DELETE" }
+    );
+    return res.data;
+  },
+
+  async resetRolePermissionsToDefaults(): Promise<{ roles: RoleDetail[]; message: string }> {
+    const res = await fetchApi<{ roles: RoleDetail[]; message: string }>(
+      "/admin/roles/reset-defaults",
+      { method: "POST" }
     );
     return res.data;
   },
