@@ -1,5 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import type { BookingDetail } from "@luggage-storage/contracts";
 import {
@@ -20,8 +28,8 @@ import {
 import {
   useCompleteCollectionMutation,
   useCustodyDetailQuery,
-  useHostBookingsQuery,
-  useHostLocationDetailQuery
+  useHostLocationDetailQuery,
+  useInfiniteHostBookingsQuery
 } from "../../src/hooks";
 import { normalizeApiError } from "../../src/services/api-client";
 import {
@@ -44,7 +52,7 @@ export default function HostVaultScreen() {
     pin?: string;
   }>();
 
-  const bookingsQuery = useHostBookingsQuery({ limit: 50 }, true);
+  const bookingsQuery = useInfiniteHostBookingsQuery({ limit: 20 }, true);
   const collectionMutation = useCompleteCollectionMutation();
 
   const [activeTab, setActiveTab] = useState<VaultTab>("ACTIVE");
@@ -68,7 +76,10 @@ export default function HostVaultScreen() {
     [locationQuery.data]
   );
 
-  const bookings = useMemo(() => bookingsQuery.data?.bookings ?? [], [bookingsQuery.data]);
+  const bookings = useMemo(
+    () => bookingsQuery.data?.pages.flatMap((page) => page.bookings) ?? [],
+    [bookingsQuery.data]
+  );
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -89,10 +100,12 @@ export default function HostVaultScreen() {
       return aTime - bTime;
     });
   }, [bookings, nowMs]);
+
   const overdueItems = useMemo(
     () => activeStored.filter((b) => new Date(b.collectionAt).getTime() < nowMs),
     [activeStored, nowMs]
   );
+
   const releasedItems = useMemo(
     () =>
       bookings.filter(
@@ -118,6 +131,12 @@ export default function HostVaultScreen() {
       : activeTab === "OVERDUE"
         ? overdueItems
         : releasedItems;
+
+  const handleEndReached = useCallback(() => {
+    if (bookingsQuery.hasNextPage && !bookingsQuery.isFetchingNextPage) {
+      void bookingsQuery.fetchNextPage();
+    }
+  }, [bookingsQuery]);
 
   const openReleaseSheet = (booking: BookingDetail) => {
     setSelectedBooking(booking);
@@ -179,21 +198,9 @@ export default function HostVaultScreen() {
     }
   };
 
-  return (
-    <ScreenContainer
-      header={
-        <SafeHeader
-          title="Vault Luggage Inventory"
-          subtitle="Current Stored Luggage & Collection Release"
-        />
-      }
-      refreshing={bookingsQuery.isRefetching}
-      onRefresh={() => {
-        void bookingsQuery.refetch();
-      }}
-      testID="host-vault-screen"
-    >
-      <View style={styles.stack}>
+  const renderHeader = useCallback(
+    () => (
+      <View style={styles.headerContainer}>
         <Card variant="outlined" style={styles.noLienBanner}>
           <View style={styles.bannerHeader}>
             <MobileIcon name="shield-check" size={18} color={mobileStatusTokens.infoIcon} />
@@ -234,68 +241,131 @@ export default function HostVaultScreen() {
             );
           })}
         </View>
-
-        {bookingsQuery.isLoading ? (
-          <LoadingSkeleton count={3} />
-        ) : bookingsQuery.isError ? (
-          <ErrorState
-            title="Unable to Load Vault Inventory"
-            message={normalizeApiError(bookingsQuery.error).message}
-            onRetry={() => {
-              void bookingsQuery.refetch();
-            }}
-          />
-        ) : listForTab.length === 0 ? (
-          <EmptyState
-            mascot={activeTab === "OVERDUE" ? "alarm-clock" : "suitcase-hug"}
-            title={`No ${activeTab.toLowerCase()} luggage`}
-            description="Current stored luggage awaiting pickup or overdue alert follow-up appears here."
-          />
-        ) : (
-          <View style={styles.listGap}>
-            {listForTab.map((booking) => {
-              const isOverdue =
-                booking.status === "IN_STORAGE" &&
-                new Date(booking.collectionAt).getTime() < nowMs;
-              return (
-                <Card key={booking.id} variant="elevated" style={styles.cardGap}>
-                  <View style={styles.cardHeader}>
-                    <View style={styles.flexCol}>
-                      <Text style={styles.refCode}>#{booking.referenceCode}</Text>
-                      <Text style={styles.locName}>{booking.location.name}</Text>
-                    </View>
-                    <StatusBadge status={booking.status} size="sm" />
-                  </View>
-
-                  {isOverdue ? (
-                    <Badge
-                      label="Baggage Overdue — Release Unconditionally"
-                      variant="warning"
-                      icon="alert-triangle"
-                      size="sm"
-                    />
-                  ) : null}
-
-                  <Text style={styles.metaText}>
-                    Scheduled Collection: {formatColomboDateTime(new Date(booking.collectionAt))}
-                  </Text>
-                  <Text style={styles.metaText}>
-                    Bag Count: {booking.totalBags} bag(s)
-                  </Text>
-
-                  {booking.status === "IN_STORAGE" ? (
-                    <Button
-                      title="Verify PIN / QR & Release Luggage"
-                      size="sm"
-                      onPress={() => openReleaseSheet(booking)}
-                    />
-                  ) : null}
-                </Card>
-              );
-            })}
-          </View>
-        )}
       </View>
+    ),
+    [releaseSuccess, activeStored.length, overdueItems.length, releasedItems.length, activeTab]
+  );
+
+  const renderVaultItem = useCallback(
+    ({ item: booking }: { item: BookingDetail }) => {
+      const isOverdue =
+        booking.status === "IN_STORAGE" &&
+        new Date(booking.collectionAt).getTime() < nowMs;
+      return (
+        <Card variant="elevated" style={styles.cardGap}>
+          <View style={styles.cardHeader}>
+            <View style={styles.flexCol}>
+              <Text style={styles.refCode}>#{booking.referenceCode}</Text>
+              <Text style={styles.locName}>{booking.location.name}</Text>
+            </View>
+            <StatusBadge status={booking.status} size="sm" />
+          </View>
+
+          {isOverdue ? (
+            <Badge
+              label="Baggage Overdue — Release Unconditionally"
+              variant="warning"
+              icon="alert-triangle"
+              size="sm"
+            />
+          ) : null}
+
+          <Text style={styles.metaText}>
+            Scheduled Collection: {formatColomboDateTime(new Date(booking.collectionAt))}
+          </Text>
+          <Text style={styles.metaText}>
+            Bag Count: {booking.totalBags} bag(s)
+          </Text>
+
+          {booking.status === "IN_STORAGE" ? (
+            <Button
+              title="Verify PIN / QR & Release Luggage"
+              size="sm"
+              onPress={() => openReleaseSheet(booking)}
+            />
+          ) : null}
+        </Card>
+      );
+    },
+    [nowMs]
+  );
+
+  const renderFooter = useCallback(() => {
+    if (bookingsQuery.isFetchingNextPage) {
+      return (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator size="small" color={mobileColors.terracotta[500]} />
+          <Text style={styles.footerLoaderText}>Loading more vault records...</Text>
+        </View>
+      );
+    }
+    if (!bookingsQuery.hasNextPage && listForTab.length > 0) {
+      return (
+        <View style={styles.endOfResults}>
+          <Text style={styles.endOfResultsText}>All {listForTab.length} items loaded</Text>
+        </View>
+      );
+    }
+    return null;
+  }, [bookingsQuery.isFetchingNextPage, bookingsQuery.hasNextPage, listForTab.length]);
+
+  const renderEmpty = useCallback(() => {
+    if (bookingsQuery.isLoading) {
+      return <LoadingSkeleton count={3} />;
+    }
+    if (bookingsQuery.isError) {
+      return (
+        <ErrorState
+          title="Unable to Load Vault Inventory"
+          message={normalizeApiError(bookingsQuery.error).message}
+          onRetry={() => {
+            void bookingsQuery.refetch();
+          }}
+        />
+      );
+    }
+    return (
+      <EmptyState
+        mascot={activeTab === "OVERDUE" ? "alarm-clock" : "suitcase-hug"}
+        title={`No ${activeTab.toLowerCase()} luggage`}
+        description="Current stored luggage awaiting pickup or overdue alert follow-up appears here."
+      />
+    );
+  }, [bookingsQuery.isLoading, bookingsQuery.isError, bookingsQuery.error, activeTab]);
+
+  return (
+    <ScreenContainer
+      header={
+        <SafeHeader
+          title="Vault Luggage Inventory"
+          subtitle="Current Stored Luggage & Collection Release"
+        />
+      }
+      scrollable={false}
+      padded={false}
+      testID="host-vault-screen"
+    >
+      <FlatList
+        data={listForTab}
+        keyExtractor={(item) => item.id}
+        renderItem={renderVaultItem}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={styles.listContent}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
+        removeClippedSubviews={Platform.OS !== "web"}
+        initialNumToRender={5}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        refreshing={bookingsQuery.isRefetching}
+        onRefresh={() => {
+          void bookingsQuery.refetch();
+        }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      />
 
       <BottomSheet
         visible={Boolean(selectedBooking)}
@@ -368,8 +438,14 @@ export default function HostVaultScreen() {
 }
 
 const styles = StyleSheet.create({
-  stack: {
-    gap: mobileSpacing[4]
+  headerContainer: {
+    gap: mobileSpacing[4],
+    paddingBottom: mobileSpacing[3]
+  },
+  listContent: {
+    paddingHorizontal: mobileSpacing[4],
+    paddingTop: mobileSpacing[2],
+    paddingBottom: mobileSpacing[8]
   },
   noLienBanner: {
     backgroundColor: mobileStatusTokens.infoBg,
@@ -482,5 +558,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     color: mobileTextColors.secondary
+  },
+  footerLoader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: mobileSpacing[2],
+    paddingVertical: mobileSpacing[4]
+  },
+  footerLoaderText: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted
+  },
+  endOfResults: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: mobileSpacing[4]
+  },
+  endOfResultsText: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted
   }
 });

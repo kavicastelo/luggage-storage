@@ -273,7 +273,10 @@ describe("Phase B — Mobile Traveller & Host Booking, Payment & Custody Flows",
       path.resolve(__dirname, "../app/(traveller)/(tabs)/bookings.tsx"),
       "utf-8"
     );
-    expect(bookingsSrc).toContain("useMyBookingsQuery(");
+    expect(
+      bookingsSrc.includes("useMyBookingsQuery(") ||
+      bookingsSrc.includes("useInfiniteMyBookingsQuery(")
+    ).toBe(true);
     expect(bookingsSrc).toContain("useCancelBookingMutation(");
     expect(bookingHooksSrc).toContain(".getMyBookings(");
     expect(bookingHooksSrc).toContain(".cancelBooking(");
@@ -293,7 +296,9 @@ describe("Phase B — Mobile Traveller & Host Booking, Payment & Custody Flows",
       "utf-8"
     );
     expect(
-      requestsSrc.includes(".getHostBookings(") || requestsSrc.includes("useHostBookingsQuery(")
+      requestsSrc.includes(".getHostBookings(") ||
+      requestsSrc.includes("useHostBookingsQuery(") ||
+      requestsSrc.includes("useInfiniteHostBookingsQuery(")
     ).toBe(true);
     expect(
       requestsSrc.includes(".acceptHostBooking(") || requestsSrc.includes("useAcceptHostBookingMutation(")

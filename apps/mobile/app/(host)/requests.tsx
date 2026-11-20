@@ -1,5 +1,13 @@
-import React, { useMemo, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from "react-native";
 import { useRouter } from "expo-router";
 import {
   formatCurrencyMinorUnits,
@@ -25,10 +33,11 @@ import {
 } from "../../src/components";
 import {
   useAcceptHostBookingMutation,
-  useHostBookingsQuery,
   useHostCancelBookingMutation,
+  useInfiniteHostBookingsQuery,
   useRejectHostBookingMutation,
   useReportBookingExceptionMutation
+  // useHostBookingsQuery( - alternative non-virtualized query hook
 } from "../../src/hooks";
 import { normalizeApiError } from "../../src/services/api-client";
 import {
@@ -64,7 +73,7 @@ const PAST_STATUSES = new Set([
 
 export default function HostRequestsScreen() {
   const router = useRouter();
-  const bookingsQuery = useHostBookingsQuery({ limit: 50 }, true);
+  const bookingsQuery = useInfiniteHostBookingsQuery({ limit: 20 }, true);
   const acceptMutation = useAcceptHostBookingMutation();
   const rejectMutation = useRejectHostBookingMutation();
   const cancelMutation = useHostCancelBookingMutation();
@@ -87,7 +96,10 @@ export default function HostRequestsScreen() {
     useState<HostExceptionCategory>("DAMAGE_REPORTED");
   const [exceptionReason, setExceptionReason] = useState("");
 
-  const allBookings = useMemo(() => bookingsQuery.data?.bookings ?? [], [bookingsQuery.data]);
+  const allBookings = useMemo(
+    () => bookingsQuery.data?.pages.flatMap((page) => page.bookings) ?? [],
+    [bookingsQuery.data]
+  );
   const pendingCount = useMemo(
     () => allBookings.filter((b) => b.status === "PENDING_HOST_APPROVAL").length,
     [allBookings]
@@ -107,6 +119,12 @@ export default function HostRequestsScreen() {
         return allBookings.filter((b) => PAST_STATUSES.has(b.status));
     }
   }, [allBookings, activeTab]);
+
+  const handleEndReached = useCallback(() => {
+    if (bookingsQuery.hasNextPage && !bookingsQuery.isFetchingNextPage) {
+      void bookingsQuery.fetchNextPage();
+    }
+  }, [bookingsQuery]);
 
   const handleAccept = async (booking: BookingDetail) => {
     setActionError(null);
@@ -191,6 +209,221 @@ export default function HostRequestsScreen() {
     }
   };
 
+  const renderHeader = useCallback(
+    () => (
+      <View style={styles.headerContainer}>
+        <View style={styles.tabsRow}>
+          {(
+            [
+              { key: "PENDING", label: "Pending", badge: pendingCount },
+              { key: "UPCOMING", label: "Upcoming", badge: 0 },
+              { key: "ACTIVE", label: "Active", badge: 0 },
+              { key: "PAST", label: "Past", badge: 0 }
+            ] as const
+          ).map((tab) => {
+            const active = activeTab === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.tabBtn, active && styles.tabBtnActive]}
+                onPress={() => setActiveTab(tab.key)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+              >
+                <View style={styles.tabLabelRow}>
+                  <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+                  {tab.badge > 0 ? (
+                    <View style={styles.tabBadge}>
+                      <Text style={styles.tabBadgeText}>{tab.badge}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {actionBanner ? (
+          <View style={styles.successBanner} accessibilityRole="alert">
+            <MobileIcon name="check-circle" size={16} color={mobileStatusTokens.successIcon} />
+            <Text style={styles.successBannerText}>{actionBanner}</Text>
+          </View>
+        ) : null}
+        {actionError ? <ErrorState title="Action Failed" message={actionError} /> : null}
+      </View>
+    ),
+    [activeTab, pendingCount, actionBanner, actionError]
+  );
+
+  const renderBookingItem = useCallback(
+    ({ item: booking }: { item: BookingDetail }) => {
+      const currency = (booking.currency || "LKR") as CurrencyCode;
+      const canCancel =
+        booking.status === "CONFIRMED" || booking.status === "PENDING_PAYMENT";
+
+      return (
+        <Card variant="elevated" style={styles.cardGap}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.flexCol}>
+              <Text style={styles.refCode}>#{booking.referenceCode}</Text>
+              <Text style={styles.locName}>{booking.location.name}</Text>
+            </View>
+            <StatusBadge status={booking.status} size="sm" />
+          </View>
+
+          <Text style={styles.metaLine}>
+            Drop-off: {formatColomboDateTime(new Date(booking.dropOffAt))}
+          </Text>
+          <Text style={styles.metaLine}>
+            Pickup: {formatColomboDateTime(new Date(booking.collectionAt))}
+          </Text>
+          <Text style={styles.priceLine}>
+            {booking.totalBags} bag(s) •{" "}
+            {formatCurrencyMinorUnits(booking.totalAmountMinor, currency)}
+          </Text>
+
+          {booking.status === "PENDING_HOST_APPROVAL" ? (
+            <View style={styles.actionsRow}>
+              <Button
+                title="Approve Request"
+                size="sm"
+                isLoading={acceptMutation.isPending && pendingAcceptId === booking.id}
+                disabled={acceptMutation.isPending && pendingAcceptId !== booking.id}
+                onPress={() => {
+                  void handleAccept(booking);
+                }}
+                style={styles.flexBtn}
+              />
+              <Button
+                title="Reject"
+                size="sm"
+                variant="danger"
+                onPress={() => {
+                  setRejectTarget(booking);
+                  setRejectReason("");
+                  setModalError(null);
+                }}
+                style={styles.flexBtn}
+              />
+            </View>
+          ) : null}
+
+          {booking.status === "CONFIRMED" ? (
+            <View style={styles.actionsRow}>
+              <Button
+                title="Scan Pass"
+                size="sm"
+                variant="outline"
+                onPress={() =>
+                  router.push({
+                    pathname: "/(host)/scanner",
+                    params: { bookingId: booking.id }
+                  })
+                }
+                style={styles.flexBtn}
+              />
+              <Button
+                title="Start Check-In"
+                size="sm"
+                onPress={() =>
+                  router.push({
+                    pathname: "/(host)/intake",
+                    params: { bookingId: booking.id }
+                  })
+                }
+                style={styles.flexBtn}
+              />
+            </View>
+          ) : null}
+
+          {booking.status === "IN_STORAGE" ? (
+            <View style={styles.actionsRow}>
+              <Button
+                title="Manage in Vault"
+                size="sm"
+                onPress={() =>
+                  router.push({
+                    pathname: "/(host)/vault",
+                    params: { bookingId: booking.id }
+                  })
+                }
+                style={styles.flexBtn}
+              />
+              <Button
+                title="Report Exception"
+                size="sm"
+                variant="outline"
+                onPress={() => {
+                  setExceptionTarget(booking);
+                  setExceptionReason("");
+                  setModalError(null);
+                }}
+                style={styles.flexBtn}
+              />
+            </View>
+          ) : null}
+
+          {canCancel ? (
+            <Button
+              title="Host Cancel (Refunds Traveller)"
+              size="sm"
+              variant="ghost"
+              onPress={() => {
+                setCancelTarget(booking);
+                setCancelReason("");
+                setModalError(null);
+              }}
+            />
+          ) : null}
+        </Card>
+      );
+    },
+    [acceptMutation.isPending, pendingAcceptId, router]
+  );
+
+  const renderFooter = useCallback(() => {
+    if (bookingsQuery.isFetchingNextPage) {
+      return (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator size="small" color={mobileColors.terracotta[500]} />
+          <Text style={styles.footerLoaderText}>Loading more requests...</Text>
+        </View>
+      );
+    }
+    if (!bookingsQuery.hasNextPage && filtered.length > 0) {
+      return (
+        <View style={styles.endOfResults}>
+          <Text style={styles.endOfResultsText}>All {filtered.length} bookings loaded</Text>
+        </View>
+      );
+    }
+    return null;
+  }, [bookingsQuery.isFetchingNextPage, bookingsQuery.hasNextPage, filtered.length]);
+
+  const renderEmpty = useCallback(() => {
+    if (bookingsQuery.isLoading) {
+      return <LoadingSkeleton count={3} />;
+    }
+    if (bookingsQuery.isError) {
+      return (
+        <ErrorState
+          title="Unable to Fetch Partner Bookings"
+          message={normalizeApiError(bookingsQuery.error).message}
+          onRetry={() => {
+            void bookingsQuery.refetch();
+          }}
+        />
+      );
+    }
+    return (
+      <EmptyState
+        mascot="suitcase-walk"
+        title={`No ${activeTab.toLowerCase()} bookings`}
+        description="Incoming traveller requests, upcoming confirmed check-ins, and active custody items appear here."
+      />
+    );
+  }, [bookingsQuery.isLoading, bookingsQuery.isError, bookingsQuery.error, activeTab]);
+
   return (
     <ScreenContainer
       header={
@@ -199,193 +432,31 @@ export default function HostRequestsScreen() {
           subtitle="Live Partner Approvals & Counter Check-In"
         />
       }
-      refreshing={bookingsQuery.isRefetching}
-      onRefresh={() => {
-        void bookingsQuery.refetch();
-      }}
+      scrollable={false}
+      padded={false}
       testID="host-requests-screen"
     >
-      <View style={styles.tabsRow}>
-        {(
-          [
-            { key: "PENDING", label: "Pending", badge: pendingCount },
-            { key: "UPCOMING", label: "Upcoming", badge: 0 },
-            { key: "ACTIVE", label: "Active", badge: 0 },
-            { key: "PAST", label: "Past", badge: 0 }
-          ] as const
-        ).map((tab) => {
-          const active = activeTab === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tabBtn, active && styles.tabBtnActive]}
-              onPress={() => setActiveTab(tab.key)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-            >
-              <View style={styles.tabLabelRow}>
-                <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
-                {tab.badge > 0 ? (
-                  <View style={styles.tabBadge}>
-                    <Text style={styles.tabBadgeText}>{tab.badge}</Text>
-                  </View>
-                ) : null}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {actionBanner ? (
-        <View style={styles.successBanner} accessibilityRole="alert">
-          <MobileIcon name="check-circle" size={16} color={mobileStatusTokens.successIcon} />
-          <Text style={styles.successBannerText}>{actionBanner}</Text>
-        </View>
-      ) : null}
-      {actionError ? <ErrorState title="Action Failed" message={actionError} /> : null}
-
-      {bookingsQuery.isLoading ? (
-        <LoadingSkeleton count={3} />
-      ) : bookingsQuery.isError ? (
-        <ErrorState
-          title="Unable to Fetch Partner Bookings"
-          message={normalizeApiError(bookingsQuery.error).message}
-          onRetry={() => {
-            void bookingsQuery.refetch();
-          }}
-        />
-      ) : filtered.length === 0 ? (
-        <EmptyState
-          mascot="suitcase-walk"
-          title={`No ${activeTab.toLowerCase()} bookings`}
-          description="Incoming traveller requests, upcoming confirmed check-ins, and active custody items appear here."
-        />
-      ) : (
-        <View style={styles.listGap}>
-          {filtered.map((booking) => {
-            const currency = (booking.currency || "LKR") as CurrencyCode;
-            const canCancel =
-              booking.status === "CONFIRMED" || booking.status === "PENDING_PAYMENT";
-
-            return (
-              <Card key={booking.id} variant="elevated" style={styles.cardGap}>
-                <View style={styles.cardHeaderRow}>
-                  <View style={styles.flexCol}>
-                    <Text style={styles.refCode}>#{booking.referenceCode}</Text>
-                    <Text style={styles.locName}>{booking.location.name}</Text>
-                  </View>
-                  <StatusBadge status={booking.status} size="sm" />
-                </View>
-
-                <Text style={styles.metaLine}>
-                  Drop-off: {formatColomboDateTime(new Date(booking.dropOffAt))}
-                </Text>
-                <Text style={styles.metaLine}>
-                  Pickup: {formatColomboDateTime(new Date(booking.collectionAt))}
-                </Text>
-                <Text style={styles.priceLine}>
-                  {booking.totalBags} bag(s) •{" "}
-                  {formatCurrencyMinorUnits(booking.totalAmountMinor, currency)}
-                </Text>
-
-                {booking.status === "PENDING_HOST_APPROVAL" ? (
-                  <View style={styles.actionsRow}>
-                    <Button
-                      title="Approve Request"
-                      size="sm"
-                      isLoading={acceptMutation.isPending && pendingAcceptId === booking.id}
-                      disabled={acceptMutation.isPending && pendingAcceptId !== booking.id}
-                      onPress={() => {
-                        void handleAccept(booking);
-                      }}
-                      style={styles.flexBtn}
-                    />
-                    <Button
-                      title="Reject"
-                      size="sm"
-                      variant="danger"
-                      onPress={() => {
-                        setRejectTarget(booking);
-                        setRejectReason("");
-                        setModalError(null);
-                      }}
-                      style={styles.flexBtn}
-                    />
-                  </View>
-                ) : null}
-
-                {booking.status === "CONFIRMED" ? (
-                  <View style={styles.actionsRow}>
-                    <Button
-                      title="Scan Pass"
-                      size="sm"
-                      variant="outline"
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(host)/scanner",
-                          params: { bookingId: booking.id }
-                        })
-                      }
-                      style={styles.flexBtn}
-                    />
-                    <Button
-                      title="Start Check-In"
-                      size="sm"
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(host)/intake",
-                          params: { bookingId: booking.id }
-                        })
-                      }
-                      style={styles.flexBtn}
-                    />
-                  </View>
-                ) : null}
-
-                {booking.status === "IN_STORAGE" ? (
-                  <View style={styles.actionsRow}>
-                    <Button
-                      title="Manage in Vault"
-                      size="sm"
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(host)/vault",
-                          params: { bookingId: booking.id }
-                        })
-                      }
-                      style={styles.flexBtn}
-                    />
-                    <Button
-                      title="Report Exception"
-                      size="sm"
-                      variant="outline"
-                      onPress={() => {
-                        setExceptionTarget(booking);
-                        setExceptionReason("");
-                        setModalError(null);
-                      }}
-                      style={styles.flexBtn}
-                    />
-                  </View>
-                ) : null}
-
-                {canCancel ? (
-                  <Button
-                    title="Host Cancel (Refunds Traveller)"
-                    size="sm"
-                    variant="ghost"
-                    onPress={() => {
-                      setCancelTarget(booking);
-                      setCancelReason("");
-                      setModalError(null);
-                    }}
-                  />
-                ) : null}
-              </Card>
-            );
-          })}
-        </View>
-      )}
+      <FlatList
+        data={filtered}
+        keyExtractor={(item) => item.id}
+        renderItem={renderBookingItem}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={styles.listContent}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
+        removeClippedSubviews={Platform.OS !== "web"}
+        initialNumToRender={5}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        refreshing={bookingsQuery.isRefetching}
+        onRefresh={() => {
+          void bookingsQuery.refetch();
+        }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      />
 
       <BottomSheet
         visible={Boolean(rejectTarget)}
@@ -482,6 +553,15 @@ export default function HostRequestsScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerContainer: {
+    gap: mobileSpacing[3],
+    paddingBottom: mobileSpacing[3]
+  },
+  listContent: {
+    paddingHorizontal: mobileSpacing[4],
+    paddingTop: mobileSpacing[2],
+    paddingBottom: mobileSpacing[8]
+  },
   tabsRow: {
     flexDirection: "row",
     gap: 6
@@ -587,5 +667,25 @@ const styles = StyleSheet.create({
   },
   sheetStack: {
     gap: mobileSpacing[3]
+  },
+  footerLoader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: mobileSpacing[2],
+    paddingVertical: mobileSpacing[4]
+  },
+  footerLoaderText: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted
+  },
+  endOfResults: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: mobileSpacing[4]
+  },
+  endOfResultsText: {
+    ...mobileTypography.bodySm,
+    color: mobileTextColors.muted
   }
 });

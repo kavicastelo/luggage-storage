@@ -57,6 +57,7 @@ import {
   SupportTicketCustomerDetail,
   CustomerSupportTicketReplyRequest,
   PaginatedApiResponse,
+  PaginationMeta,
   RouteRequest,
   RouteResult,
   GeocodingQuery,
@@ -408,9 +409,11 @@ export const marketplaceApi = {
   async getMyBookings(params: Partial<BookingListQuery> = {}): Promise<{
     bookings: BookingDetail[];
     total: number;
+    pagination?: PaginationMeta;
   }> {
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
+    if (params.search) query.set("search", params.search);
     if (params.page !== undefined) query.set("page", String(params.page));
     if (params.limit !== undefined) query.set("limit", String(params.limit));
     const qs = query.toString();
@@ -419,7 +422,8 @@ export const marketplaceApi = {
     })) as unknown as PaginatedApiResponse<BookingDetail>;
     return {
       bookings: res.data ?? [],
-      total: res.pagination?.total ?? (res.data?.length ?? 0)
+      total: res.pagination?.total ?? (res.data?.length ?? 0),
+      pagination: res.pagination
     };
   },
 
@@ -506,6 +510,7 @@ export const marketplaceApi = {
   async getHostBookings(params: Partial<BookingListQuery> = {}): Promise<{
     bookings: BookingDetail[];
     total: number;
+    pagination?: PaginationMeta;
   }> {
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
@@ -520,7 +525,8 @@ export const marketplaceApi = {
     })) as unknown as PaginatedApiResponse<BookingDetail>;
     return {
       bookings: res.data ?? [],
-      total: res.pagination?.total ?? (res.data?.length ?? 0)
+      total: res.pagination?.total ?? (res.data?.length ?? 0),
+      pagination: res.pagination
     };
   },
 

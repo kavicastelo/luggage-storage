@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import type {
   AvailabilitySearchQuery,
   PublicStorageLocation,
@@ -18,6 +18,23 @@ export function useSearchLocationsQuery(
   return useQuery({
     queryKey: mobileQueryKeys.discovery.search(params),
     queryFn: () => marketplaceApi.searchLocations(params),
+    enabled
+  });
+}
+
+export function useInfiniteSearchLocationsQuery(
+  params?: Omit<Partial<SearchLocationsQueryInput>, "page">,
+  enabled: boolean = true
+) {
+  return useInfiniteQuery({
+    queryKey: [...mobileQueryKeys.discovery.search(params), "infinite"] as const,
+    queryFn: ({ pageParam = 1 }) =>
+      marketplaceApi.searchLocations({ ...params, page: pageParam as number }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const { page, totalPages } = lastPage.pagination;
+      return page < totalPages ? page + 1 : undefined;
+    },
     enabled
   });
 }

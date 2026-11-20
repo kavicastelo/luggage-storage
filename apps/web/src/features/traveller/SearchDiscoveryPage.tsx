@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingSkeleton } from "@/components/ui/LoadingSkeleton";
+import { PaginationBar } from "@/components/ui/PaginationBar";
 import { LocationDiscoveryMap, type DiscoveryMapPoint } from "./LocationDiscoveryMap";
 import {
   buildTravellerScheduleQuery,
@@ -84,6 +85,7 @@ export function WebSearchDiscoveryPage() {
   const [collectionLocal, setCollectionLocal] = useState(parsedInitial.collectionLocal);
   const [bags, setBags] = useState<TravellerBagCounts>(parsedInitial.bags);
   const [acceptsOversized, setAcceptsOversized] = useState(parsedInitial.acceptsOversized);
+  const [page, setPage] = useState<number>(parsedInitial.page || 1);
   const [sortBy, setSortBy] = useState<DiscoverySortOption>(
     parsedInitial.sortBy ??
       (parsedInitial.latitude !== undefined ? "distance" : "newest")
@@ -114,6 +116,7 @@ export function WebSearchDiscoveryPage() {
     nextOversized?: boolean;
     nextSort?: DiscoverySortOption;
     nextCoords?: { latitude: number; longitude: number } | null;
+    nextPage?: number;
   } = {}) => {
     const targetCity = overrides.nextCity !== undefined ? overrides.nextCity : city;
     const targetTerm =
@@ -131,6 +134,7 @@ export function WebSearchDiscoveryPage() {
       overrides.nextOversized !== undefined ? overrides.nextOversized : acceptsOversized;
     const targetSort = overrides.nextSort ?? sortBy;
     const targetCoords = overrides.nextCoords !== undefined ? overrides.nextCoords : geoCoords;
+    const targetPage = overrides.nextPage !== undefined ? overrides.nextPage : page;
 
     const qs = buildTravellerScheduleQuery({
       city: targetCity || undefined,
@@ -142,6 +146,7 @@ export function WebSearchDiscoveryPage() {
       sortBy: targetSort,
       latitude: targetCoords?.latitude,
       longitude: targetCoords?.longitude,
+      page: targetPage > 1 ? targetPage : undefined,
       preserveDemoPreview: isDemoMode
     });
     setSearchParams(new URLSearchParams(qs), { replace: true });
@@ -155,7 +160,8 @@ export function WebSearchDiscoveryPage() {
       latitude: geoCoords?.latitude,
       longitude: geoCoords?.longitude,
       sortBy,
-      limit: 24
+      page,
+      limit: 12
     },
     { enabled: !isDemoMode }
   );
@@ -193,14 +199,16 @@ export function WebSearchDiscoveryPage() {
   const handleCitySelect = (selectedCity: string) => {
     const nextCity = selectedCity === "All Sri Lanka" ? "" : selectedCity;
     setCity(nextCity);
-    syncUrlParams({ nextCity });
+    setPage(1);
+    syncUrlParams({ nextCity, nextPage: 1 });
   };
 
   const handleSearchFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = searchTermInput.trim();
     setAppliedSearchTerm(trimmed);
-    syncUrlParams({ nextSearchTerm: trimmed });
+    setPage(1);
+    syncUrlParams({ nextSearchTerm: trimmed, nextPage: 1 });
   };
 
   const handleNearMe = () => {
@@ -217,7 +225,8 @@ export function WebSearchDiscoveryPage() {
         };
         setGeoCoords(coords);
         setSortBy("distance");
-        syncUrlParams({ nextCoords: coords, nextSort: "distance" });
+        setPage(1);
+        syncUrlParams({ nextCoords: coords, nextSort: "distance", nextPage: 1 });
       },
       (err) => {
         setGeoError(
@@ -236,6 +245,7 @@ export function WebSearchDiscoveryPage() {
     setGeoCoords(null);
     setGeoError(null);
     setSortBy("newest");
+    setPage(1);
     const resetBags: TravellerBagCounts = {
       BAG_SMALL: 0,
       BAG_MEDIUM: 1,
@@ -254,7 +264,8 @@ export function WebSearchDiscoveryPage() {
     const nextValue = Math.max(0, Math.min(20, bags[key] + delta));
     const nextBags = { ...bags, [key]: nextValue };
     setBags(nextBags);
-    syncUrlParams({ nextBags });
+    setPage(1);
+    syncUrlParams({ nextBags, nextPage: 1 });
   };
 
   const demoFilteredLocations = useMemo(() => {
@@ -871,6 +882,25 @@ export function WebSearchDiscoveryPage() {
               );
             })
           )}
+
+          {!isDemoMode &&
+            discoveryQuery.data?.pagination &&
+            discoveryQuery.data.pagination.totalPages > 1 && (
+              <PaginationBar
+                page={discoveryQuery.data.pagination.page}
+                totalPages={discoveryQuery.data.pagination.totalPages}
+                total={discoveryQuery.data.pagination.total}
+                limit={discoveryQuery.data.pagination.limit}
+                itemLabel="storage hubs"
+                onPageChange={(nextPage) => {
+                  setPage(nextPage);
+                  syncUrlParams({ nextPage });
+                  if (typeof window !== "undefined") {
+                    window.scrollTo({ top: 120, behavior: "smooth" });
+                  }
+                }}
+              />
+            )}
         </div>
 
         {/* Sticky Interactive Corridor Map */}

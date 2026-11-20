@@ -1,5 +1,14 @@
-import React, { useMemo, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+  Platform
+} from "react-native";
 import { useRouter } from "expo-router";
 import {
   formatCurrencyMinorUnits,
@@ -24,8 +33,9 @@ import {
 } from "../../../src/components";
 import {
   useCancelBookingMutation,
-  useMyBookingsQuery,
+  useInfiniteMyBookingsQuery,
   useReportBookingExceptionMutation
+  // useMyBookingsQuery( - alternative non-virtualized query hook
 } from "../../../src/hooks";
 import { normalizeApiError } from "../../../src/services/api-client";
 import { useAuthStore } from "../../../src/store/useAuthStore";
@@ -75,20 +85,24 @@ export default function TravellerBookingsScreen() {
 
   const [actionBanner, setActionBanner] = useState<string | null>(null);
 
-  const bookingsQuery = useMyBookingsQuery({ limit: 50 }, isAuthenticated);
+  const bookingsQuery = useInfiniteMyBookingsQuery({ limit: 20 }, isAuthenticated);
   const cancelMutation = useCancelBookingMutation();
   const reportExceptionMutation = useReportBookingExceptionMutation();
 
+  const allBookings = useMemo(
+    () => bookingsQuery.data?.pages.flatMap((page) => page.bookings) ?? [],
+    [bookingsQuery.data]
+  );
+
   const filteredBookings = useMemo(() => {
-    const list = bookingsQuery.data?.bookings ?? [];
     if (activeTab === "ACTIVE") {
-      return list.filter((b) => ACTIVE_STATUSES.has(b.status));
+      return allBookings.filter((b) => ACTIVE_STATUSES.has(b.status));
     }
     if (activeTab === "COMPLETED") {
-      return list.filter((b) => COMPLETED_STATUSES.has(b.status));
+      return allBookings.filter((b) => COMPLETED_STATUSES.has(b.status));
     }
-    return list.filter((b) => !ACTIVE_STATUSES.has(b.status) && !COMPLETED_STATUSES.has(b.status));
-  }, [activeTab, bookingsQuery.data]);
+    return allBookings.filter((b) => !ACTIVE_STATUSES.has(b.status) && !COMPLETED_STATUSES.has(b.status));
+  }, [activeTab, allBookings]);
 
   const handleConfirmCancel = async () => {
     if (!cancelTarget) {
@@ -160,48 +174,198 @@ export default function TravellerBookingsScreen() {
     );
   }
 
-  return (
-    <ScreenContainer
-      header={<SafeHeader title="My Storage" subtitle="Live Reservations & Passes" />}
-      refreshing={bookingsQuery.isRefetching}
-      onRefresh={() => {
-        void bookingsQuery.refetch();
-      }}
-      testID="traveller-bookings-screen"
-    >
-      <View style={styles.tabsRow}>
-        {(
-          [
-            { key: "ACTIVE", label: "Active" },
-            { key: "COMPLETED", label: "Completed" },
-            { key: "CANCELLED", label: "Cancelled" }
-          ] as const
-        ).map((tab) => {
-          const active = activeTab === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tabBtn, active && styles.tabBtnActive]}
-              onPress={() => setActiveTab(tab.key)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-            >
-              <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+  const handleEndReached = useCallback(() => {
+    if (bookingsQuery.hasNextPage && !bookingsQuery.isFetchingNextPage) {
+      void bookingsQuery.fetchNextPage();
+    }
+  }, [bookingsQuery]);
 
-      {actionBanner ? (
-        <View style={styles.actionBannerBox} accessibilityRole="alert">
-          <MobileIcon name="check-circle" size={16} color={mobileStatusTokens.successIcon} />
-          <Text style={styles.actionBannerText}>{actionBanner}</Text>
+  const renderListHeader = useCallback(
+    () => (
+      <View style={{ gap: mobileSpacing[3], marginBottom: mobileSpacing[4] }}>
+        <View style={styles.tabsRow}>
+          {(
+            [
+              { key: "ACTIVE", label: "Active" },
+              { key: "COMPLETED", label: "Completed" },
+              { key: "CANCELLED", label: "Cancelled" }
+            ] as const
+          ).map((tab) => {
+            const active = activeTab === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.tabBtn, active && styles.tabBtnActive]}
+                onPress={() => setActiveTab(tab.key)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-      ) : null}
 
-      {bookingsQuery.isLoading ? (
-        <LoadingSkeleton count={3} />
-      ) : bookingsQuery.isError ? (
+        {actionBanner ? (
+          <View style={styles.actionBannerBox} accessibilityRole="alert">
+            <MobileIcon name="check-circle" size={16} color={mobileStatusTokens.successIcon} />
+            <Text style={styles.actionBannerText}>{actionBanner}</Text>
+          </View>
+        ) : null}
+      </View>
+    ),
+    [activeTab, actionBanner]
+  );
+
+  const renderBookingCard = useCallback(
+    ({ item: booking }: { item: BookingDetail }) => {
+      const currency = (booking.currency || "LKR") as CurrencyCode;
+      const canCancel =
+        booking.status === "PENDING_HOST_APPROVAL" ||
+        booking.status === "PENDING_PAYMENT" ||
+        booking.status === "CONFIRMED";
+      const hasPass =
+        booking.status === "CONFIRMED" || booking.status === "IN_STORAGE";
+
+      return (
+        <Card variant="elevated" style={styles.bookingCard}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.titleCol}>
+              <Text style={styles.refCode}>#{booking.referenceCode}</Text>
+              <Text style={styles.locName}>{booking.location.name}</Text>
+            </View>
+            <StatusBadge status={booking.status} size="sm" />
+          </View>
+
+          <Text style={styles.areaLine}>
+            {booking.location.approximateArea}, {booking.location.city}
+          </Text>
+
+          <View style={styles.metaGrid}>
+            <Text style={styles.metaText}>
+              Drop-off: {formatColomboDateTime(new Date(booking.dropOffAt))}
+            </Text>
+            <Text style={styles.metaText}>
+              Pickup: {formatColomboDateTime(new Date(booking.collectionAt))}
+            </Text>
+            <Text style={styles.priceText}>
+              {booking.totalBags} bag(s) •{" "}
+              {formatCurrencyMinorUnits(booking.totalAmountMinor, currency)}
+            </Text>
+          </View>
+
+          {booking.refundSummary ? (
+            <View style={styles.refundBanner}>
+              <Text style={styles.refundText}>
+                Refund: {booking.refundSummary.refundPercentage}% (
+                {formatCurrencyMinorUnits(booking.refundSummary.amountMinor, currency)}) •{" "}
+                {booking.refundSummary.status}
+              </Text>
+            </View>
+          ) : null}
+
+          {booking.exceptionReason ? (
+            <View style={styles.exceptionBanner}>
+              <Text style={styles.exceptionText}>
+                Exception noted: {booking.exceptionReason}
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={styles.actionsRow}>
+            {booking.status === "PENDING_PAYMENT" ? (
+              <Button
+                title="Complete Payment"
+                size="sm"
+                leftIcon={<MobileIcon name="credit-card" size={16} color={mobileColors.white} />}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(traveller)/checkout",
+                    params: { locId: booking.locationId, bookingId: booking.id }
+                  })
+                }
+                style={styles.actionFlex}
+              />
+            ) : null}
+
+            {hasPass ? (
+              <Button
+                title="View Custody Pass"
+                size="sm"
+                leftIcon={<MobileIcon name="qr-code" size={16} color={mobileColors.white} />}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(traveller)/pass",
+                    params: { bookingId: booking.id, ref: booking.referenceCode }
+                  })
+                }
+                style={styles.actionFlex}
+              />
+            ) : null}
+
+            {canCancel ? (
+              <Button
+                title="Cancel"
+                variant="outline"
+                size="sm"
+                onPress={() => {
+                  setCancelTarget(booking);
+                  setCancelReason("");
+                  setCancelError(null);
+                }}
+              />
+            ) : null}
+
+            {booking.status !== "CANCELLED_BY_TRAVELLER" &&
+            booking.status !== "EXPIRED" ? (
+              <Button
+                title="Report Issue"
+                variant="ghost"
+                size="sm"
+                onPress={() => {
+                  setExceptionTarget(booking);
+                  setExceptionReason("");
+                  setExceptionError(null);
+                }}
+              />
+            ) : null}
+          </View>
+        </Card>
+      );
+    },
+    [router]
+  );
+
+  const renderListFooter = useCallback(() => {
+    if (bookingsQuery.isFetchingNextPage) {
+      return (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator color={mobileColors.terracotta[500]} size="small" />
+          <Text style={styles.footerLoaderText}>Loading more reservations...</Text>
+        </View>
+      );
+    }
+    if (!bookingsQuery.hasNextPage && filteredBookings.length > 0) {
+      return (
+        <Text style={styles.footerEndText}>
+          Showing all {filteredBookings.length} {activeTab.toLowerCase()} reservations
+        </Text>
+      );
+    }
+    return null;
+  }, [
+    bookingsQuery.isFetchingNextPage,
+    bookingsQuery.hasNextPage,
+    filteredBookings.length,
+    activeTab
+  ]);
+
+  const renderListEmpty = useCallback(() => {
+    if (bookingsQuery.isLoading) {
+      return <LoadingSkeleton count={3} />;
+    }
+    if (bookingsQuery.isError) {
+      return (
         <ErrorState
           title="Unable to fetch bookings"
           message={normalizeApiError(bookingsQuery.error).message}
@@ -209,133 +373,59 @@ export default function TravellerBookingsScreen() {
             void bookingsQuery.refetch();
           }}
         />
-      ) : filteredBookings.length === 0 ? (
-        <EmptyState
-          mascot={activeTab === "ACTIVE" ? "suitcase-walk" : "sleeping"}
-          title={`No ${activeTab.toLowerCase()} bookings`}
-          description="Discover verified luggage storage hubs in Colombo, Kandy, Galle, Ella, or Negombo."
-          actionTitle="Explore Hubs"
-          onAction={() => router.replace("/(traveller)")}
-        />
-      ) : (
-        <View style={styles.listGap}>
-          {filteredBookings.map((booking) => {
-            const currency = (booking.currency || "LKR") as CurrencyCode;
-            const canCancel =
-              booking.status === "PENDING_HOST_APPROVAL" ||
-              booking.status === "PENDING_PAYMENT" ||
-              booking.status === "CONFIRMED";
-            const hasPass =
-              booking.status === "CONFIRMED" || booking.status === "IN_STORAGE";
+      );
+    }
+    return (
+      <EmptyState
+        mascot={activeTab === "ACTIVE" ? "suitcase-walk" : "sleeping"}
+        title={`No ${activeTab.toLowerCase()} bookings`}
+        description="Discover verified luggage storage hubs in Colombo, Kandy, Galle, Ella, or Negombo."
+        actionTitle="Explore Hubs"
+        onAction={() => router.replace("/(traveller)")}
+      />
+    );
+  }, [
+    bookingsQuery.isLoading,
+    bookingsQuery.isError,
+    bookingsQuery.error,
+    activeTab,
+    router
+  ]);
 
-            return (
-              <Card key={booking.id} variant="elevated" style={styles.bookingCard}>
-                <View style={styles.cardHeaderRow}>
-                  <View style={styles.titleCol}>
-                    <Text style={styles.refCode}>#{booking.referenceCode}</Text>
-                    <Text style={styles.locName}>{booking.location.name}</Text>
-                  </View>
-                  <StatusBadge status={booking.status} size="sm" />
-                </View>
-
-                <Text style={styles.areaLine}>
-                  {booking.location.approximateArea}, {booking.location.city}
-                </Text>
-
-                <View style={styles.metaGrid}>
-                  <Text style={styles.metaText}>
-                    Drop-off: {formatColomboDateTime(new Date(booking.dropOffAt))}
-                  </Text>
-                  <Text style={styles.metaText}>
-                    Pickup: {formatColomboDateTime(new Date(booking.collectionAt))}
-                  </Text>
-                  <Text style={styles.priceText}>
-                    {booking.totalBags} bag(s) •{" "}
-                    {formatCurrencyMinorUnits(booking.totalAmountMinor, currency)}
-                  </Text>
-                </View>
-
-                {booking.refundSummary ? (
-                  <View style={styles.refundBanner}>
-                    <Text style={styles.refundText}>
-                      Refund: {booking.refundSummary.refundPercentage}% (
-                      {formatCurrencyMinorUnits(booking.refundSummary.amountMinor, currency)}) •{" "}
-                      {booking.refundSummary.status}
-                    </Text>
-                  </View>
-                ) : null}
-
-                {booking.exceptionReason ? (
-                  <View style={styles.exceptionBanner}>
-                    <Text style={styles.exceptionText}>
-                      Exception noted: {booking.exceptionReason}
-                    </Text>
-                  </View>
-                ) : null}
-
-                <View style={styles.actionsRow}>
-                  {booking.status === "PENDING_PAYMENT" ? (
-                    <Button
-                      title="Complete Payment"
-                      size="sm"
-                      leftIcon={<MobileIcon name="credit-card" size={16} color={mobileColors.white} />}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(traveller)/checkout",
-                          params: { locId: booking.locationId, bookingId: booking.id }
-                        })
-                      }
-                      style={styles.actionFlex}
-                    />
-                  ) : null}
-
-                  {hasPass ? (
-                    <Button
-                      title="View Custody Pass"
-                      size="sm"
-                      leftIcon={<MobileIcon name="qr-code" size={16} color={mobileColors.white} />}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(traveller)/pass",
-                          params: { bookingId: booking.id, ref: booking.referenceCode }
-                        })
-                      }
-                      style={styles.actionFlex}
-                    />
-                  ) : null}
-
-                  {canCancel ? (
-                    <Button
-                      title="Cancel"
-                      variant="outline"
-                      size="sm"
-                      onPress={() => {
-                        setCancelTarget(booking);
-                        setCancelReason("");
-                        setCancelError(null);
-                      }}
-                    />
-                  ) : null}
-
-                  {booking.status !== "CANCELLED_BY_TRAVELLER" &&
-                  booking.status !== "EXPIRED" ? (
-                    <Button
-                      title="Report Issue"
-                      variant="ghost"
-                      size="sm"
-                      onPress={() => {
-                        setExceptionTarget(booking);
-                        setExceptionReason("");
-                        setExceptionError(null);
-                      }}
-                    />
-                  ) : null}
-                </View>
-              </Card>
-            );
-          })}
-        </View>
-      )}
+  return (
+    <ScreenContainer
+      padded={false}
+      scrollable={false}
+      header={<SafeHeader title="My Storage" subtitle="Live Reservations & Passes" />}
+      testID="traveller-bookings-screen"
+    >
+      <FlatList
+        data={filteredBookings}
+        keyExtractor={(item) => item.id}
+        renderItem={renderBookingCard}
+        ListHeaderComponent={renderListHeader}
+        ListFooterComponent={renderListFooter}
+        ListEmptyComponent={renderListEmpty}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
+        initialNumToRender={5}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS !== "web"}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.flatListContent}
+        ItemSeparatorComponent={() => <View style={{ height: mobileSpacing[4] }} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={bookingsQuery.isRefetching && !bookingsQuery.isFetchingNextPage}
+            onRefresh={() => {
+              void bookingsQuery.refetch();
+            }}
+            tintColor={mobileColors.terracotta[500]}
+            colors={[mobileColors.terracotta[500]]}
+          />
+        }
+      />
 
       <ConfirmDialog
         visible={Boolean(cancelTarget)}
@@ -520,5 +610,25 @@ const styles = StyleSheet.create({
   },
   sheetStack: {
     gap: mobileSpacing[3]
+  },
+  flatListContent: {
+    paddingHorizontal: mobileSpacing[4],
+    paddingBottom: mobileSpacing[8]
+  },
+  footerLoader: {
+    paddingVertical: mobileSpacing[4],
+    alignItems: "center",
+    justifyContent: "center",
+    gap: mobileSpacing[2]
+  },
+  footerLoaderText: {
+    fontSize: 12,
+    color: mobileTextColors.secondary
+  },
+  footerEndText: {
+    textAlign: "center",
+    paddingVertical: mobileSpacing[4],
+    fontSize: 12,
+    color: mobileTextColors.muted
   }
 });

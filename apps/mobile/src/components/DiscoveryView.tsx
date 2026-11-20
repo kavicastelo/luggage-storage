@@ -1,12 +1,23 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+  Platform
+} from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   BAG_CATEGORIES,
   formatCurrencyMinorUnits,
   type BookingQuoteResponse,
-  type CurrencyCode
+  type CurrencyCode,
+  type PublicStorageLocation
 } from "@luggage-storage/contracts";
 import {
   Badge,
@@ -29,7 +40,7 @@ import {
 import {
   useMyBookingsQuery,
   useSearchAvailabilityQuery,
-  useSearchLocationsQuery
+  useInfiniteSearchLocationsQuery
 } from "../hooks";
 import { normalizeApiError } from "../services/api-client";
 import { getCurrentDeviceLocation } from "../lib/geolocation";
@@ -129,13 +140,20 @@ export function DiscoveryView({
       latitude: nearMeCoords?.latitude,
       longitude: nearMeCoords?.longitude,
       radiusMeters: nearMeCoords ? 15000 : undefined,
-      page: 1,
-      limit: 30
+      limit: 20
     }),
     [nearMeCoords, debouncedSearchTerm, selectedCity]
   );
 
-  const locationsQuery = useSearchLocationsQuery(searchParams, true);
+  const infiniteLocationsQuery = useInfiniteSearchLocationsQuery(searchParams, true);
+
+  const allLocations = useMemo(
+    () => infiniteLocationsQuery.data?.pages.flatMap((page) => page.locations) ?? [],
+    [infiniteLocationsQuery.data]
+  );
+
+  const totalHubsCount =
+    infiniteLocationsQuery.data?.pages[0]?.pagination.total ?? allLocations.length;
 
   const isAvailabilityWindowValid = collectionAt.getTime() > dropOffAt.getTime();
   const availabilityQuery = useSearchAvailabilityQuery(
@@ -170,11 +188,10 @@ export function DiscoveryView({
   }, [myBookingsQuery.data]);
 
   const visibleLocations = useMemo(() => {
-    const base = locationsQuery.data?.locations ?? [];
     if (!availabilityFilterActive || !isAvailabilityWindowValid || !availabilityQuery.data) {
-      return base;
+      return allLocations;
     }
-    return base.filter((loc) => {
+    return allLocations.filter((loc) => {
       const q = quoteMap.get(loc.id);
       return q ? q.available : false;
     });
@@ -182,7 +199,7 @@ export function DiscoveryView({
     availabilityFilterActive,
     availabilityQuery.data,
     isAvailabilityWindowValid,
-    locationsQuery.data,
+    allLocations,
     quoteMap
   ]);
 
@@ -223,29 +240,139 @@ export function DiscoveryView({
 
   const handleRefresh = async () => {
     await Promise.all([
-      locationsQuery.refetch(),
+      infiniteLocationsQuery.refetch(),
       availabilityFilterActive ? availabilityQuery.refetch() : Promise.resolve(),
       isAuthenticated ? myBookingsQuery.refetch() : Promise.resolve()
     ]);
   };
 
-  const errorMessage = locationsQuery.isError
-    ? normalizeApiError(locationsQuery.error).message
+  const handleEndReached = useCallback(() => {
+    if (
+      viewMode === "list" &&
+      infiniteLocationsQuery.hasNextPage &&
+      !infiniteLocationsQuery.isFetchingNextPage
+    ) {
+      void infiniteLocationsQuery.fetchNextPage();
+    }
+  }, [viewMode, infiniteLocationsQuery]);
+
+  const errorMessage = infiniteLocationsQuery.isError
+    ? normalizeApiError(infiniteLocationsQuery.error).message
     : null;
 
-  return (
-    <ScreenContainer
-      padded={false}
-      refreshing={locationsQuery.isRefetching}
-      onRefresh={() => {
-        void handleRefresh();
-      }}
-      testID="traveller-discovery-screen"
-    >
+  const renderLocationCard = useCallback(
+    ({ item: loc }: { item: PublicStorageLocation }) => {
+      const liveQuote = quoteMap.get(loc.id);
+      return (
+        <View style={styles.cardStack}>
+          <LocationCard
+            location={loc}
+            isSaved={savedIds.includes(loc.id) || isSaved(loc.id)}
+            onToggleSaved={() => {
+              void toggleSaved(loc.id);
+            }}
+            onPress={() =>
+              router.push({
+                pathname: "/(traveller)/location",
+                params: { id: loc.id }
+              })
+            }
+          />
+          {liveQuote ? (
+            <View style={styles.liveQuoteStrip}>
+              <Text style={styles.liveQuoteText}>
+                Quote for selected window:{" "}
+                <Text style={styles.liveQuoteStrong}>
+                  {formatCurrencyMinorUnits(
+                    liveQuote.totalAmountMinor,
+                    (liveQuote.currency || "LKR") as CurrencyCode
+                  )}
+                </Text>{" "}
+                ({liveQuote.remainingCapacityUnits} capacity units remaining)
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      );
+    },
+    [quoteMap, savedIds, isSaved, toggleSaved, router]
+  );
+
+  const renderListFooter = useCallback(() => {
+    if (viewMode === "map") return null;
+    if (infiniteLocationsQuery.isFetchingNextPage) {
+      return (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator color={mobileColors.terracotta[500]} size="small" />
+          <Text style={styles.footerLoaderText}>Loading more verified storage hubs...</Text>
+        </View>
+      );
+    }
+    if (!infiniteLocationsQuery.hasNextPage && visibleLocations.length > 0) {
+      return (
+        <Text style={styles.footerEndText}>
+          Showing all {visibleLocations.length} verified storage hubs
+        </Text>
+      );
+    }
+    return null;
+  }, [
+    viewMode,
+    infiniteLocationsQuery.isFetchingNextPage,
+    infiniteLocationsQuery.hasNextPage,
+    visibleLocations.length
+  ]);
+
+  const renderListEmpty = useCallback(() => {
+    if (viewMode === "map") return null;
+    if (infiniteLocationsQuery.isLoading) {
+      return (
+        <View style={styles.emptyContainer}>
+          <LoadingSkeleton count={3} />
+        </View>
+      );
+    }
+    if (errorMessage) {
+      return (
+        <View style={styles.emptyContainer}>
+          <ErrorState
+            title="Could not load storage locations"
+            message={errorMessage}
+            onRetry={() => {
+              void infiniteLocationsQuery.refetch();
+            }}
+          />
+        </View>
+      );
+    }
+    return (
+      <View style={styles.emptyContainer}>
+        <EmptyState
+          mascot="suitcase-peek"
+          title="No matching hubs found"
+          description="Try clearing your search keyword, picking another Sri Lanka city, or adjusting your check-in dates."
+          actionTitle="Reset Filters"
+          onAction={() => {
+            setSelectedCity("All");
+            setSearchTerm("");
+            setDebouncedSearchTerm("");
+            setNearMeCoords(null);
+            setAvailabilityFilterActive(false);
+          }}
+        />
+      </View>
+    );
+  }, [viewMode, infiniteLocationsQuery.isLoading, errorMessage, infiniteLocationsQuery]);
+
+  const renderHeader = () => (
+    <View style={{ gap: mobileSpacing[4], marginBottom: mobileSpacing[4] }}>
       <View
         style={[
           styles.heroHeader,
-          { paddingTop: Math.max(insets.top + mobileSpacing[3], mobileSpacing[5]) }
+          {
+            paddingTop: Math.max(insets.top + mobileSpacing[3], mobileSpacing[5]),
+            marginHorizontal: -mobileSpacing[4]
+          }
         ]}
       >
         <View style={styles.heroTopRow}>
@@ -328,261 +455,241 @@ export function DiscoveryView({
         </View>
       </View>
 
-      <View style={styles.body}>
-        {activeBannerBooking ? (
-          <Card variant="elevated" style={styles.activeBookingBanner}>
-            <View style={styles.activeBannerRow}>
-              <View style={styles.activeBannerCol}>
-                <View style={styles.activeBannerTop}>
-                  <Text style={styles.activeBannerEyebrow}>ACTIVE RESERVATION</Text>
-                  <StatusBadge status={activeBannerBooking.status} size="sm" />
-                </View>
-                <Text style={styles.activeBannerTitle}>
-                  {activeBannerBooking.location.name} • #{activeBannerBooking.referenceCode}
-                </Text>
-                <Text style={styles.activeBannerMeta}>
-                  {activeBannerBooking.totalBags} bag(s) scheduled
-                </Text>
+      {activeBannerBooking ? (
+        <Card variant="elevated" style={styles.activeBookingBanner}>
+          <View style={styles.activeBannerRow}>
+            <View style={styles.activeBannerCol}>
+              <View style={styles.activeBannerTop}>
+                <Text style={styles.activeBannerEyebrow}>ACTIVE RESERVATION</Text>
+                <StatusBadge status={activeBannerBooking.status} size="sm" />
               </View>
-              <Button
-                title={
-                  activeBannerBooking.status === "PENDING_PAYMENT"
-                    ? "Pay Now"
-                    : activeBannerBooking.status === "CONFIRMED" ||
-                        activeBannerBooking.status === "IN_STORAGE"
-                      ? "Custody Pass"
-                      : "View"
-                }
-                size="sm"
-                onPress={() => {
-                  if (activeBannerBooking.status === "PENDING_PAYMENT") {
-                    router.push({
-                      pathname: "/(traveller)/checkout",
-                      params: {
-                        locId: activeBannerBooking.locationId,
-                        bookingId: activeBannerBooking.id
-                      }
-                    });
-                  } else if (
-                    activeBannerBooking.status === "CONFIRMED" ||
-                    activeBannerBooking.status === "IN_STORAGE"
-                  ) {
-                    router.push({
-                      pathname: "/(traveller)/pass",
-                      params: {
-                        bookingId: activeBannerBooking.id,
-                        ref: activeBannerBooking.referenceCode
-                      }
-                    });
-                  } else {
-                    router.push("/(traveller)/bookings");
-                  }
-                }}
-              />
+              <Text style={styles.activeBannerTitle}>
+                {activeBannerBooking.location.name} • #{activeBannerBooking.referenceCode}
+              </Text>
+              <Text style={styles.activeBannerMeta}>
+                {activeBannerBooking.totalBags} bag(s) scheduled
+              </Text>
             </View>
-          </Card>
-        ) : null}
+            <Button
+              title={
+                activeBannerBooking.status === "PENDING_PAYMENT"
+                  ? "Pay Now"
+                  : activeBannerBooking.status === "CONFIRMED" ||
+                      activeBannerBooking.status === "IN_STORAGE"
+                    ? "Custody Pass"
+                    : "View"
+              }
+              size="sm"
+              onPress={() => {
+                if (activeBannerBooking.status === "PENDING_PAYMENT") {
+                  router.push({
+                    pathname: "/(traveller)/checkout",
+                    params: {
+                      locId: activeBannerBooking.locationId,
+                      bookingId: activeBannerBooking.id
+                    }
+                  });
+                } else if (
+                  activeBannerBooking.status === "CONFIRMED" ||
+                  activeBannerBooking.status === "IN_STORAGE"
+                ) {
+                  router.push({
+                    pathname: "/(traveller)/pass",
+                    params: {
+                      bookingId: activeBannerBooking.id,
+                      ref: activeBannerBooking.referenceCode
+                    }
+                  });
+                } else {
+                  router.push("/(traveller)/bookings");
+                }
+              }}
+            />
+          </View>
+        </Card>
+      ) : null}
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.cityChipsRow}
-        >
-          {SRI_LANKA_CITIES.map((city) => {
-            const active = selectedCity === city;
-            return (
-              <TouchableOpacity
-                key={city}
-                style={[styles.cityChip, active && styles.cityChipActive]}
-                onPress={() => setSelectedCity(city)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-              >
-                <Text style={[styles.cityChipText, active && styles.cityChipTextActive]}>
-                  {city}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {availabilityFilterActive ? (
-          <View style={styles.activeFilterSummaryRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={[styles.cityChipsRow, { marginHorizontal: -mobileSpacing[4], paddingHorizontal: mobileSpacing[4] }]}
+      >
+        {SRI_LANKA_CITIES.map((city) => {
+          const active = selectedCity === city;
+          return (
             <TouchableOpacity
-              style={styles.activeFilterSummaryBody}
-              onPress={() => setFilterSheetVisible(true)}
+              key={city}
+              style={[styles.cityChip, active && styles.cityChipActive]}
+              onPress={() => setSelectedCity(city)}
               accessibilityRole="button"
-              accessibilityLabel="Edit dates and bags filter"
+              accessibilityState={{ selected: active }}
             >
-              <MobileIcon name="calendar" size={14} color={mobileColors.terracotta[600]} />
-              <Text style={styles.activeFilterSummaryText} numberOfLines={1}>
-                {totalSelectedBags} bag{totalSelectedBags === 1 ? "" : "s"} •{" "}
-                {formatColomboDateTime(dropOffAt)} → {formatColomboDateTime(collectionAt)}
+              <Text style={[styles.cityChipText, active && styles.cityChipTextActive]}>
+                {city}
               </Text>
             </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      {availabilityFilterActive ? (
+        <View style={styles.activeFilterSummaryRow}>
+          <TouchableOpacity
+            style={styles.activeFilterSummaryBody}
+            onPress={() => setFilterSheetVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Edit dates and bags filter"
+          >
+            <MobileIcon name="calendar" size={14} color={mobileColors.terracotta[600]} />
+            <Text style={styles.activeFilterSummaryText} numberOfLines={1}>
+              {totalSelectedBags} bag{totalSelectedBags === 1 ? "" : "s"} •{" "}
+              {formatColomboDateTime(dropOffAt)} → {formatColomboDateTime(collectionAt)}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.clearFilterPill}
+            onPress={() => setAvailabilityFilterActive(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Clear dates and bags filter"
+          >
+            <Text style={styles.clearFilterText}>Clear</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {gpsStatusMessage ? (
+        <View style={styles.noticeRow}>
+          <MobileIcon name="info" size={16} color={mobileColors.navy[700]} />
+          <Text style={styles.noticeText}>{gpsStatusMessage}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.privacyCard}>
+        <MobileIcon name="shield-check" size={16} color={mobileColors.emerald[700]} />
+        <Text style={styles.privacyText}>
+          Privacy protection active: discovery shows approximate area coordinates only. Exact
+          street address and directions unlock after confirmed payment.
+        </Text>
+      </View>
+
+      <View style={styles.resultsHeader}>
+        <Text style={styles.resultsTitle}>
+          {selectedCity === "All" ? "Verified Sri Lanka Hubs" : `Hubs in ${selectedCity}`}
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={styles.viewModeToggle}>
             <TouchableOpacity
-              style={styles.clearFilterPill}
-              onPress={() => setAvailabilityFilterActive(false)}
-              accessibilityRole="button"
-              accessibilityLabel="Clear dates and bags filter"
+              onPress={() => setViewMode("list")}
+              style={[styles.viewModeBtn, viewMode === "list" && styles.viewModeBtnActive]}
+              accessibilityLabel="Switch to list view"
             >
-              <Text style={styles.clearFilterText}>Clear</Text>
+              <MobileIcon
+                name="list"
+                size={14}
+                color={viewMode === "list" ? mobileColors.white : mobileColors.navy[900]}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setViewMode("map")}
+              style={[styles.viewModeBtn, viewMode === "map" && styles.viewModeBtnActive]}
+              accessibilityLabel="Switch to map view"
+            >
+              <MobileIcon
+                name="map"
+                size={14}
+                color={viewMode === "map" ? mobileColors.white : mobileColors.navy[900]}
+              />
             </TouchableOpacity>
           </View>
-        ) : null}
-
-        {gpsStatusMessage ? (
-          <View style={styles.noticeRow}>
-            <MobileIcon name="info" size={16} color={mobileColors.navy[700]} />
-            <Text style={styles.noticeText}>{gpsStatusMessage}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.privacyCard}>
-          <MobileIcon name="shield-check" size={16} color={mobileColors.emerald[700]} />
-          <Text style={styles.privacyText}>
-            Privacy protection active: discovery shows approximate area coordinates only. Exact
-            street address and directions unlock after confirmed payment.
-          </Text>
-        </View>
-
-        <View style={styles.resultsHeader}>
-          <Text style={styles.resultsTitle}>
-            {selectedCity === "All" ? "Verified Sri Lanka Hubs" : `Hubs in ${selectedCity}`}
-          </Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <View style={styles.viewModeToggle}>
-              <TouchableOpacity
-                onPress={() => setViewMode("list")}
-                style={[styles.viewModeBtn, viewMode === "list" && styles.viewModeBtnActive]}
-                accessibilityLabel="Switch to list view"
-              >
-                <MobileIcon
-                  name="list"
-                  size={14}
-                  color={viewMode === "list" ? mobileColors.white : mobileColors.navy[900]}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setViewMode("map")}
-                style={[styles.viewModeBtn, viewMode === "map" && styles.viewModeBtnActive]}
-                accessibilityLabel="Switch to map view"
-              >
-                <MobileIcon
-                  name="map"
-                  size={14}
-                  color={viewMode === "map" ? mobileColors.white : mobileColors.navy[900]}
-                />
-              </TouchableOpacity>
-            </View>
-            <Badge label={`${visibleLocations.length} open`} variant="navy" size="sm" />
-          </View>
-        </View>
-
-        {locationsQuery.isLoading ? (
-          <LoadingSkeleton count={3} />
-        ) : errorMessage ? (
-          <ErrorState
-            title="Could not load storage locations"
-            message={errorMessage}
-            onRetry={() => {
-              void locationsQuery.refetch();
-            }}
+          <Badge
+            label={`${totalHubsCount > 0 ? totalHubsCount : visibleLocations.length} open`}
+            variant="navy"
+            size="sm"
           />
-        ) : visibleLocations.length === 0 ? (
-          <EmptyState
-            mascot="suitcase-peek"
-            title="No matching hubs found"
-            description="Try clearing your search keyword, picking another Sri Lanka city, or adjusting your check-in dates."
-            actionTitle="Reset Filters"
-            onAction={() => {
-              setSelectedCity("All");
-              setSearchTerm("");
-              setDebouncedSearchTerm("");
-              setNearMeCoords(null);
-              setAvailabilityFilterActive(false);
-            }}
-          />
-        ) : viewMode === "map" ? (
-          <View style={{ gap: mobileSpacing[4] }}>
-            <InteractiveMobileMap
-              locations={visibleLocations.map((l) => ({
-                id: l.id,
-                name: l.name,
-                city: l.city,
-                latitude: l.approximateLatitude,
-                longitude: l.approximateLongitude,
-                priceLabel: typeof l.baseRateMinor === "number"
+        </View>
+      </View>
+
+      {viewMode === "map" ? (
+        <View style={{ gap: mobileSpacing[4] }}>
+          <InteractiveMobileMap
+            locations={visibleLocations.map((l) => ({
+              id: l.id,
+              name: l.name,
+              city: l.city,
+              latitude: l.approximateLatitude,
+              longitude: l.approximateLongitude,
+              priceLabel:
+                typeof l.baseRateMinor === "number"
                   ? formatCurrencyMinorUnits(l.baseRateMinor, (l.currency || "LKR") as CurrencyCode)
                   : undefined
-              }))}
-              selectedLocationId={selectedMapLocationId || visibleLocations[0]?.id}
-              onSelectLocation={(id) => setSelectedMapLocationId(id)}
-              userLocation={nearMeCoords}
-              height={300}
-            />
-            {(() => {
-              const activeLoc =
-                visibleLocations.find(
-                  (l) => l.id === (selectedMapLocationId || visibleLocations[0]?.id)
-                ) || visibleLocations[0];
-              if (!activeLoc) return null;
-              return (
-                <LocationCard
-                  location={activeLoc}
-                  isSaved={savedIds.includes(activeLoc.id) || isSaved(activeLoc.id)}
-                  onToggleSaved={() => {
-                    void toggleSaved(activeLoc.id);
-                  }}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/(traveller)/location",
-                      params: { id: activeLoc.id }
-                    })
-                  }
-                />
-              );
-            })()}
-          </View>
-        ) : (
-          <View style={styles.listGap}>
-            {visibleLocations.map((loc) => {
-              const liveQuote = quoteMap.get(loc.id);
-              return (
-                <View key={loc.id} style={styles.cardStack}>
-                  <LocationCard
-                    location={loc}
-                    isSaved={savedIds.includes(loc.id) || isSaved(loc.id)}
-                    onToggleSaved={() => {
-                      void toggleSaved(loc.id);
-                    }}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/(traveller)/location",
-                        params: { id: loc.id }
-                      })
-                    }
-                  />
-                  {liveQuote ? (
-                    <View style={styles.liveQuoteStrip}>
-                      <Text style={styles.liveQuoteText}>
-                        Quote for selected window:{" "}
-                        <Text style={styles.liveQuoteStrong}>
-                          {formatCurrencyMinorUnits(
-                            liveQuote.totalAmountMinor,
-                            (liveQuote.currency || "LKR") as CurrencyCode
-                          )}
-                        </Text>{" "}
-                        ({liveQuote.remainingCapacityUnits} capacity units remaining)
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </View>
+            }))}
+            selectedLocationId={selectedMapLocationId || visibleLocations[0]?.id}
+            onSelectLocation={(id) => setSelectedMapLocationId(id)}
+            userLocation={nearMeCoords}
+            height={300}
+          />
+          {(() => {
+            const activeLoc =
+              visibleLocations.find(
+                (l) => l.id === (selectedMapLocationId || visibleLocations[0]?.id)
+              ) || visibleLocations[0];
+            if (!activeLoc) return null;
+            return (
+              <LocationCard
+                location={activeLoc}
+                isSaved={savedIds.includes(activeLoc.id) || isSaved(activeLoc.id)}
+                onToggleSaved={() => {
+                  void toggleSaved(activeLoc.id);
+                }}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(traveller)/location",
+                    params: { id: activeLoc.id }
+                  })
+                }
+              />
+            );
+          })()}
+        </View>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <ScreenContainer
+      padded={false}
+      scrollable={false}
+      testID="traveller-discovery-screen"
+    >
+      <FlatList
+        data={viewMode === "list" ? visibleLocations : []}
+        keyExtractor={(item) => item.id}
+        renderItem={renderLocationCard}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderListFooter}
+        ListEmptyComponent={renderListEmpty}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
+        initialNumToRender={5}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS !== "web"}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.flatListContent, { paddingHorizontal: mobileSpacing[4] }]}
+        ItemSeparatorComponent={() => <View style={{ height: mobileSpacing[4] }} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={
+              infiniteLocationsQuery.isRefetching && !infiniteLocationsQuery.isFetchingNextPage
+            }
+            onRefresh={() => {
+              void handleRefresh();
+            }}
+            tintColor={mobileColors.terracotta[500]}
+            colors={[mobileColors.terracotta[500]]}
+          />
+        }
+      />
 
       <BottomSheet
         visible={filterSheetVisible}
@@ -988,5 +1095,31 @@ const styles = StyleSheet.create({
   liveQuoteStrong: {
     fontWeight: "700",
     color: mobileColors.navy[900]
+  },
+  flatListContent: {
+    paddingBottom: mobileSpacing[8]
+  },
+  listBody: {
+    paddingHorizontal: mobileSpacing[4],
+    gap: mobileSpacing[4]
+  },
+  emptyContainer: {
+    paddingTop: mobileSpacing[2]
+  },
+  footerLoader: {
+    paddingVertical: mobileSpacing[4],
+    alignItems: "center",
+    justifyContent: "center",
+    gap: mobileSpacing[2]
+  },
+  footerLoaderText: {
+    fontSize: 12,
+    color: mobileTextColors.secondary
+  },
+  footerEndText: {
+    textAlign: "center",
+    paddingVertical: mobileSpacing[4],
+    fontSize: 12,
+    color: mobileTextColors.muted
   }
 });

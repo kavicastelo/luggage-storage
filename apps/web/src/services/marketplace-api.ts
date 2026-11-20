@@ -682,7 +682,10 @@ export const marketplaceApi = {
   async getMyBookings(params: Partial<BookingListQuery> = {}): Promise<{
     bookings: BookingDetail[];
     total: number;
+    pagination?: PaginationMeta;
   }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
     if (params.search) query.set("search", params.search);
@@ -692,9 +695,12 @@ export const marketplaceApi = {
     const res = (await fetchApi<BookingDetail[]>(`/bookings${qs ? `?${qs}` : ""}`, {
       method: "GET"
     })) as unknown as PaginatedApiResponse<BookingDetail>;
+    const bookings = res.data ?? [];
+    const total = res.pagination?.total ?? bookings.length;
     return {
-      bookings: res.data ?? [],
-      total: res.pagination?.total ?? (res.data?.length ?? 0)
+      bookings,
+      total,
+      pagination: res.pagination ?? buildDefaultPagination(page, limit, total)
     };
   },
 
@@ -785,7 +791,10 @@ export const marketplaceApi = {
   async getHostBookings(params: Partial<BookingListQuery> = {}): Promise<{
     bookings: BookingDetail[];
     total: number;
+    pagination?: PaginationMeta;
   }> {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
     if (params.locationId) query.set("locationId", params.locationId);
@@ -797,9 +806,12 @@ export const marketplaceApi = {
     const res = (await fetchApi<BookingDetail[]>(`/hosts/bookings${qs ? `?${qs}` : ""}`, {
       method: "GET"
     })) as unknown as PaginatedApiResponse<BookingDetail>;
+    const bookings = res.data ?? [];
+    const total = res.pagination?.total ?? bookings.length;
     return {
-      bookings: res.data ?? [],
-      total: res.pagination?.total ?? (res.data?.length ?? 0)
+      bookings,
+      total,
+      pagination: res.pagination ?? buildDefaultPagination(page, limit, total)
     };
   },
 
