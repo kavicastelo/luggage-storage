@@ -7,12 +7,15 @@ import {
 } from "@luggage-storage/contracts";
 import {
   CheckCircle2,
+  Plus,
+  RotateCcw,
   Search,
   ShieldAlert,
   ShieldCheck,
   UserCog,
   UserMinus,
-  UserPlus
+  UserPlus,
+  X
 } from "lucide-react";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { Modal, SlideOverDrawer } from "@/components/ui";
@@ -24,10 +27,13 @@ import {
   useAdminUserPermissionsQuery,
   useAdminUsersQuery,
   useAssignAdminUserRoleMutation,
+  useAssignRolePermissionMutation,
   useDeactivateAdminUserMutation,
   useReactivateAdminUserMutation,
   useReinstateAdminUserMutation,
+  useResetRolePermissionsMutation,
   useRevokeAdminUserRoleMutation,
+  useRevokeRolePermissionMutation,
   useSuspendAdminUserMutation,
   useVerifyAdminUserEmailMutation
 } from "@/hooks/queries/use-admin-portal";
@@ -53,6 +59,14 @@ const USER_STATUS_OPTIONS: Array<{ value: UserStatus | ""; label: string }> = [
 ];
 
 type ActiveWorkspaceTab = "users" | "matrix";
+
+const PROTECTED_SUPERADMIN_PERMISSIONS = new Set([
+  "admin.platform.manage",
+  "admin.role.assign",
+  "admin.role.revoke",
+  "admin.role.read",
+  "admin.permission.read"
+]);
 
 export function AdminUsersRbacPage() {
   const location = useLocation();
@@ -122,6 +136,81 @@ export function AdminUsersRbacPage() {
   const verifyEmailMutation = useVerifyAdminUserEmailMutation();
   const assignRoleMutation = useAssignAdminUserRoleMutation();
   const revokeRoleMutation = useRevokeAdminUserRoleMutation();
+  const assignRolePermMutation = useAssignRolePermissionMutation();
+  const revokeRolePermMutation = useRevokeRolePermissionMutation();
+  const resetRolePermsMutation = useResetRolePermissionsMutation();
+
+  const [selectedPermByRole, setSelectedPermByRole] = useState<Record<string, string>>({});
+  const [showResetDefaultsModal, setShowResetDefaultsModal] = useState(false);
+  const [matrixFeedback, setMatrixFeedback] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+
+  const handleAssignRolePermission = async (roleCode: string) => {
+    setMatrixFeedback(null);
+    const assignedPerms = roles.find((r) => r.code === roleCode)?.permissions ?? [];
+    const available = permissions.filter((p) => !assignedPerms.includes(p.code));
+    const permToAssign = selectedPermByRole[roleCode] || available[0]?.code;
+    if (!permToAssign) return;
+
+    try {
+      const res = await assignRolePermMutation.mutateAsync({
+        roleCode,
+        permissionCode: permToAssign
+      });
+      setMatrixFeedback({
+        type: "success",
+        message: res.message || `Permission ${permToAssign} granted to ${roleCode}`
+      });
+      const remaining = available.filter((p) => p.code !== permToAssign);
+      if (remaining.length > 0) {
+        setSelectedPermByRole((prev) => ({ ...prev, [roleCode]: remaining[0].code }));
+      }
+    } catch (err) {
+      setMatrixFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to assign permission"
+      });
+    }
+  };
+
+  const handleRevokeRolePermission = async (roleCode: string, permissionCode: string) => {
+    setMatrixFeedback(null);
+    try {
+      const res = await revokeRolePermMutation.mutateAsync({
+        roleCode,
+        permissionCode
+      });
+      setMatrixFeedback({
+        type: "success",
+        message: res.message || `Permission ${permissionCode} revoked from ${roleCode}`
+      });
+    } catch (err) {
+      setMatrixFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to revoke permission"
+      });
+    }
+  };
+
+  const handleResetDefaults = async () => {
+    setMatrixFeedback(null);
+    try {
+      const res = await resetRolePermsMutation.mutateAsync();
+      setShowResetDefaultsModal(false);
+      setMatrixFeedback({
+        type: "success",
+        message: res.message || "All role permissions reset to standard defaults"
+      });
+    } catch (err) {
+      setShowResetDefaultsModal(false);
+      setMatrixFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to reset permissions"
+      });
+    }
+  };
 
   const users = usersQuery.data?.users ?? [];
   const pagination = usersQuery.data?.pagination;
@@ -335,33 +424,157 @@ export function AdminUsersRbacPage() {
             <AdminCardListSkeleton count={3} />
           ) : (
             <>
-              <div className="space-y-3">
-                <h2 className="text-sm font-extrabold text-navy-950">System Roles Breakdown</h2>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {roles.map((r) => (
-                    <div
-                      key={r.id}
-                      className="p-4 rounded-xl border border-sand-200 bg-sand-50/70 space-y-2"
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-extrabold text-navy-950">System Roles Breakdown</h2>
+                    <p className="text-sand-600 text-[11px]">
+                      Configure granular permission entitlements for each marketplace role.
+                    </p>
+                  </div>
+                  <PermissionGate permission={SYSTEM_PERMISSIONS.ADMIN_PLATFORM_MANAGE}>
+                    <button
+                      type="button"
+                      onClick={() => setShowResetDefaultsModal(true)}
+                      disabled={resetRolePermsMutation.isPending}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-sand-300 bg-white hover:bg-sand-100 font-bold text-navy-950 transition text-xs shadow-sm"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-navy-950 text-sm">{r.code}</span>
-                        <span className="text-[11px] font-semibold text-sand-700 tabular-nums">
-                          {r.permissions.length} permission(s)
-                        </span>
-                      </div>
-                      <p className="text-navy-900">{r.description || r.name}</p>
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {r.permissions.map((perm) => (
-                          <span
-                            key={perm}
-                            className="px-2 py-0.5 rounded-md bg-white border border-sand-200 font-mono text-[10px] text-navy-900"
-                          >
-                            {perm}
-                          </span>
-                        ))}
-                      </div>
+                      <RotateCcw className="w-3.5 h-3.5 text-terracotta-600" />
+                      Reset to Platform Defaults
+                    </button>
+                  </PermissionGate>
+                </div>
+
+                {matrixFeedback && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                      matrixFeedback.type === "success"
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                        : "bg-rose-50 border-rose-200 text-rose-900"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {matrixFeedback.type === "success" ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0" />
+                      )}
+                      <span>{matrixFeedback.message}</span>
                     </div>
-                  ))}
+                    <button
+                      type="button"
+                      onClick={() => setMatrixFeedback(null)}
+                      className="text-sand-500 hover:text-navy-900 ml-2"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {roles.map((r) => {
+                    const unassignedPerms = permissions.filter(
+                      (p) => !r.permissions.includes(p.code)
+                    );
+                    const selectedPerm =
+                      selectedPermByRole[r.code] || (unassignedPerms[0]?.code ?? "");
+
+                    return (
+                      <div
+                        key={r.id}
+                        className="p-4 rounded-xl border border-sand-200 bg-sand-50/70 space-y-3 flex flex-col justify-between"
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-navy-950 text-sm">
+                              {r.code}
+                            </span>
+                            <span className="text-[11px] font-semibold text-sand-700 tabular-nums">
+                              {r.permissions.length} permission(s)
+                            </span>
+                          </div>
+                          <p className="text-navy-900 text-[11px]">{r.description || r.name}</p>
+
+                          {/* Permission Pills */}
+                          <div className="flex flex-wrap gap-1 pt-1">
+                            {r.permissions.length === 0 ? (
+                              <p className="text-[11px] text-amber-700 italic">
+                                No permissions assigned. Users with this role cannot perform authorized actions.
+                              </p>
+                            ) : (
+                              r.permissions.map((perm) => {
+                                const isSuperadminProtected =
+                                  r.code === "SUPERADMIN" &&
+                                  PROTECTED_SUPERADMIN_PERMISSIONS.has(perm);
+
+                                return (
+                                  <span
+                                    key={perm}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-sand-200 font-mono text-[10px] text-navy-900"
+                                  >
+                                    <span>{perm}</span>
+                                    {!isSuperadminProtected && (
+                                      <PermissionGate
+                                        permission={SYSTEM_PERMISSIONS.ADMIN_ROLE_REVOKE}
+                                      >
+                                        <button
+                                          type="button"
+                                          disabled={revokeRolePermMutation.isPending}
+                                          onClick={() =>
+                                            void handleRevokeRolePermission(r.code, perm)
+                                          }
+                                          className="text-sand-400 hover:text-rose-600 transition p-0.5 ml-0.5"
+                                          title={`Revoke ${perm} from ${r.code}`}
+                                        >
+                                          <X className="w-2.5 h-2.5" />
+                                        </button>
+                                      </PermissionGate>
+                                    )}
+                                  </span>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Add Permission Dropdown & Button */}
+                        <PermissionGate permission={SYSTEM_PERMISSIONS.ADMIN_ROLE_ASSIGN}>
+                          {unassignedPerms.length > 0 ? (
+                            <div className="pt-2 border-t border-sand-200 flex items-center gap-2">
+                              <select
+                                value={selectedPerm}
+                                onChange={(e) =>
+                                  setSelectedPermByRole((prev) => ({
+                                    ...prev,
+                                    [r.code]: e.target.value
+                                  }))
+                                }
+                                className="flex-1 px-2.5 py-1.5 rounded-lg border border-sand-200 bg-white font-mono text-[11px] text-navy-950"
+                              >
+                                {unassignedPerms.map((p) => (
+                                  <option key={p.id} value={p.code}>
+                                    {p.code} — {p.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                disabled={assignRolePermMutation.isPending}
+                                onClick={() => void handleAssignRolePermission(r.code)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white font-bold text-[11px] transition disabled:opacity-50 shrink-0"
+                              >
+                                <Plus className="w-3 h-3" /> Add
+                              </button>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-sand-500 italic pt-2 border-t border-sand-200">
+                              All catalog permissions are granted to this role.
+                            </p>
+                          )}
+                        </PermissionGate>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -851,6 +1064,49 @@ export function AdminUsersRbacPage() {
           Revoking <strong className="font-mono">{pendingRevokeRole}</strong> immediately removes all
           permissions granted by this role from the user&apos;s active sessions.
         </p>
+      </Modal>
+
+      {/* Reset Defaults Confirmation Modal */}
+      <Modal
+        open={showResetDefaultsModal}
+        onClose={() => setShowResetDefaultsModal(false)}
+        size="md"
+        title="Reset Role Permissions to Defaults"
+        subtitle="Restore standard marketplace entitlements across all system roles"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setShowResetDefaultsModal(false)}
+              className="px-4 py-2 rounded-xl border border-sand-200 bg-white text-xs font-bold text-navy-900 hover:bg-sand-100 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={resetRolePermsMutation.isPending}
+              onClick={() => void handleResetDefaults()}
+              className="px-4 py-2 rounded-xl bg-terracotta-600 hover:bg-terracotta-700 text-white text-xs font-bold disabled:opacity-50 transition"
+            >
+              {resetRolePermsMutation.isPending ? "Resetting..." : "Confirm Reset to Defaults"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-2 text-xs text-navy-900 leading-relaxed">
+          <p>
+            This operation resets permissions for all system roles (
+            <strong className="font-mono">SUPERADMIN</strong>,{" "}
+            <strong className="font-mono">SUPPORT</strong>,{" "}
+            <strong className="font-mono">HOST_OWNER</strong>,{" "}
+            <strong className="font-mono">HOST_STAFF</strong>, and{" "}
+            <strong className="font-mono">TRAVELLER</strong>) back to official platform standards.
+          </p>
+          <p className="text-sand-700">
+            Standard traveller booking creation, host storage custody, and support privileges will be
+            re-established immediately without affecting existing user accounts or active sessions.
+          </p>
+        </div>
       </Modal>
     </div>
   );

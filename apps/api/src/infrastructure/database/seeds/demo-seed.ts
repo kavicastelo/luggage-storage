@@ -57,6 +57,15 @@ export async function seedDemoData(): Promise<SeedResult> {
     }
   }
 
+  // Ensure default role permissions are mapped
+  try {
+    const { rbacService } = await import("../../../modules/auth/rbac.service.js");
+    await rbacService.ensureDefaultRolePermissions();
+    console.log("✅ [Demo Seeder] Standard RBAC permissions verified and populated.");
+  } catch (rbacErr) {
+    console.warn("⚠️ [Demo Seeder] RBAC permissions seeding warning:", rbacErr);
+  }
+
   // 2. Demo Users Specification
   const demoUsersSpec = [
     {

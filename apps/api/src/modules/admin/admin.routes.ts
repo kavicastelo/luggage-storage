@@ -8,6 +8,7 @@ import {
   AdminReactivateUserRequestSchema,
   AdminVerifyEmailRequestSchema,
   AssignUserRoleRequestSchema,
+  AssignRolePermissionRequestSchema,
   createPaginatedResponse,
   createSuccessResponse
 } from "@luggage-storage/contracts";
@@ -536,6 +537,140 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
           userId,
           roles: updatedRoles,
           message: `Role ${roleCode.toUpperCase()} revoked successfully`
+        },
+        request.id
+      );
+    }
+  );
+
+  // ============================================================================
+  // 12a. Assign Permission to Role (POST /roles/:roleCode/permissions)
+  // ============================================================================
+  app.post<{ Params: { roleCode: string } }>(
+    "/roles/:roleCode/permissions",
+    {
+      onRequest: [app.authenticate, app.requirePermission("admin.role.assign")],
+      schema: {
+        tags: ["Admin"],
+        summary: "Assign a permission code to a system role",
+        description: "Requires admin.role.assign permission.",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          required: ["roleCode"],
+          properties: {
+            roleCode: { type: "string", minLength: 1, maxLength: 32 }
+          }
+        },
+        body: {
+          type: "object",
+          required: ["permissionCode"],
+          properties: {
+            permissionCode: { type: "string", minLength: 1, maxLength: 64 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const roleCode = request.params.roleCode;
+      const parseResult = AssignRolePermissionRequestSchema.safeParse(request.body);
+      if (!parseResult.success) {
+        const details = parseResult.error.issues.map((i) => ({
+          field: i.path.join("."),
+          message: i.message,
+          code: "VALIDATION_ERROR"
+        }));
+        throw AppError.validation("Validation failed", details);
+      }
+
+      const updatedPermissions = await rbacService.assignPermissionToRole(
+        request.user.sub,
+        roleCode,
+        parseResult.data.permissionCode,
+        getClientInfo(request)
+      );
+
+      return createSuccessResponse(
+        {
+          roleCode: roleCode.toUpperCase(),
+          permissions: updatedPermissions,
+          message: `Permission ${parseResult.data.permissionCode} assigned to role ${roleCode.toUpperCase()}`
+        },
+        request.id
+      );
+    }
+  );
+
+  // ============================================================================
+  // 12b. Revoke Permission from Role (DELETE /roles/:roleCode/permissions/:permissionCode)
+  // ============================================================================
+  app.delete<{ Params: { roleCode: string; permissionCode: string } }>(
+    "/roles/:roleCode/permissions/:permissionCode",
+    {
+      onRequest: [app.authenticate, app.requirePermission("admin.role.revoke")],
+      schema: {
+        tags: ["Admin"],
+        summary: "Revoke a permission code from a system role",
+        description: "Requires admin.role.revoke permission.",
+        security: [{ bearerAuth: [] }],
+        params: {
+          type: "object",
+          required: ["roleCode", "permissionCode"],
+          properties: {
+            roleCode: { type: "string", minLength: 1, maxLength: 32 },
+            permissionCode: { type: "string", minLength: 1, maxLength: 64 }
+          }
+        }
+      }
+    },
+    async (request) => {
+      const roleCode = request.params.roleCode;
+      const permissionCode = request.params.permissionCode;
+
+      const updatedPermissions = await rbacService.revokePermissionFromRole(
+        request.user.sub,
+        roleCode,
+        permissionCode,
+        getClientInfo(request)
+      );
+
+      return createSuccessResponse(
+        {
+          roleCode: roleCode.toUpperCase(),
+          permissions: updatedPermissions,
+          message: `Permission ${permissionCode} revoked from role ${roleCode.toUpperCase()}`
+        },
+        request.id
+      );
+    }
+  );
+
+  // ============================================================================
+  // 12c. Reset Role Permissions to Defaults (POST /roles/reset-defaults)
+  // ============================================================================
+  app.post(
+    "/roles/reset-defaults",
+    {
+      onRequest: [app.authenticate, app.requirePermission("admin.platform.manage")],
+      schema: {
+        tags: ["Admin"],
+        summary: "Reset all system role permissions to predefined platform standards",
+        description: "Requires admin.platform.manage permission.",
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request) => {
+      await rbacService.resetRolePermissionsToDefault(
+        request.user.sub,
+        getClientInfo(request)
+      );
+
+      const allRolesWithPermissions = await rbacService.listRoles();
+
+      return createSuccessResponse(
+        {
+          roles: allRolesWithPermissions,
+          message: "All role permissions have been successfully reset to standard platform defaults"
         },
         request.id
       );
