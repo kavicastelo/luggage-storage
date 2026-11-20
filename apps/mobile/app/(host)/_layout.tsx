@@ -25,7 +25,7 @@ export default function HostLayout() {
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuthStore();
 
-  const isOnboardingRoute = pathname.endsWith("/onboarding");
+  const isOnboardingRoute = pathname.includes("/onboarding");
 
   if (!isAuthenticated) {
     return (
@@ -96,6 +96,7 @@ export default function HostLayout() {
   return (
     <View style={styles.flexContainer}>
       <Tabs
+        backBehavior="history"
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: mobileColors.terracotta[500],
@@ -190,35 +191,40 @@ export default function HostLayout() {
           name="scanner"
           options={{
             href: null,
-            title: "Handover Scanner"
+            title: "Handover Scanner",
+            tabBarStyle: { display: "none" }
           }}
         />
         <Tabs.Screen
           name="intake"
           options={{
             href: null,
-            title: "Bag Intake"
+            title: "Bag Intake",
+            tabBarStyle: { display: "none" }
           }}
         />
         <Tabs.Screen
           name="onboarding"
           options={{
             href: null,
-            title: "Partner Onboarding"
+            title: "Partner Onboarding",
+            tabBarStyle: { display: "none" }
           }}
         />
         <Tabs.Screen
           name="locations"
           options={{
             href: null,
-            title: "Storage Hubs"
+            title: "Storage Hubs",
+            tabBarStyle: { display: "none" }
           }}
         />
         <Tabs.Screen
           name="location-editor"
           options={{
             href: null,
-            title: "Hub Configuration"
+            title: "Hub Configuration",
+            tabBarStyle: { display: "none" }
           }}
         />
       </Tabs>

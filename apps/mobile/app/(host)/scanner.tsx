@@ -235,6 +235,14 @@ export default function HostScannerScreen() {
     setQrInput("");
   };
 
+  const handleBack = () => {
+    if (params.bookingId) {
+      router.replace("/(host)/requests");
+    } else {
+      router.replace("/(host)");
+    }
+  };
+
   return (
     <ScreenContainer
       keyboardAvoiding
@@ -242,7 +250,7 @@ export default function HostScannerScreen() {
         <SafeHeader
           title="Handover Scanner"
           subtitle="QR Token & 6-Digit PIN Verification"
-          onBack={() => router.back()}
+          onBack={handleBack}
         />
       }
       testID="host-scanner-screen"

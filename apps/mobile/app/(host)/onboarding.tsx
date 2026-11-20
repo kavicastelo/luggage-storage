@@ -307,7 +307,7 @@ export default function HostOnboardingScreen() {
         <SafeHeader
           title="Partner Onboarding & KYC"
           subtitle="Sri Lanka Business Profile & Bank Payouts"
-          onBack={() => router.back()}
+          onBack={() => router.replace("/(host)")}
         />
       }
       testID="host-onboarding-screen"

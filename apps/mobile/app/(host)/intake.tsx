@@ -222,10 +222,27 @@ export default function HostIntakeScreen() {
     }
   };
 
+  const handleBack = () => {
+    if (params.qrToken || params.pin) {
+      router.replace({
+        pathname: "/(host)/scanner",
+        params: {
+          ...(bookingId ? { bookingId } : {}),
+          ...(params.qrToken ? { qrToken: params.qrToken } : {}),
+          ...(params.pin ? { pin: params.pin } : {})
+        }
+      });
+    } else if (bookingId) {
+      router.replace("/(host)/requests");
+    } else {
+      router.replace("/(host)");
+    }
+  };
+
   if (!bookingId) {
     return (
       <ScreenContainer
-        header={<SafeHeader title="Counter Bag Intake" onBack={() => router.back()} />}
+        header={<SafeHeader title="Counter Bag Intake" onBack={handleBack} />}
         testID="host-intake-missing"
       >
         <EmptyState
@@ -259,7 +276,7 @@ export default function HostIntakeScreen() {
         <SafeHeader
           title="Counter Bag Intake"
           subtitle={detail ? `#${detail.referenceCode}` : "Custody Check-In"}
-          onBack={() => router.back()}
+          onBack={handleBack}
         />
       }
       footer={stickyFooter}
