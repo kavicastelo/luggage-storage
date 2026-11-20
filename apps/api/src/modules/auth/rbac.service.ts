@@ -360,7 +360,8 @@ export class RbacService {
    * Idempotently seeds and self-heals all catalogue permissions and default role-permission mappings.
    * Can be safely executed on server boot, seeding, or migration recovery.
    */
-  async ensureDefaultRolePermissions(): Promise<{ permissionsCount: number; mappingsCount: number }> {
+  async ensureDefaultRolePermissions(targetDb?: any): Promise<{ permissionsCount: number; mappingsCount: number }> {
+    const dbClient = targetDb ?? db;
     const PERMISSION_METADATA: Record<string, { name: string; description: string; module: string }> = {
       "identity.profile.read": { name: "Read Own Profile", description: "View own profile and account details", module: "identity" },
       "identity.profile.update": { name: "Update Own Profile", description: "Update own profile and display name", module: "identity" },
@@ -430,7 +431,7 @@ export class RbacService {
 
     // 1. Ensure all system permissions exist in the permissions table
     for (const [code, meta] of Object.entries(PERMISSION_METADATA)) {
-      await db.execute(sql`
+      await dbClient.execute(sql`
         INSERT INTO permissions (code, name, description, module)
         VALUES (${code}, ${meta.name}, ${meta.description}, ${meta.module})
         ON CONFLICT (code) DO UPDATE
@@ -441,13 +442,13 @@ export class RbacService {
     }
 
     // 2. Fetch all permissions and roles
-    const allPerms = await db.select({ id: schema.permissions.id, code: schema.permissions.code }).from(schema.permissions);
+    const allPerms = await dbClient.select({ id: schema.permissions.id, code: schema.permissions.code }).from(schema.permissions);
     const permMap = new Map<string, string>();
     for (const p of allPerms) {
       permMap.set(p.code, p.id);
     }
 
-    const allRoles = await db.select({ id: schema.roles.id, code: schema.roles.code }).from(schema.roles);
+    const allRoles = await dbClient.select({ id: schema.roles.id, code: schema.roles.code }).from(schema.roles);
     const roleMap = new Map<string, string>();
     for (const r of allRoles) {
       roleMap.set(r.code, r.id);
@@ -464,7 +465,7 @@ export class RbacService {
         const permId = permMap.get(pCode);
         if (!permId) continue;
 
-        const inserted = await db.execute(sql`
+        const inserted = await dbClient.execute(sql`
           INSERT INTO role_permissions (role_id, permission_id)
           VALUES (${roleId}::uuid, ${permId}::uuid)
           ON CONFLICT (role_id, permission_id) DO NOTHING;

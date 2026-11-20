@@ -60,7 +60,7 @@ export async function seedDemoData(): Promise<SeedResult> {
   // Ensure default role permissions are mapped
   try {
     const { rbacService } = await import("../../../modules/auth/rbac.service.js");
-    await rbacService.ensureDefaultRolePermissions();
+    await rbacService.ensureDefaultRolePermissions(db);
     console.log("✅ [Demo Seeder] Standard RBAC permissions verified and populated.");
   } catch (rbacErr) {
     console.warn("⚠️ [Demo Seeder] RBAC permissions seeding warning:", rbacErr);
@@ -498,19 +498,32 @@ export async function resetDatabase(): Promise<void> {
       TRUNCATE TABLE
         "bag_custody_items",
         "custody_tokens",
+        "custody_events",
         "custody_records",
+        "refund_records",
         "payment_webhook_events",
         "payment_transactions",
         "payment_intents",
+        "payout_batch_items",
+        "payout_batches",
+        "host_payables",
+        "financial_ledger_entries",
+        "booking_status_history",
+        "capacity_reservations",
+        "booking_pricing_snapshots",
         "booking_items",
         "bookings",
-        "storage_capacity_pools",
+        "pricing_tier_rates",
         "pricing_policies",
+        "storage_capacity_pools",
         "opening_hours_exceptions",
         "opening_hours",
         "location_media",
         "storage_zones",
         "storage_locations",
+        "support_ticket_messages",
+        "support_tickets",
+        "upload_intents",
         "host_staff_memberships",
         "host_verification_documents",
         "host_verifications",
@@ -519,7 +532,11 @@ export async function resetDatabase(): Promise<void> {
         "host_profiles",
         "user_roles",
         "auth_sessions",
-        "security_audit_events"
+        "password_reset_tokens",
+        "email_verification_tokens",
+        "auth_rate_limits",
+        "security_audit_events",
+        "users"
       CASCADE;
     `);
     console.log("🧹 [Demo Seeder] Operational tables truncated.");
