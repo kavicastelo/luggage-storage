@@ -144,6 +144,7 @@ export default function MobileBookingConfirmScreen() {
     >
       {!isAuthenticated ? (
         <EmptyState
+          mascot="key"
           title="Sign in to view booking status"
           description="Your account session is required before confirming settlement and unlocking the custody pass."
           actionTitle="Sign In"
@@ -151,6 +152,7 @@ export default function MobileBookingConfirmScreen() {
         />
       ) : !returnHints.bookingId && !returnHints.orderId ? (
         <EmptyState
+          mascot="thinking"
           title="No active payment return reference"
           description="We could not locate a booking or order reference in this return link. Open My Storage to inspect your bookings."
           actionTitle="Open My Storage"

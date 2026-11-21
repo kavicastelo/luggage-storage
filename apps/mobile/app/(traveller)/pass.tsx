@@ -194,22 +194,6 @@ export default function TravellerCustodyPassScreen() {
     void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
   };
 
-  const handleOpenExternalDirections = () => {
-    if (!detail?.location.addressDisclosed) return;
-    if (
-      typeof detail.location.exactLatitude === "number" &&
-      typeof detail.location.exactLongitude === "number"
-    ) {
-      const coords = `${detail.location.exactLatitude},${detail.location.exactLongitude}`;
-      void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${coords}`);
-      return;
-    }
-    const query = encodeURIComponent(
-      `${detail.location.addressLine1 || ""} ${detail.location.city}`.trim()
-    );
-    void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
-  };
-
   const isCustodyUnlocked = Boolean(
     detail && (detail.status === "CONFIRMED" || detail.status === "IN_STORAGE")
   );
@@ -270,6 +254,7 @@ export default function TravellerCustodyPassScreen() {
         />
       ) : !detail || !isCustodyUnlocked ? (
         <Card variant="elevated" style={styles.lockedCard}>
+          <MascotIllustration mascot="key" size="sm" variant="bare" style={styles.lockedMascot} decorative />
           <Badge label="PASS LOCKED" variant="warning" icon="lock" />
           <Text style={styles.lockedTitle}>
             {detail ? `Booking Status: ${detail.status}` : "Verification Required"}
@@ -460,6 +445,10 @@ const styles = StyleSheet.create({
   },
   lockedCard: {
     gap: mobileSpacing[4]
+  },
+  lockedMascot: {
+    alignSelf: "center",
+    marginBottom: mobileSpacing[1]
   },
   lockedTitle: {
     ...mobileTypography.headingMd,

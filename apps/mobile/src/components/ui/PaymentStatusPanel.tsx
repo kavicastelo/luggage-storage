@@ -15,6 +15,7 @@ import {
 import { Card } from "../Card";
 import { Button } from "../Button";
 import { MobileIcon } from "../MobileIcon";
+import { MascotIllustration } from "../MascotIllustration";
 import { StatusBadge } from "./StatusBadge";
 
 export interface PaymentStatusPanelProps {
@@ -73,6 +74,12 @@ export function PaymentStatusPanel({
           ? "Payment has been verified by the server. Your storage pass and exact street address are unlocked."
           : "Payment confirmation is verified strictly from the server ledger and signed PayHere webhook."}
       </Text>
+
+      {isConfirmed ? (
+        <View style={styles.mascotWrap}>
+          <MascotIllustration mascot="jump" size="sm" variant="bare" decorative />
+        </View>
+      ) : null}
 
       {expiresAt && !isConfirmed ? (
         <View style={styles.expiryRow}>
@@ -159,6 +166,10 @@ const styles = StyleSheet.create({
   },
   summaryText: {
     ...mobileTypography.bodyMd
+  },
+  mascotWrap: {
+    alignItems: "center",
+    paddingVertical: mobileSpacing[1]
   },
   expiryRow: {
     flexDirection: "row",

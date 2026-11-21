@@ -552,7 +552,7 @@ export function AdminUsersRbacPage() {
                                     [r.code]: e.target.value
                                   }))
                                 }
-                                className="flex-1 px-2.5 py-1.5 rounded-lg border border-sand-200 bg-white font-mono text-[11px] text-navy-950"
+                                className="flex-1 px-2.5 py-1.5 rounded-lg border border-sand-200 bg-white font-mono text-[11px] text-navy-950 w-[200px]"
                               >
                                 {unassignedPerms.map((p) => (
                                   <option key={p.id} value={p.code}>
