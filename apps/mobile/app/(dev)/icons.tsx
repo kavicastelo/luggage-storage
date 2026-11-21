@@ -48,7 +48,7 @@ export default function DevIconCatalogueScreen() {
           title="Vector Icon Catalogue"
           subtitle={`${ALL_MOBILE_ICON_NAMES.length} Lucide icons (DEV only)`}
           variant="navy"
-          onBack={() => router.back()}
+          onBack={() => (router.canGoBack() ? router.back() : router.replace("/"))}
           rightAction={
             <IconButton
               icon="sun"

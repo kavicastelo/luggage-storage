@@ -163,6 +163,9 @@ function AppRoutes() {
             <Route path="settings" element={<AdminPlatformSystemConfigurationPage />} />
             <Route path="audit" element={<AdminSecurityComplianceAuditLogPage />} />
             <Route path="staff" element={<AdminStaffRbacManagementPage />} />
+            <Route path="users" element={<AdminStaffRbacManagementPage />} />
+            <Route path="rbac" element={<AdminStaffRbacManagementPage />} />
+            <Route path="roles" element={<AdminStaffRbacManagementPage />} />
           </Route>
         </Route>
 

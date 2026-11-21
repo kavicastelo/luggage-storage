@@ -1,9 +1,9 @@
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import React, { useMemo, useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Image, type DimensionValue } from "react-native";
 import Svg, { Path, Circle, Line, Rect } from "react-native-svg";
 import type { GeographicCoordinate, RouteResult } from "@luggage-storage/contracts";
 import { MobileIcon } from "../MobileIcon";
-import { mobileColors, mobileRadius, mobileSpacing, mobileTextColors, mobileTypography } from "../../lib/theme";
+import { mobileColors, mobileRadius, mobileSpacing } from "../../lib/theme";
 
 export interface MobileMapPoint {
   id: string;
@@ -35,6 +35,43 @@ const SRI_LANKA_DEFAULT_BOUNDS = {
   maxLng: 81.9
 };
 
+interface MobileTileInfo {
+  key: string;
+  url: string;
+  leftPct: DimensionValue;
+  topPct: DimensionValue;
+  widthPct: DimensionValue;
+  heightPct: DimensionValue;
+}
+
+function lng2tile(lon: number, zoom: number): number {
+  return Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
+}
+
+function lat2tile(lat: number, zoom: number): number {
+  const rad = (lat * Math.PI) / 180;
+  return Math.floor(
+    ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * Math.pow(2, zoom)
+  );
+}
+
+function tile2lng(x: number, zoom: number): number {
+  return (x / Math.pow(2, zoom)) * 360 - 180;
+}
+
+function tile2lat(y: number, zoom: number): number {
+  const n = Math.PI - (2 * Math.PI * y) / Math.pow(2, zoom);
+  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}
+
+function computeBaseZoom(lngSpan: number): number {
+  if (lngSpan > 2.0) return 8;
+  if (lngSpan > 0.8) return 9;
+  if (lngSpan > 0.3) return 11;
+  if (lngSpan > 0.08) return 13;
+  return 15;
+}
+
 export function InteractiveMobileMap({
   locations = [],
   selectedLocationId,
@@ -42,6 +79,7 @@ export function InteractiveMobileMap({
   userLocation,
   activeRoute,
   height = 320,
+  zoomLevel = 1,
   onZoomIn,
   onZoomOut,
   onLocateMe,
@@ -109,11 +147,88 @@ export function InteractiveMobileMap({
       .join(" ");
   }, [activeRoute, bounds]);
 
+  const mapTilerKey = (
+    (process.env.EXPO_PUBLIC_MAPTILER_KEY as string | undefined) ||
+    (process.env.EXPO_PUBLIC_MAPTILER_API_KEY as string | undefined)
+  )?.trim();
+
+  const [failedTiles, setFailedTiles] = useState<Record<string, boolean>>({});
+
+  const visibleTiles = useMemo<MobileTileInfo[]>(() => {
+    const lngSpan = bounds.maxLng - bounds.minLng;
+    const baseZoom = computeBaseZoom(lngSpan);
+    const z = Math.min(16, Math.max(5, baseZoom + (zoomLevel ? Math.round(zoomLevel - 1) : 0)));
+
+    const minX = lng2tile(bounds.minLng, z);
+    const maxX = lng2tile(bounds.maxLng, z);
+    const minY = lat2tile(bounds.maxLat, z);
+    const maxY = lat2tile(bounds.minLat, z);
+
+    if ((maxX - minX + 1) * (maxY - minY + 1) > 64) {
+      return [];
+    }
+
+    const tiles: MobileTileInfo[] = [];
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const key = `${z}/${x}/${y}`;
+        const lngLeft = tile2lng(x, z);
+        const lngRight = tile2lng(x + 1, z);
+        const latTop = tile2lat(y, z);
+        const latBottom = tile2lat(y + 1, z);
+
+        const leftPct = `${(((lngLeft - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 100).toFixed(2)}%`;
+        const topPct = `${(((bounds.maxLat - latTop) / (bounds.maxLat - bounds.minLat)) * 100).toFixed(2)}%`;
+        const widthPct = `${(((lngRight - lngLeft) / (bounds.maxLng - bounds.minLng)) * 100).toFixed(2)}%`;
+        const heightPct = `${(((latTop - latBottom) / (bounds.maxLat - bounds.minLat)) * 100).toFixed(2)}%`;
+
+        const sub = ["a", "b", "c"][(x + y) % 3];
+        const isFailed = failedTiles[key];
+        const primaryUrl = mapTilerKey
+          ? `https://api.maptiler.com/maps/streets-v2/256/${z}/${x}/${y}.png?key=${encodeURIComponent(mapTilerKey)}`
+          : `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;
+        const fallbackUrl = `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`;
+
+        tiles.push({
+          key,
+          url: isFailed ? fallbackUrl : primaryUrl,
+          leftPct,
+          topPct,
+          widthPct,
+          heightPct
+        });
+      }
+    }
+    return tiles;
+  }, [bounds, zoomLevel, mapTilerKey, failedTiles]);
+
   return (
     <View style={[styles.container, { height }]} testID="interactive-mobile-map">
+      {/* Raster Map Tile Layer */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {visibleTiles.map((tile) => (
+          <Image
+            key={tile.key}
+            source={{ uri: tile.url }}
+            onError={() => {
+              setFailedTiles((prev) => ({ ...prev, [tile.key]: true }));
+            }}
+            style={{
+              position: "absolute",
+              left: tile.leftPct,
+              top: tile.topPct,
+              width: tile.widthPct,
+              height: tile.heightPct,
+              opacity: 0.88
+            }}
+            resizeMode="stretch"
+          />
+        ))}
+      </View>
+
       {/* Map Background & Vector Grid Canvas */}
       <Svg viewBox="0 0 100 100" style={StyleSheet.absoluteFill}>
-        <Rect x="0" y="0" width="100" height="100" fill="#0A192F" />
+        <Rect x="0" y="0" width="100" height="100" fill="rgba(10, 25, 47, 0.25)" />
 
         {/* Transit Grid Lines */}
         <Line x1="25" y1="0" x2="25" y2="100" stroke="#1E293B" strokeWidth="0.3" strokeDasharray="1 2" />

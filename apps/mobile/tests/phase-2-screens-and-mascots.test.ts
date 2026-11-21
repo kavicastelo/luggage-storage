@@ -107,5 +107,34 @@ describe("Phase 2 — Mobile Screen Registry (70 Active Screens) & Mascot Assets
     expect(hm026?.summary).toContain("configurable");
     expect(hm028?.summary).toContain("BR-035");
   });
+
+  it("verifies production branding assets (icon, adaptive-icon, splash) are generated with high-resolution imagery", () => {
+    const assetsDir = path.resolve(__dirname, "../assets");
+    const iconPath = path.join(assetsDir, "icon.png");
+    const adaptiveIconPath = path.join(assetsDir, "adaptive-icon.png");
+    const splashPath = path.join(assetsDir, "splash.png");
+
+    expect(fs.existsSync(iconPath)).toBe(true);
+    expect(fs.existsSync(adaptiveIconPath)).toBe(true);
+    expect(fs.existsSync(splashPath)).toBe(true);
+
+    const iconStat = fs.statSync(iconPath);
+    const adaptiveStat = fs.statSync(adaptiveIconPath);
+    const splashStat = fs.statSync(splashPath);
+
+    // Ensure assets are genuine high-res composited PNGs, not empty 70-byte placeholders
+    expect(iconStat.size).toBeGreaterThan(50_000);
+    expect(adaptiveStat.size).toBeGreaterThan(50_000);
+    expect(splashStat.size).toBeGreaterThan(50_000);
+  });
+
+  it("ensures root layout coordinates with expo-splash-screen to prevent launch flicker", () => {
+    const layoutPath = path.resolve(__dirname, "../app/_layout.tsx");
+    const content = fs.readFileSync(layoutPath, "utf-8");
+
+    expect(content).toContain("expo-splash-screen");
+    expect(content).toContain("preventAutoHideAsync");
+    expect(content).toContain("hideAsync");
+  });
 });
 

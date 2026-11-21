@@ -1,4 +1,6 @@
 import { eq, sql, asc, and } from "drizzle-orm";
+import pg from "pg";
+import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import {
   DEFAULT_ROLE_PERMISSIONS,
   Permission,
@@ -6,9 +8,12 @@ import {
   SYSTEM_PERMISSIONS
 } from "@luggage-storage/contracts";
 import { db, schema } from "../../infrastructure/database/drizzle.js";
+import { env } from "../../config/env.js";
 import { AppError } from "../../common/errors/app-error.js";
 import { auditService, SecurityEventType } from "../audit/audit.service.js";
 import { createDatabaseIdentityAssertion } from "../../common/crypto/database-identity.js";
+
+const { Pool } = pg;
 
 export interface RoleManagementContext {
   adminId: string;
@@ -51,6 +56,19 @@ export async function assertAnotherActiveSuperadminRemains(
 }
 
 export class RbacService {
+  private migratorDbInstance: NodePgDatabase<typeof schema> | null = null;
+  private migratorPoolInstance: InstanceType<typeof Pool> | null = null;
+
+  public getMigratorDb(): NodePgDatabase<typeof schema> {
+    if (!this.migratorDbInstance) {
+      this.migratorPoolInstance = new Pool({
+        connectionString: env.MIGRATION_DATABASE_URL
+      });
+      this.migratorDbInstance = drizzle(this.migratorPoolInstance, { schema });
+    }
+    return this.migratorDbInstance;
+  }
+
   /**
    * Resolves all effective permissions for a user across all assigned roles.
    * Inactive, suspended, or deactivated accounts return an empty permission set.
@@ -122,6 +140,7 @@ export class RbacService {
         createdAt: schema.permissions.createdAt
       })
       .from(schema.permissions)
+      .where(sql`${schema.permissions.code} NOT LIKE 'auth:test:%'`)
       .orderBy(asc(schema.permissions.module), asc(schema.permissions.code));
 
     return rows.map((r) => ({
@@ -149,6 +168,9 @@ export class RbacService {
         updatedAt: schema.roles.updatedAt
       })
       .from(schema.roles)
+      .where(
+        sql`${schema.roles.code} NOT LIKE 'HOST_OWNER_%' AND ${schema.roles.code} NOT LIKE 'ROLE_PERM_%' AND ${schema.roles.code} NOT LIKE 'TRAVELLER_%'`
+      )
       .orderBy(asc(schema.roles.code));
 
     const rolePermRows = await db
@@ -360,7 +382,8 @@ export class RbacService {
    * Idempotently seeds and self-heals all catalogue permissions and default role-permission mappings.
    * Can be safely executed on server boot, seeding, or migration recovery.
    */
-  async ensureDefaultRolePermissions(): Promise<{ permissionsCount: number; mappingsCount: number }> {
+  async ensureDefaultRolePermissions(targetDb?: any): Promise<{ permissionsCount: number; mappingsCount: number }> {
+    const dbClient = targetDb ?? this.getMigratorDb();
     const PERMISSION_METADATA: Record<string, { name: string; description: string; module: string }> = {
       "identity.profile.read": { name: "Read Own Profile", description: "View own profile and account details", module: "identity" },
       "identity.profile.update": { name: "Update Own Profile", description: "Update own profile and display name", module: "identity" },
@@ -430,7 +453,7 @@ export class RbacService {
 
     // 1. Ensure all system permissions exist in the permissions table
     for (const [code, meta] of Object.entries(PERMISSION_METADATA)) {
-      await db.execute(sql`
+      await dbClient.execute(sql`
         INSERT INTO permissions (code, name, description, module)
         VALUES (${code}, ${meta.name}, ${meta.description}, ${meta.module})
         ON CONFLICT (code) DO UPDATE
@@ -441,13 +464,13 @@ export class RbacService {
     }
 
     // 2. Fetch all permissions and roles
-    const allPerms = await db.select({ id: schema.permissions.id, code: schema.permissions.code }).from(schema.permissions);
+    const allPerms = await dbClient.select({ id: schema.permissions.id, code: schema.permissions.code }).from(schema.permissions);
     const permMap = new Map<string, string>();
     for (const p of allPerms) {
       permMap.set(p.code, p.id);
     }
 
-    const allRoles = await db.select({ id: schema.roles.id, code: schema.roles.code }).from(schema.roles);
+    const allRoles = await dbClient.select({ id: schema.roles.id, code: schema.roles.code }).from(schema.roles);
     const roleMap = new Map<string, string>();
     for (const r of allRoles) {
       roleMap.set(r.code, r.id);
@@ -464,7 +487,7 @@ export class RbacService {
         const permId = permMap.get(pCode);
         if (!permId) continue;
 
-        const inserted = await db.execute(sql`
+        const inserted = await dbClient.execute(sql`
           INSERT INTO role_permissions (role_id, permission_id)
           VALUES (${roleId}::uuid, ${permId}::uuid)
           ON CONFLICT (role_id, permission_id) DO NOTHING;
@@ -493,7 +516,9 @@ export class RbacService {
     const normalizedRole = roleCode.trim().toUpperCase();
     const normalizedPerm = permissionCode.trim().toLowerCase();
 
-    const [role] = await db
+    const adminDb = this.getMigratorDb();
+
+    const [role] = await adminDb
       .select({ id: schema.roles.id })
       .from(schema.roles)
       .where(eq(schema.roles.code, normalizedRole))
@@ -503,7 +528,7 @@ export class RbacService {
       throw AppError.notFound(`Role not found: ${normalizedRole}`);
     }
 
-    const [perm] = await db
+    const [perm] = await adminDb
       .select({ id: schema.permissions.id })
       .from(schema.permissions)
       .where(eq(schema.permissions.code, normalizedPerm))
@@ -513,7 +538,7 @@ export class RbacService {
       throw AppError.notFound(`Permission not found: ${normalizedPerm}`);
     }
 
-    await db.execute(sql`
+    await adminDb.execute(sql`
       INSERT INTO role_permissions (role_id, permission_id)
       VALUES (${role.id}::uuid, ${perm.id}::uuid)
       ON CONFLICT (role_id, permission_id) DO NOTHING;
@@ -560,7 +585,9 @@ export class RbacService {
       throw AppError.forbidden("Cannot revoke essential platform governance permissions from the Superadmin role.");
     }
 
-    const [role] = await db
+    const adminDb = this.getMigratorDb();
+
+    const [role] = await adminDb
       .select({ id: schema.roles.id })
       .from(schema.roles)
       .where(eq(schema.roles.code, normalizedRole))
@@ -570,7 +597,7 @@ export class RbacService {
       throw AppError.notFound(`Role not found: ${normalizedRole}`);
     }
 
-    const [perm] = await db
+    const [perm] = await adminDb
       .select({ id: schema.permissions.id })
       .from(schema.permissions)
       .where(eq(schema.permissions.code, normalizedPerm))
@@ -580,7 +607,7 @@ export class RbacService {
       throw AppError.notFound(`Permission not found: ${normalizedPerm}`);
     }
 
-    await db.execute(sql`
+    await adminDb.execute(sql`
       DELETE FROM role_permissions
       WHERE role_id = ${role.id}::uuid AND permission_id = ${perm.id}::uuid;
     `);
@@ -608,7 +635,8 @@ export class RbacService {
     adminId: string,
     clientInfo?: { ip?: string; userAgent?: string; correlationId?: string }
   ): Promise<RoleDetail[]> {
-    await this.ensureDefaultRolePermissions();
+    const adminDb = this.getMigratorDb();
+    await this.ensureDefaultRolePermissions(adminDb);
 
     await auditService.recordEvent({
       eventType: SecurityEventType.AUTH_ROLE_ASSIGNED,

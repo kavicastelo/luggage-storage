@@ -303,15 +303,22 @@ export default function MobileNavigationScreen() {
   const handleEndNavigation = () => {
     if (bookingId) {
       router.replace({ pathname: "/(traveller)/pass", params: { bookingId } });
-    } else {
+    } else if (router.canGoBack()) {
       router.back();
+    } else {
+      router.replace("/(traveller)/bookings");
     }
   };
 
   if (!isValidDestination) {
     return (
       <ScreenContainer
-        header={<SafeHeader title="In-App Navigation" onBack={() => router.back()} />}
+        header={
+          <SafeHeader
+            title="In-App Navigation"
+            onBack={() => (router.canGoBack() ? router.back() : router.replace("/(traveller)/bookings"))}
+          />
+        }
         testID="navigation-invalid"
       >
         <Card style={styles.errorCard}>

@@ -489,7 +489,12 @@ export default function TravellerCheckoutScreen() {
   if (!hasValidLocId && !hasValidExistingBookingId) {
     return (
       <ScreenContainer
-        header={<SafeHeader title="Booking Checkout" onBack={() => router.back()} />}
+        header={
+          <SafeHeader
+            title="Booking Checkout"
+            onBack={() => (router.canGoBack() ? router.back() : router.replace("/(traveller)"))}
+          />
+        }
         testID="traveller-checkout-missing"
       >
         <EmptyState
@@ -505,7 +510,11 @@ export default function TravellerCheckoutScreen() {
 
   const handleBack = () => {
     if (hasValidExistingBookingId || currentStep === 1) {
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(traveller)");
+      }
     } else {
       setCurrentStep((prev) => (prev - 1) as 1 | 2 | 3);
     }

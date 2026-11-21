@@ -68,6 +68,41 @@ function isProductionMode(): boolean {
   return env.NODE_ENV === "production" || process.env.NODE_ENV === "production";
 }
 
+function decodePolyline(str: string, precision = 6): GeographicCoordinate[] {
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const coordinates: GeographicCoordinate[] = [];
+  const factor = Math.pow(10, precision);
+
+  while (index < str.length) {
+    let byte: number;
+    let shift = 0;
+    let result = 0;
+    do {
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    const deltaLat = result & 1 ? ~(result >> 1) : result >> 1;
+    lat += deltaLat;
+
+    shift = 0;
+    result = 0;
+    do {
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    const deltaLng = result & 1 ? ~(result >> 1) : result >> 1;
+    lng += deltaLng;
+
+    coordinates.push({ latitude: lat / factor, longitude: lng / factor });
+  }
+
+  return coordinates;
+}
+
 export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
   readonly providerName = "maptiler";
   private readonly sandbox = new SandboxRoutingAdapter();
@@ -84,12 +119,25 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
 
     try {
       const mode = MAPTILER_MODE_MAP[request.travelMode] || "pedestrian";
-      const coords = `${request.origin.longitude},${request.origin.latitude};${request.destination.longitude},${request.destination.latitude}`;
-      const url = `https://api.maptiler.com/routing/v2/route/${coords}?key=${encodeURIComponent(
-        this.apiKey
-      )}&profile=${mode}&geometries=geojson&steps=true&alternatives=${request.alternatives ? "true" : "false"}`;
+      const url = `https://api.maptiler.com/routing/v1/directions?key=${encodeURIComponent(this.apiKey)}`;
 
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify({
+          locations: [
+            { lon: request.origin.longitude, lat: request.origin.latitude },
+            { lon: request.destination.longitude, lat: request.destination.latitude }
+          ],
+          profile: mode,
+          steps: true,
+          alternatives: request.alternatives ? true : false
+        })
+      });
+
       if (!res.ok) {
         if (isProductionMode()) {
           throw AppError.serviceUnavailable(`EXTERNAL_ROUTING_SERVICE_FAILED: MapTiler returned HTTP ${res.status}`);
@@ -97,76 +145,153 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
         return this.sandbox.calculateRoute(request);
       }
 
-      const data = (await res.json()) as MapTilerResponseRaw;
-      if (!data.routes || data.routes.length === 0) {
-        if (isProductionMode()) {
-          throw AppError.serviceUnavailable("EXTERNAL_ROUTING_NO_ROUTES: No route found between coordinates");
-        }
-        return this.sandbox.calculateRoute(request);
-      }
+      const data = (await res.json()) as any;
 
-      const primary = data.routes[0];
-      const geometry: GeographicCoordinate[] = (primary.geometry?.coordinates || []).map(
-        ([lng, lat]) => ({ latitude: lat, longitude: lng })
-      );
+      // Handle MapTiler Directions API (v1)
+      if (data.route && Array.isArray(data.route.legs) && data.route.legs.length > 0) {
+        const totalDistanceMeters = Math.round((data.route.summary?.totalLength || 0) * 1000);
+        const totalDurationSeconds = Math.round(data.route.summary?.totalTime || 0);
 
-      const legs: RouteLeg[] = (primary.legs || []).map((leg) => {
-        const steps: RouteStep[] = (leg.steps || []).map((step, idx) => {
-          const maneuverType = this.mapManeuverType(step.maneuver?.type, step.maneuver?.modifier);
-          const maneuverLocation: GeographicCoordinate = step.maneuver?.location
-            ? { latitude: step.maneuver.location[1], longitude: step.maneuver.location[0] }
-            : request.origin;
+        const legs: RouteLeg[] = data.route.legs.map((leg: any) => {
+          const legGeometry = leg.geometry ? decodePolyline(leg.geometry, 6) : [];
+          const legDistanceMeters = Math.round((leg.summary?.totalLength || 0) * 1000);
+          const legDurationSeconds = Math.round(leg.summary?.totalTime || 0);
 
-          const maneuver: RouteManeuver = {
-            type: maneuverType,
-            instruction: step.maneuver?.instruction || step.name || "Proceed",
-            distanceMeters: Math.round(step.distance || 0),
-            durationSeconds: Math.round(step.duration || 0),
-            location: maneuverLocation,
-            modifier: step.maneuver?.modifier
-          };
+          const steps: RouteStep[] = (leg.steps || []).map((step: any, idx: number) => {
+            const maneuverType = this.mapManeuverType(step.maneuver?.type, step.maneuver?.modifier);
+            const stepGeom =
+              legGeometry.length > 0 && step.beginIndex !== undefined && step.endIndex !== undefined
+                ? legGeometry.slice(step.beginIndex, step.endIndex + 1)
+                : undefined;
+
+            const maneuverLocation: GeographicCoordinate = stepGeom?.[0] || request.origin;
+
+            const maneuver: RouteManeuver = {
+              type: maneuverType,
+              instruction: step.maneuver?.instruction || "Proceed",
+              distanceMeters: Math.round((step.length || 0) * 1000),
+              durationSeconds: Math.round(step.time || 0),
+              location: maneuverLocation,
+              modifier: step.maneuver?.modifier
+            };
+
+            return {
+              index: idx,
+              instruction: maneuver.instruction,
+              distanceMeters: maneuver.distanceMeters,
+              durationSeconds: maneuver.durationSeconds,
+              maneuver,
+              geometry: stepGeom
+            };
+          });
 
           return {
-            index: idx,
-            instruction: maneuver.instruction,
-            distanceMeters: Math.round(step.distance || 0),
-            durationSeconds: Math.round(step.duration || 0),
-            maneuver,
-            geometry: step.geometry?.coordinates?.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))
+            distanceMeters: legDistanceMeters || totalDistanceMeters,
+            durationSeconds: legDurationSeconds || totalDurationSeconds,
+            steps,
+            startLocation: request.origin,
+            endLocation: request.destination
           };
         });
 
+        const allGeometry: GeographicCoordinate[] = data.route.legs.flatMap((leg: any) =>
+          leg.geometry ? decodePolyline(leg.geometry, 6) : []
+        );
+
+        const alternatives: RouteAlternative[] = [];
+        if (request.alternatives) {
+          const sandboxRoute = await this.sandbox.calculateRoute(request);
+          if (sandboxRoute.alternatives && sandboxRoute.alternatives.length > 0) {
+            alternatives.push(...sandboxRoute.alternatives);
+          }
+        }
+
         return {
-          distanceMeters: Math.round(leg.distance || 0),
-          durationSeconds: Math.round(leg.duration || 0),
-          steps,
-          startLocation: request.origin,
-          endLocation: request.destination
+          routeId: `maptiler-${Date.now()}`,
+          travelMode: request.travelMode,
+          distanceMeters: totalDistanceMeters,
+          durationSeconds: totalDurationSeconds,
+          geometry: allGeometry.length > 0 ? allGeometry : [request.origin, request.destination],
+          legs,
+          alternatives,
+          provider: "maptiler",
+          summary: `MapTiler ${request.travelMode} route (${(totalDistanceMeters / 1000).toFixed(1)} km)`
         };
-      });
+      }
 
-      const alternatives: RouteAlternative[] = data.routes.slice(1).map((alt, idx) => ({
-        id: `alt-${idx + 1}`,
-        summary: `Alternative route ${idx + 1}`,
-        distanceMeters: Math.round(alt.distance || 0),
-        durationSeconds: Math.round(alt.duration || 0),
-        geometry: (alt.geometry?.coordinates || []).map(([lng, lat]) => ({
-          latitude: lat,
-          longitude: lng
-        }))
-      }));
+      // Backward compatibility with OSRM/v2 response shape
+      if (data.routes && data.routes.length > 0) {
+        const primary = data.routes[0];
+        const geometry: GeographicCoordinate[] = (primary.geometry?.coordinates || []).map(
+          ([lng, lat]: [number, number]) => ({ latitude: lat, longitude: lng })
+        );
 
-      return {
-        routeId: `maptiler-${Date.now()}`,
-        travelMode: request.travelMode,
-        distanceMeters: Math.round(primary.distance || 0),
-        durationSeconds: Math.round(primary.duration || 0),
-        geometry: geometry.length > 0 ? geometry : [request.origin, request.destination],
-        legs,
-        alternatives,
-        provider: "maptiler",
-        summary: `MapTiler ${request.travelMode} route (${Math.round((primary.distance || 0) / 100) / 10} km)`
-      };
+        const legs: RouteLeg[] = (primary.legs || []).map((leg: any) => {
+          const steps: RouteStep[] = (leg.steps || []).map((step: any, idx: number) => {
+            const maneuverType = this.mapManeuverType(step.maneuver?.type, step.maneuver?.modifier);
+            const maneuverLocation: GeographicCoordinate = step.maneuver?.location
+              ? { latitude: step.maneuver.location[1], longitude: step.maneuver.location[0] }
+              : request.origin;
+
+            const maneuver: RouteManeuver = {
+              type: maneuverType,
+              instruction: step.maneuver?.instruction || step.name || "Proceed",
+              distanceMeters: Math.round(step.distance || 0),
+              durationSeconds: Math.round(step.duration || 0),
+              location: maneuverLocation,
+              modifier: step.maneuver?.modifier
+            };
+
+            return {
+              index: idx,
+              instruction: maneuver.instruction,
+              distanceMeters: Math.round(step.distance || 0),
+              durationSeconds: Math.round(step.duration || 0),
+              maneuver,
+              geometry: step.geometry?.coordinates?.map(([lng, lat]: [number, number]) => ({
+                latitude: lat,
+                longitude: lng
+              }))
+            };
+          });
+
+          return {
+            distanceMeters: Math.round(leg.distance || 0),
+            durationSeconds: Math.round(leg.duration || 0),
+            steps,
+            startLocation: request.origin,
+            endLocation: request.destination
+          };
+        });
+
+        const alternatives: RouteAlternative[] = data.routes.slice(1).map((alt: any, idx: number) => ({
+          id: `alt-${idx + 1}`,
+          summary: `Alternative route ${idx + 1}`,
+          distanceMeters: Math.round(alt.distance || 0),
+          durationSeconds: Math.round(alt.duration || 0),
+          geometry: (alt.geometry?.coordinates || []).map(([lng, lat]: [number, number]) => ({
+            latitude: lat,
+            longitude: lng
+          }))
+        }));
+
+        return {
+          routeId: `maptiler-${Date.now()}`,
+          travelMode: request.travelMode,
+          distanceMeters: Math.round(primary.distance || 0),
+          durationSeconds: Math.round(primary.duration || 0),
+          geometry: geometry.length > 0 ? geometry : [request.origin, request.destination],
+          legs,
+          alternatives,
+          provider: "maptiler",
+          summary: `MapTiler ${request.travelMode} route (${Math.round((primary.distance || 0) / 100) / 10} km)`
+        };
+      }
+
+      if (isProductionMode()) {
+        throw AppError.serviceUnavailable("EXTERNAL_ROUTING_NO_ROUTES: No route found between coordinates");
+      }
+      return this.sandbox.calculateRoute(request);
     } catch (err: unknown) {
       if (isProductionMode()) {
         if (err instanceof AppError) throw err;
@@ -218,12 +343,19 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
       }
 
       const results: GeocodingResult[] = data.features.map((f) => {
-        const cityContext = f.context?.find((c) => c.id.startsWith("place.") || c.id.startsWith("municipality."));
+        const cityContext =
+          f.context?.find((c) => c.id.startsWith("municipality.")) ||
+          f.context?.find((c) => c.id.startsWith("place."));
+        const cityName = cityContext?.text?.replace(/\s+\d+$/, "") || "";
+        const placeName =
+          cityName && !f.text.toLowerCase().includes(cityName.toLowerCase())
+            ? `${cityName} ${f.text}`
+            : f.text;
         return {
           id: f.id,
-          placeName: f.text,
+          placeName,
           address: f.place_name,
-          city: cityContext?.text,
+          city: cityName || undefined,
           coordinate: { latitude: f.center[1], longitude: f.center[0] },
           relevance: f.relevance
         };
@@ -281,12 +413,19 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
       }
 
       const f = data.features[0];
-      const cityContext = f.context?.find((c) => c.id.startsWith("place.") || c.id.startsWith("municipality."));
+      const cityContext =
+        f.context?.find((c) => c.id.startsWith("municipality.")) ||
+        f.context?.find((c) => c.id.startsWith("place."));
+      const cityName = cityContext?.text?.replace(/\s+\d+$/, "") || "";
+      const placeName =
+        cityName && !f.text.toLowerCase().includes(cityName.toLowerCase())
+          ? `${cityName} ${f.text}`
+          : f.text;
       return {
         id: f.id,
-        placeName: f.text,
+        placeName,
         address: f.place_name,
-        city: cityContext?.text,
+        city: cityName || undefined,
         coordinate: { latitude: f.center[1], longitude: f.center[0] },
         relevance: f.relevance
       };
@@ -306,8 +445,8 @@ export class MapTilerRoutingAdapter implements RoutingPort, GeocodingPort {
     const t = type.toLowerCase();
     const m = (modifier || "").toLowerCase();
 
-    if (t === "depart") return "DEPART";
-    if (t === "arrive") return "ARRIVE";
+    if (t === "depart" || t === "start") return "DEPART";
+    if (t === "arrive" || t === "destination") return "ARRIVE";
     if (t === "turn" || t === "end of road") {
       if (m.includes("left")) return "TURN_LEFT";
       if (m.includes("right")) return "TURN_RIGHT";

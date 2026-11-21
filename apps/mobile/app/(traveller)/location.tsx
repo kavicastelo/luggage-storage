@@ -69,7 +69,12 @@ export default function TravellerLocationDetailScreen() {
   if (!isValidId) {
     return (
       <ScreenContainer
-        header={<SafeHeader title="Storage Hub" onBack={() => router.back()} />}
+        header={
+          <SafeHeader
+            title="Storage Hub"
+            onBack={() => (router.canGoBack() ? router.back() : router.replace("/(traveller)"))}
+          />
+        }
         testID="traveller-location-invalid"
       >
         <EmptyState
@@ -121,7 +126,7 @@ export default function TravellerLocationDetailScreen() {
         <SafeHeader
           title={location?.name || "Location Details"}
           subtitle={location ? `${location.approximateArea}, ${location.city}` : undefined}
-          onBack={() => router.back()}
+          onBack={() => (router.canGoBack() ? router.back() : router.replace("/(traveller)"))}
           rightAction={
             locationId ? (
               <IconButton

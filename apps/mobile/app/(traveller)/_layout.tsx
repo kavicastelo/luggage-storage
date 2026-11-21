@@ -16,6 +16,7 @@ export default function TravellerStackLayout() {
       <Stack.Screen name="locations/[id]" />
       <Stack.Screen name="checkout" />
       <Stack.Screen name="pass" />
+      <Stack.Screen name="navigation" />
       <Stack.Screen name="onboarding" />
     </Stack>
   );
