@@ -16,7 +16,7 @@
   "dependencies": {
     "@luggage-storage/contracts": "workspace:*",
     "@stripe/stripe-js": "^10.3.0",
-    "@tanstack/react-query": "^5.32.0",
+    "@tanstack/react-query": "^5.108.2",
     "clsx": "^2.1.1",
     "lucide-react": "^0.372.0",
     "qrcode": "1.5.4",
